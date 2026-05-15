@@ -46,17 +46,29 @@ type ClusterHealth struct {
 }
 
 // GenerateFindings analyzes a report and produces human-readable findings.
+// At scale (>20 clusters), outlier-based findings replace pairwise comparison
+// for version and namespace drift.
 func GenerateFindings(r *Report) []Finding {
 	var findings []Finding
-	findings = append(findings, versionFindings(r)...)
-	findings = append(findings, healthFindings(r)...)
-	findings = append(findings, metricsFindings(r)...)
+
+	// Outlier-based findings at scale.
+	if len(r.Outliers) > 0 {
+		findings = append(findings, outlierFindings(r)...)
+	} else {
+		findings = append(findings, versionFindings(r)...)
+		findings = append(findings, namespaceFindings(r)...)
+		findings = append(findings, rbacFindings(r)...)
+	}
+
+	// Capacity analysis replaces naive threshold checks with signal correlation.
+	findings = append(findings, capacityFindings(r)...)
 	findings = append(findings, securityFindings(r)...)
+	findings = append(findings, workloadSecFindings(r)...)
+	findings = append(findings, rbacAuditFindings(r)...)
+	findings = append(findings, imageAuditFindings(r)...)
 	findings = append(findings, networkFindings(r)...)
 	findings = append(findings, quotaFindings(r)...)
 	findings = append(findings, eventFindings(r)...)
-	findings = append(findings, namespaceFindings(r)...)
-	findings = append(findings, rbacFindings(r)...)
 
 	// Sort: critical first, then warning, then info.
 	severityOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
@@ -64,6 +76,21 @@ func GenerateFindings(r *Report) []Finding {
 		return severityOrder[findings[i].Severity] < severityOrder[findings[j].Severity]
 	})
 
+	return findings
+}
+
+// outlierFindings converts OutlierResults into human-readable findings.
+func outlierFindings(r *Report) []Finding {
+	var findings []Finding
+	for _, o := range r.Outliers {
+		findings = append(findings, Finding{
+			Title:       fmt.Sprintf("%s deviates from fleet norm on %s", o.Cluster, o.Field),
+			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).", o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner]),
+			Severity:    o.Severity,
+			Cluster:     o.Cluster,
+			Scanner:     o.Scanner,
+		})
+	}
 	return findings
 }
 
@@ -176,6 +203,66 @@ func healthFindings(r *Report) []Finding {
 		}
 	}
 	return findings
+}
+
+// capacityFindings generates findings from the smart capacity analysis,
+// correlating utilization, pressure, events, and headroom rather than applying
+// naive thresholds.
+func capacityFindings(r *Report) []Finding {
+	var findings []Finding
+	for _, ca := range r.Capacity {
+		switch ca.Status {
+		case "critical":
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s is in critical state", ca.Cluster),
+				Description: ca.Recommendation,
+				Severity:    SeverityCritical,
+				Cluster:     ca.Cluster,
+				Scanner:     "metrics",
+			})
+		case "strained":
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s is under strain", ca.Cluster),
+				Description: ca.Recommendation,
+				Severity:    SeverityWarning,
+				Cluster:     ca.Cluster,
+				Scanner:     "metrics",
+			})
+		case "busy":
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s is busy but healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
+				Description: ca.Recommendation,
+				Severity:    SeverityInfo,
+				Cluster:     ca.Cluster,
+				Scanner:     "metrics",
+			})
+		default:
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s is healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
+				Description: ca.Recommendation,
+				Severity:    SeverityInfo,
+				Cluster:     ca.Cluster,
+				Scanner:     "metrics",
+			})
+		}
+
+		// Group deviation finding.
+		if ca.GroupDeviation != "" && !containsPrefix(ca.GroupDeviation, "Within normal range") {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s deviates from group peers", ca.Cluster),
+				Description: ca.GroupDeviation,
+				Severity:    SeverityWarning,
+				Cluster:     ca.Cluster,
+				Scanner:     "metrics",
+			})
+		}
+	}
+	return findings
+}
+
+// containsPrefix checks if s starts with prefix.
+func containsPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 func metricsFindings(r *Report) []Finding {
@@ -426,4 +513,143 @@ func getFloatField(r *Report, scannerName, cluster, field string) float64 {
 	var m map[string]any
 	json.Unmarshal(b, &m)
 	return toFloat64(m[field])
+}
+
+func workloadSecFindings(r *Report) []Finding {
+	sec := r.Sections["workload-security"]
+	if sec == nil {
+		return nil
+	}
+	var findings []Finding
+	for _, cluster := range r.Clusters {
+		privCount := getIntField(r, "workload-security", cluster, "privileged_containers")
+		hostNet := getIntField(r, "workload-security", cluster, "host_network_pods")
+		hostPID := getIntField(r, "workload-security", cluster, "host_pid_pods")
+		rootCount := getIntField(r, "workload-security", cluster, "run_as_root_containers")
+		capAdd := getIntField(r, "workload-security", cluster, "capability_additions")
+		total := getIntField(r, "workload-security", cluster, "total_pods")
+
+		if privCount > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d privileged container(s)", cluster, privCount),
+				Description: fmt.Sprintf("Privileged containers have full host access. Review whether these workloads genuinely require privilege escalation. Total pods: %d.", total),
+				Severity:    SeverityCritical,
+				Cluster:     cluster,
+				Scanner:     "workload-security",
+			})
+		}
+		if hostNet > 0 || hostPID > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has pods using host namespaces (network: %d, PID: %d)", cluster, hostNet, hostPID),
+				Description: "Pods sharing the host network or PID namespace can see and interact with other processes and network traffic on the node.",
+				Severity:    SeverityWarning,
+				Cluster:     cluster,
+				Scanner:     "workload-security",
+			})
+		}
+		if rootCount > 0 && total > 0 {
+			pct := float64(rootCount) / float64(total) * 100
+			sev := SeverityInfo
+			if pct > 50 {
+				sev = SeverityWarning
+			}
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d container(s) that may run as root (%.0f%%)", cluster, rootCount, pct),
+				Description: "Containers without runAsNonRoot or explicit non-zero runAsUser can run as UID 0. This increases the impact of container escape vulnerabilities.",
+				Severity:    sev,
+				Cluster:     cluster,
+				Scanner:     "workload-security",
+			})
+		}
+		if capAdd > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d container(s) with added Linux capabilities", cluster, capAdd),
+				Description: "Containers requesting additional capabilities (NET_ADMIN, SYS_PTRACE, etc.) have elevated kernel access beyond the default set.",
+				Severity:    SeverityWarning,
+				Cluster:     cluster,
+				Scanner:     "workload-security",
+			})
+		}
+	}
+	return findings
+}
+
+func rbacAuditFindings(r *Report) []Finding {
+	sec := r.Sections["rbac-audit"]
+	if sec == nil {
+		return nil
+	}
+	var findings []Finding
+	for _, cluster := range r.Clusters {
+		adminBindings := getIntField(r, "rbac-audit", cluster, "cluster_admin_bindings")
+		wildcardRules := getIntField(r, "rbac-audit", cluster, "wildcard_rules")
+		defaultSA := getIntField(r, "rbac-audit", cluster, "default_sa_bindings")
+
+		if adminBindings > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d non-system cluster-admin binding(s)", cluster, adminBindings),
+				Description: "ClusterRoleBindings granting cluster-admin to non-system accounts provide unrestricted access to every resource in the cluster. Review whether these bindings are necessary.",
+				Severity:    SeverityCritical,
+				Cluster:     cluster,
+				Scanner:     "rbac-audit",
+			})
+		}
+		if wildcardRules > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d RBAC rule(s) with wildcard permissions", cluster, wildcardRules),
+				Description: "Rules using '*' for verbs or resources grant broader access than most workloads need. Apply the principle of least privilege.",
+				Severity:    SeverityWarning,
+				Cluster:     cluster,
+				Scanner:     "rbac-audit",
+			})
+		}
+		if defaultSA > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d binding(s) granting permissions to the default service account", cluster, defaultSA),
+				Description: "The default service account in a namespace is used by any pod that does not specify a different one. Granting it permissions means all unattributed workloads inherit those permissions.",
+				Severity:    SeverityWarning,
+				Cluster:     cluster,
+				Scanner:     "rbac-audit",
+			})
+		}
+	}
+	return findings
+}
+
+func imageAuditFindings(r *Report) []Finding {
+	sec := r.Sections["image-audit"]
+	if sec == nil {
+		return nil
+	}
+	var findings []Finding
+	for _, cluster := range r.Clusters {
+		latestTag := getIntField(r, "image-audit", cluster, "latest_tag")
+		noDigest := getIntField(r, "image-audit", cluster, "no_digest")
+		total := getIntField(r, "image-audit", cluster, "total_containers")
+
+		if latestTag > 0 {
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d container(s) using :latest or no tag", cluster, latestTag),
+				Description: fmt.Sprintf("Out of %d containers, %d use :latest or have no tag. This makes it impossible to track which version is deployed and prevents reliable rollbacks.", total, latestTag),
+				Severity:    SeverityWarning,
+				Cluster:     cluster,
+				Scanner:     "image-audit",
+			})
+		}
+		if noDigest > 0 && total > 0 {
+			pct := float64(noDigest) / float64(total) * 100
+			sev := SeverityInfo
+			if pct > 80 {
+				sev = SeverityWarning
+			}
+			findings = append(findings, Finding{
+				Title:       fmt.Sprintf("%s has %d container(s) without digest pins (%.0f%%)", cluster, noDigest, pct),
+				Description: "Images without @sha256: digest pins can change content without changing the tag. Pinning digests ensures reproducible deployments.",
+				Severity:    sev,
+				Cluster:     cluster,
+				Scanner:     "image-audit",
+			})
+		}
+	}
+	return findings
 }

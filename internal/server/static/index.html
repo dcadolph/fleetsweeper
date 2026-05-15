@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleetsweeper</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d1117;--c1:#161b22;--c2:#1c2128;--c3:#21262d;--tx:#e6edf3;--t2:#8b949e;--t3:#6e7681;--bd:#30363d;--ac:#58a6ff;--ok:#3fb950;--wn:#d29922;--cr:#f85149;--mono:"SF Mono","Fira Code","Cascadia Code",monospace}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5}
+a{color:var(--ac);text-decoration:none;cursor:pointer}a:hover{text-decoration:underline}
+.app{display:flex;min-height:100vh}
+
+/* Sidebar */
+.sb{width:220px;min-width:220px;background:var(--c1);border-right:1px solid var(--bd);padding:14px 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;font-size:13px}
+.sb h1{font-size:15px;font-weight:600;padding:0 14px 10px;border-bottom:1px solid var(--bd);margin-bottom:6px}
+.sb a{display:block;padding:4px 14px;color:var(--t2);border-left:2px solid transparent;transition:all .1s}
+.sb a:hover{color:var(--tx);background:rgba(88,166,255,.04);text-decoration:none}
+.sb a.on{color:var(--ac);border-color:var(--ac);background:rgba(88,166,255,.06)}
+.sb .hd{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--t3);padding:10px 14px 3px}
+.sb .foot{margin-top:auto;padding:10px 14px;border-top:1px solid var(--bd);font-size:11px;color:var(--t3)}
+
+/* Main */
+.mn{flex:1;min-width:0}
+.bar{display:flex;align-items:center;gap:10px;padding:8px 20px;background:var(--c1);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:10;flex-wrap:wrap}
+.bar input{background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;color:var(--tx);font-size:12px;width:200px;outline:none}
+.bar input:focus{border-color:var(--ac)}
+.bar select{background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;color:var(--tx);font-size:11px;outline:none}
+.bar .sp{flex:1}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;border-radius:5px;cursor:pointer;border:1px solid var(--bd);background:var(--c2);color:var(--t2);transition:background .1s}
+.btn:hover{background:var(--c3);color:var(--tx)}
+.btn-ac{border-color:rgba(88,166,255,.3);color:var(--ac);background:rgba(88,166,255,.06)}
+.btn-ok{border-color:rgba(63,185,80,.3);color:var(--ok);background:rgba(63,185,80,.06)}
+
+.ct{padding:20px 24px;max-width:1300px}
+h2{font-size:17px;margin-bottom:10px}
+h3{font-size:12px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px}
+.sub{font-size:12px;color:var(--t2);margin-bottom:12px}
+
+/* Grid */
+.g{display:grid;gap:10px;margin-bottom:14px}
+.g6{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+
+/* Cards */
+.cd{background:var(--c1);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;position:relative;overflow:hidden}
+.cd:hover{border-color:var(--c3)}
+.st{text-align:center}.st .v{font-size:22px;font-weight:700}.st .l{font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-top:1px}
+.st.click{cursor:pointer;transition:transform .1s,border-color .1s}.st.click:hover{transform:translateY(-2px);border-color:var(--ac)}
+
+/* Cluster card */
+.cc{cursor:pointer;transition:border-color .15s}
+.cc:hover{border-color:var(--ac)}
+.cc .ind{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px}
+.cc h4{font-size:13px;margin-left:6px;margin-bottom:2px}
+.cc .badge{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:1px 6px;border-radius:8px;margin-left:6px}
+.cc .row{display:flex;justify-content:space-between;font-size:11px;color:var(--t2);padding:1px 0 1px 6px}
+.cc .row .val{color:var(--tx);font-weight:500;font-family:var(--mono);font-size:11px}
+.cc canvas{margin-top:6px}
+
+/* Findings */
+.fi{display:flex;gap:8px;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--c1);margin-bottom:4px;align-items:flex-start;font-size:13px}
+.fi .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.fi .bd{flex:1;min-width:0}.fi .bd h4{font-size:12px;line-height:1.3}.fi .bd p{font-size:11px;color:var(--t2);line-height:1.3;margin-top:1px}
+.fi .tags{display:flex;gap:3px;flex-shrink:0;align-self:center}
+.fi .tag{font-size:9px;padding:1px 6px;border-radius:4px;font-weight:600}
+.fi.hidden{display:none}
+
+/* Tables */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:5px 8px;font-size:9px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);background:var(--c1);position:sticky;top:0;cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{color:var(--tx)}
+td{padding:5px 8px;border-bottom:1px solid var(--bd)}
+tr:nth-child(even) td{background:rgba(255,255,255,.01)}
+.mono{font-family:var(--mono);font-size:11px}
+
+/* Charts */
+.chc{background:var(--c1);border:1px solid var(--bd);border-radius:8px;padding:14px}
+.chc h4{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;text-align:center}
+.chc canvas{max-height:200px}
+
+/* Tooltip (JS-positioned) */
+#tip-el{position:fixed;background:#1c1f26;color:#e5e7eb;font-size:12px;padding:8px 12px;border-radius:6px;max-width:340px;z-index:9999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.6);border:1px solid #444c56;line-height:1.45;display:none;word-wrap:break-word}
+/* Remediation block inside findings */
+.remediation{margin-top:4px;padding:6px 8px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--ac);white-space:pre-wrap;user-select:all;cursor:text}
+
+/* Back link */
+.back{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ac);margin-bottom:12px;cursor:pointer}
+.back:hover{text-decoration:underline}
+
+/* Detail section */
+.dsec{background:var(--c1);border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;overflow:hidden}
+.dsec-h{padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.dsec-h:hover{background:var(--c2)}
+.dsec-h h4{font-size:13px;font-weight:600}
+.dsec-b{padding:12px 14px;display:none}
+.dsec.open .dsec-b{display:block}
+.dsec.open .chev{transform:rotate(90deg)}
+.chev{color:var(--t3);font-size:11px;transition:transform .15s}
+pre.json{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;font-family:var(--mono);font-size:10px;line-height:1.4;overflow:auto;max-height:300px;margin-top:8px}
+
+/* Scan item */
+.si{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--c1);margin-bottom:4px}
+.si .id{font-family:var(--mono);font-size:11px;color:var(--ac);cursor:pointer}
+.si .id:hover{text-decoration:underline}
+.si .meta{font-size:11px;color:var(--t2)}
+
+.empty{text-align:center;color:var(--t2);padding:32px;font-size:13px}
+.loading{text-align:center;color:var(--t2);padding:40px}
+@media(max-width:768px){.sb{display:none}}
+</style>
+</head>
+<body>
+<div id="tip-el"></div>
+<div class="app">
+<aside class="sb" id="sb"></aside>
+<div class="mn">
+  <div class="bar" id="bar"></div>
+  <div class="ct" id="ct"><div class="loading">Loading...</div></div>
+</div>
+</div>
+<script>
+var P={page:'dash',cluster:null,scanId:null};
+var COLORS=['#58a6ff','#f85149','#3fb950','#d29922','#bc8cff','#39d353','#f78166','#79c0ff'];
+var chartInstances=[];
+
+// Glossary: tooltips for every field, scanner, and metric.
+var TIPS={
+  // Summary cards.
+  clusters:'Total Kubernetes clusters scanned in this run.',
+  uniform:'Scanners where every cluster returned identical data. No action needed.',
+  divergent:'Scanners where at least one cluster differs from the others. Investigate to determine if the difference is intentional.',
+  critical:'High-severity findings that likely need immediate attention: version mismatches, node pressure, resource exhaustion.',
+  warnings:'Medium-severity findings: missing policies, quota gaps, elevated utilization.',
+  issues:'Total individual divergence points across all scanners.',
+  // Scanner names.
+  'version':'Compares Kubernetes API server versions (major.minor.patch) across all clusters.',
+  'namespaces':'Lists all namespaces per cluster and compares the sets. Detects missing namespaces that should exist fleet-wide.',
+  'services':'Enumerates all Services (ClusterIP, NodePort, LoadBalancer) across all namespaces.',
+  'ingresses':'Lists Ingress resources, their classes, hosts, and TLS configuration.',
+  'rbac':'Compares ClusterRoles, Roles, ClusterRoleBindings, and RoleBindings. Detects permission drift.',
+  'security':'Checks Pod Security Standards labels (enforce, audit, warn) on every namespace.',
+  'network-policies':'Counts NetworkPolicy resources per namespace. Identifies namespaces with no network segmentation.',
+  'resource-quotas':'Lists ResourceQuota and LimitRange objects. Detects clusters with no resource limits.',
+  'node-health':'Reads node conditions: Ready, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable.',
+  'metrics':'Queries the metrics-server API for real-time CPU and memory utilization per node.',
+  'events':'Collects Warning-type Kubernetes events. Aggregates by reason to surface recurring issues.',
+  'workload-security':'Audits pod security contexts: privileged containers, host namespace access, root users, Linux capability additions, writable root filesystems.',
+  'rbac-audit':'Deep RBAC analysis: wildcard permission rules, non-system cluster-admin bindings, default service account grants, automounted tokens.',
+  'image-audit':'Checks container image references for :latest tags, missing tags, and absent digest pins (@sha256:).',
+  'privileged_containers':'Containers running with privileged=true. Full host kernel access.',
+  'host_network_pods':'Pods sharing the host network namespace. Can see all node traffic.',
+  'host_pid_pods':'Pods sharing the host PID namespace. Can see and signal all node processes.',
+  'run_as_root_containers':'Containers that may run as UID 0. Missing runAsNonRoot constraint.',
+  'capability_additions':'Containers requesting Linux capabilities beyond the default set (NET_ADMIN, SYS_PTRACE, etc.).',
+  'cluster_admin_bindings':'ClusterRoleBindings granting cluster-admin to non-system accounts. Unrestricted cluster access.',
+  'wildcard_rules':'RBAC rules using * for verbs or resources. Broader than most workloads need.',
+  'latest_tag':'Containers using :latest or no tag. Prevents tracking deployed versions.',
+  'no_digest':'Containers without @sha256: digest pin. Tag content can change silently.',
+  'crds':'Lists all CustomResourceDefinitions. Detects add-on or operator drift across clusters.',
+  'resources':'Reports node count, allocatable CPU/memory, and scheduling status.',
+  // Fields.
+  'git_version':'The full Kubernetes version string reported by the API server (e.g. v1.31.2).',
+  'avg_cpu_percent':'Average CPU utilization across all nodes in the cluster, as a percentage of allocatable CPU.',
+  'avg_memory_percent':'Average memory utilization across all nodes, as a percentage of allocatable memory.',
+  'max_cpu_percent':'Highest CPU utilization on any single node in the cluster.',
+  'max_memory_percent':'Highest memory utilization on any single node in the cluster.',
+  'healthy_nodes':'Nodes reporting Ready=True with no pressure conditions (MemoryPressure, DiskPressure, PIDPressure all False).',
+  'unhealthy_nodes':'Nodes with at least one pressure condition or not in Ready state.',
+  'memory_pressure_nodes':'Nodes where kubelet reports MemoryPressure=True. The node is running low on memory and may start evicting pods.',
+  'disk_pressure_nodes':'Nodes where kubelet reports DiskPressure=True. Disk space is critically low.',
+  'not_ready_nodes':'Nodes not reporting Ready=True. Workloads cannot be scheduled here.',
+  'unschedulable_nodes':'Nodes that have been cordoned (spec.unschedulable=true). No new pods will be scheduled.',
+  'enforced_count':'Namespaces with a pod-security.kubernetes.io/enforce label set (restricted, baseline, or privileged).',
+  'unenforced_count':'Namespaces missing the PSS enforce label. Pods can run with any security context.',
+  'namespaces_with_policies':'Namespaces that have at least one NetworkPolicy resource.',
+  'namespaces_without_policies':'Namespaces with zero NetworkPolicy resources. All pod-to-pod traffic is unrestricted.',
+  'warning_events':'Number of Kubernetes events with type=Warning in this cluster.',
+  'quota_count':'Number of ResourceQuota objects across all namespaces.',
+  'cluster_role_count':'Number of ClusterRole objects (cluster-wide RBAC permissions).',
+  'node_count':'Total number of nodes registered in the cluster.',
+  // Severity levels.
+  'sev_critical':'Requires immediate attention. May cause outages, security exposure, or data loss if not addressed.',
+  'sev_warning':'Should be investigated soon. May indicate drift, missing best practices, or emerging resource pressure.',
+  'sev_info':'Informational. No action required. Confirms expected state or notes minor differences.'
+};
+
+// Remediation: kubectl commands for each finding type (matched by scanner + keyword in title).
+var REMEDIATION={
+  'node-health_memory pressure':[
+    'kubectl --context {cluster} describe nodes | grep -A5 MemoryPressure',
+    'kubectl --context {cluster} top nodes',
+    'kubectl --context {cluster} get pods --all-namespaces --sort-by=.status.containerStatuses[0].resources.requests.memory -o wide'
+  ],
+  'node-health_disk pressure':[
+    'kubectl --context {cluster} describe nodes | grep -A5 DiskPressure',
+    'kubectl --context {cluster} get pods --all-namespaces -o wide | grep Evicted',
+    'kubectl --context {cluster} exec -it <node-debug-pod> -- df -h'
+  ],
+  'node-health_not ready':[
+    'kubectl --context {cluster} get nodes',
+    'kubectl --context {cluster} describe node <node-name> | grep -A10 Conditions',
+    'kubectl --context {cluster} get events --field-selector involvedObject.kind=Node --sort-by=.lastTimestamp'
+  ],
+  'version_different':[
+    'kubectl --context {cluster} version --short',
+    'kubectl --context {cluster} get nodes -o wide'
+  ],
+  'metrics_memory':[
+    'kubectl --context {cluster} top nodes',
+    'kubectl --context {cluster} top pods --all-namespaces --sort-by=memory | head -20',
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'[.items[] | select(.spec.containers[].resources.requests.memory == null)] | length\''
+  ],
+  'metrics_cpu':[
+    'kubectl --context {cluster} top nodes',
+    'kubectl --context {cluster} top pods --all-namespaces --sort-by=cpu | head -20'
+  ],
+  'security_enforcement':[
+    'kubectl --context {cluster} get namespaces -L pod-security.kubernetes.io/enforce',
+    'kubectl --context {cluster} label namespace <ns> pod-security.kubernetes.io/enforce=baseline',
+    'kubectl --context {cluster} label namespace <ns> pod-security.kubernetes.io/warn=restricted'
+  ],
+  'network-policies_no network':[
+    'kubectl --context {cluster} get networkpolicies --all-namespaces',
+    'kubectl --context {cluster} get namespaces -o custom-columns=NAME:.metadata.name',
+    'kubectl --context {cluster} apply -f <deny-all-netpol.yaml> -n <namespace>'
+  ],
+  'resource-quotas_no resource':[
+    'kubectl --context {cluster} get resourcequotas --all-namespaces',
+    'kubectl --context {cluster} get limitranges --all-namespaces',
+    'kubectl --context {cluster} apply -f <resource-quota.yaml> -n <namespace>'
+  ],
+  'events_warning':[
+    'kubectl --context {cluster} get events --all-namespaces --field-selector type=Warning --sort-by=.lastTimestamp | tail -30',
+    'kubectl --context {cluster} get events --all-namespaces --field-selector reason=OOMKilling',
+    'kubectl --context {cluster} get events --all-namespaces --field-selector reason=FailedScheduling'
+  ],
+  'namespaces_varies':[
+    'kubectl --context {cluster} get namespaces',
+    'diff <(kubectl --context cluster-a get ns -o name | sort) <(kubectl --context cluster-b get ns -o name | sort)'
+  ],
+  'rbac_differs':[
+    'kubectl --context {cluster} get clusterroles -o name | sort',
+    'kubectl --context {cluster} get clusterrolebindings -o name | sort',
+    'diff <(kubectl --context cluster-a get clusterroles -o name | sort) <(kubectl --context cluster-b get clusterroles -o name | sort)'
+  ],
+  'workload-security_privileged':[
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'[.items[] | select(.spec.containers[].securityContext.privileged==true) | .metadata.namespace + "/" + .metadata.name] | unique[]\'',
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'.items[] | select(.spec.hostNetwork==true) | .metadata.namespace + "/" + .metadata.name\''
+  ],
+  'workload-security_host':[
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'.items[] | select(.spec.hostNetwork==true or .spec.hostPID==true) | .metadata.namespace + "/" + .metadata.name\''
+  ],
+  'workload-security_root':[
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'[.items[] | select(.spec.containers[].securityContext.runAsNonRoot!=true) | .metadata.namespace + "/" + .metadata.name] | unique[]\''
+  ],
+  'workload-security_capabilities':[
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'[.items[] | select(.spec.containers[].securityContext.capabilities.add!=null) | {pod:(.metadata.namespace+"/"+.metadata.name),caps:.spec.containers[].securityContext.capabilities.add}]\''
+  ],
+  'rbac-audit_admin':[
+    'kubectl --context {cluster} get clusterrolebindings -o json | jq \'.items[] | select(.roleRef.name=="cluster-admin") | {name:.metadata.name,subjects:.subjects[].name}\'',
+    'kubectl --context {cluster} auth can-i --list --as=system:serviceaccount:<ns>:<sa>'
+  ],
+  'rbac-audit_wildcard':[
+    'kubectl --context {cluster} get clusterroles -o json | jq \'[.items[] | select(.rules[]?.verbs[]?=="*" or .rules[]?.resources[]?=="*") | .metadata.name]\''
+  ],
+  'rbac-audit_default':[
+    'kubectl --context {cluster} get rolebindings,clusterrolebindings --all-namespaces -o json | jq \'[.items[] | select(.subjects[]? | .name=="default" and .kind=="ServiceAccount") | .metadata.name]\''
+  ],
+  'image-audit_latest':[
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'[.items[].spec.containers[] | select(.image | test(":latest$") or (test(":")|not)) | .image] | unique[]\''
+  ],
+  'image-audit_digest':[
+    'kubectl --context {cluster} get pods --all-namespaces -o json | jq \'[.items[].spec.containers[] | select(.image | test("@sha256:")|not) | .image] | unique[] \' | head -20'
+  ]
+};
+
+// Match a finding to remediation commands.
+function getRemediation(f){
+  var key='';
+  var t=(f.title||'').toLowerCase();
+  if(f.scanner==='node-health'&&t.indexOf('memory pressure')>=0)key='node-health_memory pressure';
+  else if(f.scanner==='node-health'&&t.indexOf('disk pressure')>=0)key='node-health_disk pressure';
+  else if(f.scanner==='node-health'&&t.indexOf('not ready')>=0)key='node-health_not ready';
+  else if(f.scanner==='version')key='version_different';
+  else if(f.scanner==='metrics'&&t.indexOf('memory')>=0)key='metrics_memory';
+  else if(f.scanner==='metrics'&&t.indexOf('cpu')>=0)key='metrics_cpu';
+  else if(f.scanner==='security')key='security_enforcement';
+  else if(f.scanner==='network-policies')key='network-policies_no network';
+  else if(f.scanner==='resource-quotas')key='resource-quotas_no resource';
+  else if(f.scanner==='events')key='events_warning';
+  else if(f.scanner==='namespaces')key='namespaces_varies';
+  else if(f.scanner==='rbac')key='rbac_differs';
+  else if(f.scanner==='workload-security'&&t.indexOf('privileged')>=0)key='workload-security_privileged';
+  else if(f.scanner==='workload-security'&&t.indexOf('host')>=0)key='workload-security_host';
+  else if(f.scanner==='workload-security'&&t.indexOf('root')>=0)key='workload-security_root';
+  else if(f.scanner==='workload-security'&&t.indexOf('capabilit')>=0)key='workload-security_capabilities';
+  else if(f.scanner==='rbac-audit'&&t.indexOf('cluster-admin')>=0)key='rbac-audit_admin';
+  else if(f.scanner==='rbac-audit'&&t.indexOf('wildcard')>=0)key='rbac-audit_wildcard';
+  else if(f.scanner==='rbac-audit'&&t.indexOf('default')>=0)key='rbac-audit_default';
+  else if(f.scanner==='image-audit'&&t.indexOf('latest')>=0)key='image-audit_latest';
+  else if(f.scanner==='image-audit'&&t.indexOf('digest')>=0)key='image-audit_digest';
+  if(!key)return null;
+  var cmds=REMEDIATION[key];
+  if(!cmds)return null;
+  var cluster=f.cluster||'{cluster}';
+  return cmds.map(function(c){return c.replace(/\{cluster\}/g,cluster)});
+}
+
+// Get tooltip for a field name.
+function tip(key){return TIPS[key]||''}
+
+function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
+function sc(s){return s==='critical'?'var(--cr)':s==='warning'?'var(--wn)':'var(--ac)'}
+function sb(s){return s==='critical'?'rgba(248,81,73,.1)':s==='warning'?'rgba(210,153,34,.1)':'rgba(88,166,255,.08)'}
+function pct(n){return n==null||n<0?'N/A':Math.round(n)+'%'}
+function fj(o){return JSON.stringify(o,null,2)}
+function clr(i){return COLORS[i%COLORS.length]}
+
+// Tooltip system: JS-positioned, viewport-aware.
+(function(){
+  var el=document.getElementById('tip-el'),timer=null;
+  document.addEventListener('mouseover',function(e){
+    var t=e.target.closest('[data-tip]');
+    if(!t||!t.dataset.tip)return;
+    clearTimeout(timer);
+    el.textContent=t.dataset.tip;
+    el.style.display='block';
+    var r=t.getBoundingClientRect();
+    var tw=el.offsetWidth,th=el.offsetHeight;
+    var left=r.left+r.width/2-tw/2;
+    var top=r.top-th-8;
+    if(left<8)left=8;
+    if(left+tw>window.innerWidth-8)left=window.innerWidth-tw-8;
+    if(top<8){top=r.bottom+8}
+    el.style.left=left+'px';
+    el.style.top=top+'px';
+  });
+  document.addEventListener('mouseout',function(e){
+    var t=e.target.closest('[data-tip]');
+    if(!t)return;
+    timer=setTimeout(function(){el.style.display='none'},80);
+  });
+})();
+
+async function api(p){var r=await fetch('/api'+p);if(!r.ok)throw new Error(r.statusText);return r.json()}
+async function apiPost(p,b){return(await fetch('/api'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json()}
+async function apiDel(p){return fetch('/api'+p,{method:'DELETE'})}
+
+function destroyCharts(){chartInstances.forEach(function(c){c.destroy()});chartInstances=[]}
+function makeChart(id,cfg){var el=document.getElementById(id);if(!el)return;var c=new Chart(el,cfg);chartInstances.push(c);return c}
+
+function csvExport(filename,headers,rows){
+  var csv=headers.join(',')+'\n';
+  rows.forEach(function(r){csv+=r.map(function(c){return'"'+String(c||'').replace(/"/g,'""')+'"'}).join(',')+'\n'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=filename;a.click();
+}
+
+function nav(pg,opts){P.page=pg;P.cluster=opts&&opts.cluster||null;P.scanId=opts&&opts.scanId||null;render()}
+
+// === SIDEBAR ===
+function renderSb(){
+  var h='<h1>Fleetsweeper</h1>';
+  h+='<a class="'+(P.page==='dash'?'on':'')+'" onclick="nav(\'dash\')">Dashboard</a>';
+  h+='<a class="'+(P.page==='findings'?'on':'')+'" onclick="nav(\'findings\')">Findings</a>';
+  h+='<a class="'+(P.page==='scans'?'on':'')+'" onclick="nav(\'scans\')">Scan history</a>';
+  h+='<a class="'+(P.page==='capacity'?'on':'')+'" onclick="nav(\'capacity\')">Capacity</a>';
+  h+='<a class="'+(P.page==='trends'?'on':'')+'" onclick="nav(\'trends\')">Trends</a>';
+  h+='<a class="'+(P.page==='outliers'?'on':'')+'" onclick="nav(\'outliers\')">Outliers</a>';
+  h+='<div class="hd">Manage</div>';
+  h+='<a class="'+(P.page==='clusters'?'on':'')+'" onclick="nav(\'clusters\')">Clusters</a>';
+  h+='<a class="'+(P.page==='groups'?'on':'')+'" onclick="nav(\'groups\')">Groups</a>';
+  h+='<div class="foot">fleetsweeper server</div>';
+  document.getElementById('sb').innerHTML=h;
+}
+
+// === BAR ===
+function renderBar(extra){
+  var h='';
+  if(P.page==='findings')h+='<input type="search" id="fSearch" placeholder="Filter findings...">';
+  if(P.page==='findings')h+='<select id="fSev"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>';
+  h+='<span class="sp"></span>';
+  h+=(extra||'');
+  document.getElementById('bar').innerHTML=h;
+}
+
+// === FINDINGS ===
+function renderFinding(f){
+  var c=f.severity==='critical'?'var(--cr)':f.severity==='warning'?'var(--wn)':'var(--ac)';
+  var sevTip=TIPS['sev_'+f.severity]||'';
+  var scanTip=TIPS[f.scanner]||'';
+  var h='<div class="fi" data-sev="'+f.severity+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
+  h+='<span class="dot" style="background:'+c+'" data-tip="'+esc(sevTip)+'"></span>';
+  h+='<div class="bd"><h4>'+esc(f.title)+'</h4><p>'+esc(f.description)+'</p>';
+  // Remediation commands.
+  var cmds=getRemediation(f);
+  if(cmds&&f.severity!=='info'){
+    h+='<div class="remediation" data-tip="Suggested kubectl commands. Click to select.">';
+    cmds.forEach(function(cmd){h+=esc(cmd)+'\n'});
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='<div class="tags">';
+  h+='<span class="tag" style="background:'+sb(f.severity)+';color:'+c+'" data-tip="'+esc(sevTip)+'">'+f.severity+'</span>';
+  if(f.scanner)h+='<span class="tag" style="background:rgba(139,148,158,.06);color:var(--t3)" data-tip="'+esc(scanTip)+'">'+esc(f.scanner)+'</span>';
+  if(f.cluster&&f.cluster!=='fleet')h+='<span class="tag" style="background:rgba(88,166,255,.08);color:var(--ac);cursor:pointer" data-tip="Click to view cluster detail" onclick="event.stopPropagation();nav(\'detail\',{cluster:\''+esc(f.cluster)+'\'})">'+esc(f.cluster)+'</span>';
+  else h+='<span class="tag" style="background:rgba(139,148,158,.08);color:var(--t2)" data-tip="Affects the entire fleet, not a single cluster">fleet</span>';
+  h+='</div></div>';
+  return h;
+}
+
+function bindFindingFilters(){
+  var s=document.getElementById('fSearch'),sv=document.getElementById('fSev');
+  function apply(){
+    var q=(s?s.value:'').toLowerCase(),sev=sv?sv.value:'';
+    document.querySelectorAll('.fi').forEach(function(el){
+      var show=true;
+      if(sev&&el.dataset.sev!==sev)show=false;
+      if(q&&el.dataset.text.indexOf(q)<0)show=false;
+      el.style.display=show?'':'none';
+    });
+  }
+  if(s)s.oninput=apply;
+  if(sv)sv.onchange=apply;
+}
+
+// === DASHBOARD ===
+async function renderDash(){
+  renderBar('<span class="btn btn-ok" onclick="triggerScan()">Trigger scan</span>');
+  var scans=await api('/scans?limit=1');
+  if(!scans||!scans.length)return '<div class="empty">No scans yet. Run a scan first.</div>';
+  var rpt=await api('/scans/'+scans[0].id+'/report');
+  var S=rpt.summary;
+  var h='<h2>Fleet overview</h2><p class="sub">Latest scan: '+esc(rpt.timestamp)+' &middot; '+S.cluster_count+' clusters &middot; '+(rpt.findings?rpt.findings.length:0)+' findings</p>';
+
+  // Store report for drilldown.
+  window._dashReport=rpt;
+
+  h+='<div class="g g6">';
+  h+='<div class="cd st click" data-tip="'+esc(TIPS.clusters)+' Click to view all clusters." onclick="nav(\'clusters\')"><div class="v" style="color:var(--ac)">'+S.cluster_count+'</div><div class="l">Clusters</div></div>';
+  h+='<div class="cd st click" data-tip="'+esc(TIPS.uniform)+' Click to view." onclick="showDashDrilldown(\'uniform\')"><div class="v" style="color:var(--ok)">'+S.uniform_count+'</div><div class="l">Uniform</div></div>';
+  h+='<div class="cd st click" data-tip="'+esc(TIPS.divergent)+' Click to view." onclick="showDashDrilldown(\'divergent\')"><div class="v" style="color:var(--cr)">'+S.divergent_count+'</div><div class="l">Divergent</div></div>';
+  h+='<div class="cd st click" data-tip="'+esc(TIPS.critical)+' Click to view." onclick="showDashDrilldown(\'critical\')"><div class="v" style="color:var(--cr)">'+S.critical_count+'</div><div class="l">Critical</div></div>';
+  h+='<div class="cd st click" data-tip="'+esc(TIPS.warnings)+' Click to view." onclick="showDashDrilldown(\'warning\')"><div class="v" style="color:var(--wn)">'+S.warning_count+'</div><div class="l">Warnings</div></div>';
+  h+='<div class="cd st click" data-tip="'+esc(TIPS.issues)+' Click to view divergent scanners." onclick="showDashDrilldown(\'divergent\')"><div class="v" style="color:var(--t2)">'+S.total_divergences+'</div><div class="l">Issues</div></div>';
+  h+='</div>';
+  h+='<div id="dashDrilldown"></div>';
+
+  // Cluster health cards with mini gauges.
+  if(rpt.cluster_healths&&rpt.cluster_healths.length){
+    h+='<h3>Cluster health</h3><div class="g g3">';
+    rpt.cluster_healths.forEach(function(ch,i){
+      var color=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
+      var bg=ch.status==='critical'?'rgba(248,81,73,.08)':ch.status==='degraded'?'rgba(210,153,34,.08)':'rgba(63,185,80,.06)';
+      h+='<div class="cd cc" data-tip="Click to view full cluster detail" onclick="nav(\'detail\',{cluster:\''+esc(ch.name)+'\'})">';
+      h+='<div class="ind" style="background:'+color+'"></div>';
+      h+='<h4>'+esc(ch.name)+'</h4>';
+      h+='<span class="badge" style="background:'+bg+';color:'+color+'" data-tip="'+esc(TIPS['sev_'+(ch.status==='critical'?'critical':ch.status==='degraded'?'warning':'info')]||'')+'">'+ch.status+'</span>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.git_version)+'">Version</span><span class="val">'+esc(ch.kubernetes_version||'N/A')+'</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.healthy_nodes)+'">Nodes</span><span class="val">'+ch.healthy_nodes+'/'+ch.node_count+' healthy</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</span><span class="val" '+(ch.avg_cpu>85?'style="color:var(--cr)"':ch.avg_cpu>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_cpu)+'</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</span><span class="val" '+(ch.avg_memory>85?'style="color:var(--cr)"':ch.avg_memory>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_memory)+'</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.warning_events)+'">Warnings</span><span class="val"'+(ch.warning_events>50?' style="color:var(--wn)"':'')+'>'+ch.warning_events+' events</span></div>';
+      h+='<div class="row"><span data-tip="Critical and warning findings attributed to this cluster">Findings</span><span class="val">'+(ch.finding_counts.critical||0)+' crit, '+(ch.finding_counts.warning||0)+' warn</span></div>';
+      h+='<div style="display:flex;gap:8px;margin-top:6px"><canvas id="gc-'+i+'" width="80" height="50" data-tip="CPU utilization: '+pct(ch.avg_cpu)+'"></canvas><canvas id="gm-'+i+'" width="80" height="50" data-tip="Memory utilization: '+pct(ch.avg_memory)+'"></canvas></div>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+
+  // Charts row.
+  h+='<h3>Resource utilization</h3><div class="g g2">';
+  h+='<div class="chc"><h4>CPU utilization by cluster</h4><canvas id="dashCpu"></canvas></div>';
+  h+='<div class="chc"><h4>Memory utilization by cluster</h4><canvas id="dashMem"></canvas></div>';
+  h+='</div>';
+
+  // Top findings.
+  if(rpt.findings&&rpt.findings.length){
+    h+='<h3>Top findings <a onclick="nav(\'findings\')" style="font-size:11px;text-transform:none;letter-spacing:0;font-weight:400">(view all '+rpt.findings.length+')</a></h3>';
+    rpt.findings.slice(0,8).forEach(function(f){h+=renderFinding(f)});
+  }
+
+  return {html:h,post:function(){
+    // Mini gauges.
+    if(typeof Chart!=='undefined'&&rpt.cluster_healths){
+      Chart.defaults.color='#8b949e';
+      rpt.cluster_healths.forEach(function(ch,i){
+        miniGauge('gc-'+i,ch.avg_cpu,'CPU');
+        miniGauge('gm-'+i,ch.avg_memory,'Mem');
+      });
+      // Bar charts with threshold-based colors.
+      var labels=rpt.cluster_healths.map(function(c){return c.name});
+      var cpuAvg=rpt.cluster_healths.map(function(c){return c.avg_cpu});
+      var memAvg=rpt.cluster_healths.map(function(c){return c.avg_memory});
+      var cpuColors=cpuAvg.map(threshColor);
+      var memColors=memAvg.map(threshColor);
+      var cpuBg=cpuColors.map(function(c){return c+'40'});
+      var memBg=memColors.map(function(c){return c+'40'});
+      barChart('dashCpu',labels,cpuAvg,cpuColors,cpuBg,'%',100);
+      barChart('dashMem',labels,memAvg,memColors,memBg,'%',100);
+    }
+  }};
+}
+
+// Drilldown from summary cards on dashboard.
+var _scannerLabels={'version':'Kubernetes Version','namespaces':'Namespaces','crds':'CRDs','services':'Services','ingresses':'Ingresses','resources':'Node Resources','rbac':'RBAC','security':'Pod Security','network-policies':'Network Policies','resource-quotas':'Resource Quotas','node-health':'Node Health','metrics':'Resource Utilization','events':'Events','workload-security':'Workload Security','rbac-audit':'RBAC Audit','image-audit':'Image Hygiene'};
+
+window.showDashDrilldown=function(type){
+  var rpt=window._dashReport;if(!rpt)return;
+  var el=document.getElementById('dashDrilldown');if(!el)return;
+  var close='<a style="font-size:11px;cursor:pointer" onclick="document.getElementById(\'dashDrilldown\').innerHTML=\'\'">Close</a>';
+  var h='<div class="cd" style="margin-bottom:14px">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h4 style="font-size:13px">';
+
+  if(type==='uniform'||type==='divergent'){
+    var isDiv=type==='divergent';
+    h+=(isDiv?'Divergent':'Uniform')+' scanners</h4>'+close+'</div>';
+    h+='<table><thead><tr><th>Scanner</th><th>Status</th><th style="cursor:help" data-tip="Click a count to see per-cluster values">Divergences</th></tr></thead><tbody>';
+    Object.keys(rpt.sections).sort().forEach(function(k){
+      var sec=rpt.sections[k];
+      if(isDiv&&sec.uniform)return;
+      if(!isDiv&&!sec.uniform)return;
+      var divCount=sec.divergences?sec.divergences.length:0;
+      var statusColor=sec.uniform?'var(--ok)':'var(--cr)';
+      var statusText=sec.uniform?'Uniform':'Divergent';
+      var scanTip=TIPS[k]||'';
+      h+='<tr><td style="font-weight:500"'+(scanTip?' data-tip="'+esc(scanTip)+'"':'')+'>'+(_scannerLabels[k]||k)+'</td>';
+      h+='<td style="color:'+statusColor+'" data-tip="'+(isDiv?esc(TIPS.divergent):esc(TIPS.uniform))+'">'+statusText+'</td>';
+      if(divCount>0){
+        h+='<td class="mono"><span class="btn btn-ac" data-tip="Click to see per-cluster values for each divergent field" onclick="event.stopPropagation();showScannerDivergences(\''+k+'\')">'+divCount+' details</span></td>';
+      }else{
+        h+='<td class="mono" style="color:var(--t3)">0</td>';
+      }
+      h+='</tr>';
+    });
+    h+='</tbody></table>';
+    h+='<div id="scannerDivDetail"></div>';
+  } else if(type==='critical'||type==='warning'){
+    h+=type.charAt(0).toUpperCase()+type.slice(1)+' findings</h4>'+close+'</div>';
+    var filtered=(rpt.findings||[]).filter(function(f){return f.severity===type});
+    if(!filtered.length){h+='<div style="color:var(--t2);font-size:12px;padding:8px 0">None found.</div>';}
+    else{filtered.forEach(function(f){h+=renderFinding(f)})}
+    h+='<div style="margin-top:8px"><a style="font-size:12px" onclick="nav(\'findings\')">View all findings &rarr;</a></div>';
+  }
+  h+='</div>';
+  el.innerHTML=h;
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
+};
+
+// Show per-field, per-cluster divergence detail for a specific scanner.
+window.showScannerDivergences=function(scannerKey){
+  var rpt=window._dashReport;if(!rpt)return;
+  var sec=rpt.sections[scannerKey];if(!sec||!sec.divergences)return;
+  var el=document.getElementById('scannerDivDetail');if(!el)return;
+  var clusters=rpt.clusters||[];
+
+  var h='<div style="margin-top:12px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  h+='<h4 style="font-size:13px">'+(_scannerLabels[scannerKey]||scannerKey)+' divergences</h4>';
+  h+='<a style="font-size:11px;cursor:pointer" onclick="document.getElementById(\'scannerDivDetail\').innerHTML=\'\'">Close</a></div>';
+
+  h+='<table><thead><tr><th style="width:80px" data-tip="'+esc(TIPS.sev_critical)+'">Severity</th><th style="width:130px">Field</th>';
+  clusters.forEach(function(c){
+    h+='<th><a style="cursor:pointer" data-tip="Click to view full cluster detail" onclick="nav(\'detail\',{cluster:\''+esc(c)+'\'})">'+esc(c)+'</a></th>';
+  });
+  h+='</tr></thead><tbody>';
+
+  sec.divergences.forEach(function(d){
+    var sevC=d.severity==='critical'?'var(--cr)':d.severity==='warning'?'var(--wn)':'var(--ac)';
+    var sevTip=TIPS['sev_'+d.severity]||'';
+    var fieldTip=TIPS[d.field]||'';
+    h+='<tr>';
+    h+='<td data-tip="'+esc(sevTip)+'"><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:7px;height:7px;border-radius:50%;background:'+sevC+';display:inline-block"></span><span style="font-size:11px">'+d.severity+'</span></span></td>';
+    h+='<td style="font-weight:500"'+(fieldTip?' data-tip="'+esc(fieldTip)+'"':'')+'>'+esc(d.field)+'</td>';
+    clusters.forEach(function(c){
+      var val=d.values&&d.values[c]?d.values[c]:'-';
+      var first=d.values&&d.values[clusters[0]]?d.values[clusters[0]]:'';
+      var isDiff=val!==first&&val!=='-';
+      var style='class="mono"';
+      if(isDiff)style='class="mono" style="color:var(--cr);font-weight:600"';
+      h+='<td '+style+'>'+esc(val)+'</td>';
+    });
+    h+='</tr>';
+  });
+
+  h+='</tbody></table>';
+  h+='</div>';
+  el.innerHTML=h;
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
+};
+
+// Threshold color: green < 70, yellow 70-85, red > 85.
+function threshColor(v){return v>85?'#f85149':v>70?'#d29922':'#3fb950'}
+
+function miniGauge(id,val,label){
+  var el=document.getElementById(id);if(!el||typeof Chart==='undefined')return;
+  var v=val||0;
+  makeChart(id,{type:'doughnut',data:{datasets:[{data:[v,100-v],backgroundColor:[threshColor(v),'#21262d'],borderWidth:0}]},options:{responsive:false,cutout:'70%',rotation:-90,circumference:180,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(){return label+': '+Math.round(v)+'%'}}}},animation:{animateRotate:true}}});
+}
+
+function barChart(id,labels,data,colors,bgColors,suffix,max){
+  makeChart(id,{type:'bar',data:{labels:labels,datasets:[{data:data,backgroundColor:bgColors,borderColor:colors,borderWidth:2,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return c.raw+(suffix||'')}}}},scales:{y:{beginAtZero:true,max:max||undefined,grid:{color:'#21262d'},ticks:{callback:function(v){return v+(suffix||'')}}},x:{grid:{display:false}}}}});
+}
+
+// === CLUSTER DETAIL ===
+async function renderDetail(){
+  renderBar('<span class="btn btn-ac" onclick="exportClusterCSV()">Export all data</span> <span class="btn" onclick="exportClusterEvents()">Export events</span>');
+  var c=P.cluster;
+  var data=await api('/clusters/'+encodeURIComponent(c)+'/detail');
+  var sd=data.scanner_data||{};
+  var ch=data.health;
+  var h='<span class="back" onclick="nav(\'dash\')">&larr; Back to dashboard</span>';
+  h+='<h2>'+esc(c)+'</h2>';
+
+  // Status bar.
+  if(ch){
+    var color=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
+    h+='<p class="sub" style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+color+'"></span><b>'+ch.status+'</b> &middot; '+esc(ch.kubernetes_version)+' &middot; '+ch.node_count+' nodes &middot; CPU '+pct(ch.avg_cpu)+' &middot; Mem '+pct(ch.avg_memory)+' &middot; '+ch.warning_events+' warning events</p>';
+  }
+
+  // Gauges.
+  if(ch){
+    h+='<div class="g" style="grid-template-columns:repeat(4,1fr)">';
+    h+='<div class="chc"><h4>CPU</h4><canvas id="detCpu" height="120"></canvas></div>';
+    h+='<div class="chc"><h4>Memory</h4><canvas id="detMem" height="120"></canvas></div>';
+    h+='<div class="chc"><h4>Nodes</h4><canvas id="detNodes" height="120"></canvas></div>';
+    h+='<div class="chc"><h4>Security posture</h4><canvas id="detSec" height="120"></canvas></div>';
+    h+='</div>';
+  }
+
+  // Findings.
+  if(data.findings&&data.findings.length){
+    h+='<h3>Findings ('+data.findings.length+')</h3>';
+    data.findings.forEach(function(f){h+=renderFinding(f)});
+  }
+
+  // === SECTIONS ===
+  function sec(title,id,content){return '<div class="dsec open" id="dsec-'+id+'"><div class="dsec-h" onclick="this.parentElement.classList.toggle(\'open\')"><h4>'+title+'</h4><span class="chev" style="transform:rotate(90deg)">&#9654;</span></div><div class="dsec-b">'+content+'</div></div>'}
+
+  // Version.
+  if(sd.version){
+    var v=sd.version;
+    h+=sec('Kubernetes Version','version','<div class="g g6"><div class="cd st"><div class="v" style="color:var(--ac)">'+esc(v.git_version)+'</div><div class="l">Version</div></div><div class="cd st"><div class="v">'+esc(v.platform)+'</div><div class="l">Platform</div></div></div>');
+  }
+
+  // Node health.
+  if(sd['node-health']){
+    var nh=sd['node-health'];
+    var nhc='<div class="g g6" style="margin-bottom:10px">';
+    nhc+='<div class="cd st" data-tip="'+esc(TIPS.healthy_nodes)+'"><div class="v" style="color:var(--ok)">'+nh.healthy_nodes+'</div><div class="l">Healthy</div></div>';
+    nhc+='<div class="cd st" data-tip="'+esc(TIPS.unhealthy_nodes)+'"><div class="v" style="color:'+(nh.unhealthy_nodes?'var(--cr)':'var(--ok)')+'">'+nh.unhealthy_nodes+'</div><div class="l">Unhealthy</div></div>';
+    nhc+='<div class="cd st" data-tip="'+esc(TIPS.memory_pressure_nodes)+'"><div class="v" style="color:'+(nh.memory_pressure_nodes?'var(--cr)':'var(--ok)')+'">'+nh.memory_pressure_nodes+'</div><div class="l">Mem pressure</div></div>';
+    nhc+='<div class="cd st" data-tip="'+esc(TIPS.disk_pressure_nodes)+'"><div class="v" style="color:'+(nh.disk_pressure_nodes?'var(--cr)':'var(--ok)')+'">'+nh.disk_pressure_nodes+'</div><div class="l">Disk pressure</div></div>';
+    nhc+='<div class="cd st" data-tip="'+esc(TIPS.not_ready_nodes)+'"><div class="v" style="color:'+(nh.not_ready_nodes?'var(--cr)':'var(--ok)')+'">'+nh.not_ready_nodes+'</div><div class="l">Not ready</div></div>';
+    nhc+='<div class="cd st" data-tip="'+esc(TIPS.unschedulable_nodes)+'"><div class="v" style="color:'+(nh.unschedulable_nodes?'var(--wn)':'var(--ok)')+'">'+nh.unschedulable_nodes+'</div><div class="l">Cordoned</div></div>';
+    nhc+='</div>';
+    if(nh.nodes&&nh.nodes.length){
+      nhc+='<table><thead><tr><th>Node</th><th>Ready</th><th>Mem pressure</th><th>Disk pressure</th><th>PID pressure</th><th>Net unavailable</th><th>Cordoned</th></tr></thead><tbody>';
+      nh.nodes.forEach(function(n){
+        nhc+='<tr><td style="font-weight:500" class="mono">'+esc(n.name)+'</td>';
+        nhc+='<td style="color:'+(n.ready?'var(--ok)':'var(--cr)')+'">'+n.ready+'</td>';
+        nhc+='<td style="color:'+(n.memory_pressure?'var(--cr)':'var(--ok)')+'">'+n.memory_pressure+'</td>';
+        nhc+='<td style="color:'+(n.disk_pressure?'var(--cr)':'var(--ok)')+'">'+n.disk_pressure+'</td>';
+        nhc+='<td style="color:'+(n.pid_pressure?'var(--cr)':'var(--ok)')+'">'+n.pid_pressure+'</td>';
+        nhc+='<td style="color:'+(n.network_unavailable?'var(--cr)':'var(--ok)')+'">'+n.network_unavailable+'</td>';
+        nhc+='<td style="color:'+(n.unschedulable?'var(--wn)':'var(--ok)')+'">'+n.unschedulable+'</td></tr>';
+      });
+      nhc+='</tbody></table>';
+    }
+    h+=sec('Node Health ('+nh.node_count+' nodes)','node-health',nhc);
+  }
+
+  // Metrics.
+  if(sd.metrics&&sd.metrics.available){
+    var m=sd.metrics;
+    var mc='<div class="g g6">';
+    mc+='<div class="cd st" data-tip="'+esc(TIPS.avg_cpu_percent)+'"><div class="v" style="color:'+threshColor(m.avg_cpu_percent)+'">'+Math.round(m.avg_cpu_percent)+'%</div><div class="l">Avg CPU</div></div>';
+    mc+='<div class="cd st" data-tip="'+esc(TIPS.max_cpu_percent)+'"><div class="v" style="color:'+threshColor(m.max_cpu_percent)+'">'+Math.round(m.max_cpu_percent)+'%</div><div class="l">Peak CPU ('+esc(m.max_cpu_node)+')</div></div>';
+    mc+='<div class="cd st" data-tip="'+esc(TIPS.avg_memory_percent)+'"><div class="v" style="color:'+threshColor(m.avg_memory_percent)+'">'+Math.round(m.avg_memory_percent)+'%</div><div class="l">Avg Mem</div></div>';
+    mc+='<div class="cd st" data-tip="'+esc(TIPS.max_memory_percent)+'"><div class="v" style="color:'+threshColor(m.max_memory_percent)+'">'+Math.round(m.max_memory_percent)+'%</div><div class="l">Peak Mem ('+esc(m.max_memory_node)+')</div></div>';
+    mc+='</div>';
+    if(m.nodes&&m.nodes.length){
+      mc+='<table><thead><tr><th>Node</th><th>CPU usage</th><th>CPU %</th><th>Memory usage</th><th>Memory %</th></tr></thead><tbody>';
+      m.nodes.forEach(function(n){
+        mc+='<tr><td style="font-weight:500" class="mono">'+esc(n.name)+'</td>';
+        mc+='<td class="mono">'+esc(n.cpu_usage)+'</td>';
+        mc+='<td class="mono" style="color:'+threshColor(n.cpu_percent)+'">'+(n.cpu_percent>=0?Math.round(n.cpu_percent)+'%':'N/A')+'</td>';
+        mc+='<td class="mono">'+esc(n.memory_usage)+'</td>';
+        mc+='<td class="mono" style="color:'+threshColor(n.memory_percent)+'">'+(n.memory_percent>=0?Math.round(n.memory_percent)+'%':'N/A')+'</td></tr>';
+      });
+      mc+='</tbody></table>';
+    }
+    h+=sec('Resource Utilization','metrics',mc);
+  }
+
+  // Resources.
+  if(sd.resources){
+    var r=sd.resources;
+    var rc='<div class="g g6">';
+    rc+='<div class="cd st"><div class="v">'+r.node_count+'</div><div class="l">Nodes</div></div>';
+    rc+='<div class="cd st"><div class="v">'+r.ready_nodes+'</div><div class="l">Ready</div></div>';
+    rc+='<div class="cd st"><div class="v">'+esc(r.total_allocatable_cpu)+'</div><div class="l">Total CPU</div></div>';
+    rc+='<div class="cd st"><div class="v">'+esc(r.total_allocatable_memory)+'</div><div class="l">Total memory</div></div>';
+    rc+='</div>';
+    if(r.nodes&&r.nodes.length){
+      rc+='<table><thead><tr><th>Node</th><th>Alloc. CPU</th><th>Alloc. memory</th><th>Capacity CPU</th><th>Capacity memory</th><th>Cordoned</th></tr></thead><tbody>';
+      r.nodes.forEach(function(n){
+        rc+='<tr><td class="mono" style="font-weight:500">'+esc(n.name)+'</td><td class="mono">'+esc(n.allocatable_cpu)+'</td><td class="mono">'+esc(n.allocatable_memory)+'</td><td class="mono">'+esc(n.capacity_cpu)+'</td><td class="mono">'+esc(n.capacity_memory)+'</td><td style="color:'+(n.unschedulable?'var(--wn)':'var(--ok)')+'">'+n.unschedulable+'</td></tr>';
+      });
+      rc+='</tbody></table>';
+    }
+    h+=sec('Node Resources','resources',rc);
+  }
+
+  // Events.
+  if(sd.events){
+    var ev=sd.events;
+    var ec='<div class="g g3" style="margin-bottom:10px"><div class="cd st"><div class="v">'+ev.total_events+'</div><div class="l">Total events</div></div><div class="cd st"><div class="v" style="color:'+(ev.warning_events>50?'var(--cr)':ev.warning_events>0?'var(--wn)':'var(--ok)')+'">'+ev.warning_events+'</div><div class="l">Warnings</div></div><div class="cd st"><div class="v" style="color:var(--ok)">'+ev.normal_events+'</div><div class="l">Normal</div></div></div>';
+    if(ev.top_warning_reasons&&ev.top_warning_reasons.length){
+      ec+='<h4 style="font-size:12px;margin:8px 0 4px">Top warning reasons</h4>';
+      ec+='<table><thead><tr><th>Reason</th><th data-tip="Total occurrences across all events with this reason">Total count</th><th data-tip="Number of distinct event objects">Distinct events</th></tr></thead><tbody>';
+      ev.top_warning_reasons.forEach(function(r){
+        ec+='<tr><td style="font-weight:500;color:var(--wn)">'+esc(r.reason)+'</td><td class="mono">'+r.count+'</td><td class="mono">'+r.event_count+'</td></tr>';
+      });
+      ec+='</tbody></table>';
+    }
+    if(ev.recent_warnings&&ev.recent_warnings.length){
+      ec+='<h4 style="font-size:12px;margin:12px 0 4px">Recent warning events ('+ev.recent_warnings.length+')</h4>';
+      ec+='<input type="search" id="evSearch" placeholder="Filter events..." style="margin-bottom:6px;background:var(--c2);border:1px solid var(--bd);border-radius:5px;padding:4px 8px;color:var(--tx);font-size:11px;width:200px">';
+      ec+='<div class="tw"><table id="evTable"><thead><tr><th>Namespace</th><th>Kind</th><th>Object</th><th>Reason</th><th>Message</th><th>Count</th><th>Last seen</th></tr></thead><tbody>';
+      ev.recent_warnings.forEach(function(e){
+        var txt=[e.namespace,e.kind,e.involved_object,e.reason,e.message].join(' ').toLowerCase();
+        ec+='<tr data-evtext="'+esc(txt)+'"><td class="mono">'+esc(e.namespace)+'</td><td>'+esc(e.kind)+'</td><td class="mono">'+esc(e.involved_object)+'</td><td style="color:var(--wn);font-weight:500">'+esc(e.reason)+'</td><td style="max-width:350px;font-size:11px;color:var(--t2)">'+esc(e.message)+'</td><td class="mono">'+e.count+'</td><td class="mono" style="white-space:nowrap">'+esc(e.last_seen)+'</td></tr>';
+      });
+      ec+='</tbody></table></div>';
+    }
+    h+=sec('Events','events',ec);
+  }
+
+  // Security.
+  if(sd.security){
+    var s=sd.security;
+    var sc2='<div class="g g3" style="margin-bottom:10px">';
+    sc2+='<div class="cd st" data-tip="'+esc(TIPS.enforced_count)+'"><div class="v" style="color:var(--ok)">'+(s.enforced_count||0)+'</div><div class="l">PSS enforced</div></div>';
+    sc2+='<div class="cd st" data-tip="'+esc(TIPS.unenforced_count)+'"><div class="v" style="color:'+(s.unenforced_count?'var(--wn)':'var(--ok)')+'">'+s.unenforced_count+'</div><div class="l">Unenforced</div></div>';
+    sc2+='<div class="cd st"><div class="v">'+s.namespace_count+'</div><div class="l">Namespaces</div></div>';
+    sc2+='</div>';
+    if(s.namespaces&&s.namespaces.length){
+      sc2+='<table><thead><tr><th>Namespace</th><th data-tip="Pod Security Standards enforce level">Enforce</th><th>Enforce version</th><th data-tip="Audit mode level">Audit</th><th data-tip="Warning mode level">Warn</th></tr></thead><tbody>';
+      s.namespaces.forEach(function(ns){
+        var eColor=ns.enforce?'var(--ok)':'var(--wn)';
+        sc2+='<tr><td style="font-weight:500" class="mono">'+esc(ns.namespace)+'</td>';
+        sc2+='<td style="color:'+eColor+'">'+(ns.enforce||'none')+'</td>';
+        sc2+='<td class="mono">'+(ns.enforce_version||'')+'</td>';
+        sc2+='<td>'+(ns.audit||'')+'</td>';
+        sc2+='<td>'+(ns.warn||'')+'</td></tr>';
+      });
+      sc2+='</tbody></table>';
+    }
+    h+=sec('Pod Security Standards','security',sc2);
+  }
+
+  // Network policies.
+  if(sd['network-policies']){
+    var np=sd['network-policies'];
+    var npc='<div class="g g3" style="margin-bottom:10px">';
+    npc+='<div class="cd st"><div class="v">'+np.count+'</div><div class="l">Policies</div></div>';
+    npc+='<div class="cd st" data-tip="'+esc(TIPS.namespaces_with_policies)+'"><div class="v" style="color:var(--ok)">'+np.namespaces_with_policies+'</div><div class="l">Covered namespaces</div></div>';
+    npc+='<div class="cd st" data-tip="'+esc(TIPS.namespaces_without_policies)+'"><div class="v" style="color:'+(np.namespaces_without_policies?'var(--wn)':'var(--ok)')+'">'+np.namespaces_without_policies+'</div><div class="l">Uncovered namespaces</div></div>';
+    npc+='</div>';
+    if(np.policies&&np.policies.length){
+      npc+='<table><thead><tr><th>Namespace</th><th>Policy name</th><th data-tip="Ingress, Egress, or both">Types</th><th>Ingress rules</th><th>Egress rules</th></tr></thead><tbody>';
+      np.policies.forEach(function(p){
+        npc+='<tr><td class="mono">'+esc(p.namespace)+'</td><td style="font-weight:500" class="mono">'+esc(p.name)+'</td><td>'+(p.policy_types?p.policy_types.join(', '):'')+'</td><td class="mono">'+p.ingress_rule_count+'</td><td class="mono">'+p.egress_rule_count+'</td></tr>';
+      });
+      npc+='</tbody></table>';
+    }
+    h+=sec('Network Policies','network-policies',npc);
+  }
+
+  // RBAC.
+  if(sd.rbac){
+    var rb=sd.rbac;
+    var rbc='<div class="g g6" style="margin-bottom:10px">';
+    rbc+='<div class="cd st"><div class="v">'+rb.cluster_role_count+'</div><div class="l">ClusterRoles</div></div>';
+    rbc+='<div class="cd st"><div class="v">'+rb.role_count+'</div><div class="l">Roles</div></div>';
+    rbc+='<div class="cd st"><div class="v">'+rb.cluster_role_binding_count+'</div><div class="l">ClusterRoleBindings</div></div>';
+    rbc+='<div class="cd st"><div class="v">'+rb.role_binding_count+'</div><div class="l">RoleBindings</div></div>';
+    rbc+='</div>';
+    if(rb.roles&&rb.roles.length){
+      rbc+='<h4 style="font-size:12px;margin:8px 0 4px">Roles ('+rb.roles.length+')</h4>';
+      rbc+='<table><thead><tr><th>Kind</th><th>Namespace</th><th>Name</th><th data-tip="Number of RBAC policy rules">Rules</th></tr></thead><tbody>';
+      rb.roles.forEach(function(r){
+        rbc+='<tr><td>'+esc(r.kind)+'</td><td class="mono">'+(r.namespace||'cluster-wide')+'</td><td style="font-weight:500" class="mono">'+esc(r.name)+'</td><td class="mono">'+r.rule_count+'</td></tr>';
+      });
+      rbc+='</tbody></table>';
+    }
+    if(rb.bindings&&rb.bindings.length){
+      rbc+='<h4 style="font-size:12px;margin:12px 0 4px">Bindings ('+rb.bindings.length+')</h4>';
+      rbc+='<table><thead><tr><th>Kind</th><th>Namespace</th><th>Name</th><th>Role ref</th><th data-tip="Number of subjects (users, groups, service accounts) bound">Subjects</th></tr></thead><tbody>';
+      rb.bindings.forEach(function(b){
+        rbc+='<tr><td>'+esc(b.kind)+'</td><td class="mono">'+(b.namespace||'cluster-wide')+'</td><td style="font-weight:500" class="mono">'+esc(b.name)+'</td><td class="mono">'+esc(b.role_ref)+'</td><td class="mono">'+b.subject_count+'</td></tr>';
+      });
+      rbc+='</tbody></table>';
+    }
+    h+=sec('RBAC','rbac',rbc);
+  }
+
+  // Namespaces.
+  if(sd.namespaces){
+    var ns=sd.namespaces;
+    var nsc='<div class="cd st" style="display:inline-block;margin-bottom:10px"><div class="v">'+ns.count+'</div><div class="l">Namespaces</div></div>';
+    if(ns.names&&ns.names.length){
+      nsc+='<table><thead><tr><th>Namespace</th><th>Labels</th></tr></thead><tbody>';
+      ns.names.forEach(function(n){
+        var lbls=ns.labels&&ns.labels[n]?Object.entries(ns.labels[n]).map(function(e){return e[0]+'='+e[1]}).join(', '):'';
+        nsc+='<tr><td style="font-weight:500" class="mono">'+esc(n)+'</td><td style="font-size:11px;color:var(--t2)">'+(lbls||'none')+'</td></tr>';
+      });
+      nsc+='</tbody></table>';
+    }
+    h+=sec('Namespaces ('+ns.count+')','namespaces',nsc);
+  }
+
+  // Services.
+  if(sd.services){
+    var sv=sd.services;
+    var svc='<div class="cd st" style="display:inline-block;margin-bottom:10px"><div class="v">'+sv.count+'</div><div class="l">Services</div></div>';
+    if(sv.services&&sv.services.length){
+      svc+='<table><thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>Ports</th></tr></thead><tbody>';
+      sv.services.forEach(function(s){
+        var ports=(s.ports||[]).map(function(p){return(p.name?p.name+':':'')+p.port+'/'+p.protocol}).join(', ');
+        svc+='<tr><td class="mono">'+esc(s.namespace)+'</td><td style="font-weight:500" class="mono">'+esc(s.name)+'</td><td>'+esc(s.type)+'</td><td class="mono" style="font-size:11px">'+esc(ports)+'</td></tr>';
+      });
+      svc+='</tbody></table>';
+    }
+    h+=sec('Services ('+sv.count+')','services',svc);
+  }
+
+  // Ingresses.
+  if(sd.ingresses){
+    var ig=sd.ingresses;
+    var igc='<div class="cd st" style="display:inline-block;margin-bottom:10px"><div class="v">'+ig.count+'</div><div class="l">Ingresses</div></div>';
+    if(ig.ingresses&&ig.ingresses.length){
+      igc+='<table><thead><tr><th>Namespace</th><th>Name</th><th>Class</th><th>Hosts</th><th>TLS</th></tr></thead><tbody>';
+      ig.ingresses.forEach(function(i){
+        igc+='<tr><td class="mono">'+esc(i.namespace)+'</td><td style="font-weight:500" class="mono">'+esc(i.name)+'</td><td>'+esc(i.ingress_class_name||'default')+'</td><td class="mono" style="font-size:11px">'+(i.hosts?i.hosts.join(', '):'')+'</td><td style="color:'+(i.tls?'var(--ok)':'var(--wn)')+'">'+(i.tls?'yes':'no')+'</td></tr>';
+      });
+      igc+='</tbody></table>';
+    }
+    h+=sec('Ingresses ('+ig.count+')','ingresses',igc);
+  }
+
+  // Resource quotas.
+  if(sd['resource-quotas']){
+    var rq=sd['resource-quotas'];
+    var rqc='<div class="g g3" style="margin-bottom:10px"><div class="cd st"><div class="v">'+rq.quota_count+'</div><div class="l">Quotas</div></div><div class="cd st"><div class="v">'+rq.limit_range_count+'</div><div class="l">Limit ranges</div></div><div class="cd st"><div class="v">'+rq.namespaces_with_quotas+'</div><div class="l">NS with quotas</div></div></div>';
+    if(rq.quotas&&rq.quotas.length){
+      rqc+='<table><thead><tr><th>Namespace</th><th>Name</th><th>Hard limits</th><th>Current usage</th></tr></thead><tbody>';
+      rq.quotas.forEach(function(q){
+        var hard=q.hard?Object.entries(q.hard).map(function(e){return e[0]+': '+e[1]}).join(', '):'';
+        var used=q.used?Object.entries(q.used).map(function(e){return e[0]+': '+e[1]}).join(', '):'';
+        rqc+='<tr><td class="mono">'+esc(q.namespace)+'</td><td style="font-weight:500" class="mono">'+esc(q.name)+'</td><td style="font-size:11px">'+esc(hard)+'</td><td style="font-size:11px;color:var(--t2)">'+esc(used)+'</td></tr>';
+      });
+      rqc+='</tbody></table>';
+    }
+    h+=sec('Resource Quotas','resource-quotas',rqc);
+  }
+
+  // CRDs.
+  if(sd.crds){
+    var cr=sd.crds;
+    var crc='<div class="cd st" style="display:inline-block;margin-bottom:10px"><div class="v">'+cr.count+'</div><div class="l">CRDs</div></div>';
+    if(cr.crds&&cr.crds.length){
+      crc+='<table><thead><tr><th>Name</th><th>Group</th><th>Versions</th><th data-tip="Namespaced or Cluster scope">Scope</th></tr></thead><tbody>';
+      cr.crds.forEach(function(c){
+        crc+='<tr><td style="font-weight:500" class="mono">'+esc(c.name)+'</td><td class="mono">'+esc(c.group)+'</td><td class="mono">'+(c.versions?c.versions.join(', '):'')+'</td><td>'+esc(c.scope)+'</td></tr>';
+      });
+      crc+='</tbody></table>';
+    }
+    h+=sec('Custom Resource Definitions ('+cr.count+')','crds',crc);
+  }
+
+  window._clusterDetail=data;
+
+  return {html:h,post:function(){
+    // Event search filter.
+    var evs=document.getElementById('evSearch');
+    if(evs){evs.oninput=function(){
+      var q=evs.value.toLowerCase();
+      document.querySelectorAll('#evTable tbody tr').forEach(function(r){
+        r.style.display=(!q||r.dataset.evtext.indexOf(q)>=0)?'':'none';
+      });
+    }}
+
+    if(!ch||typeof Chart==='undefined')return;
+    Chart.defaults.color='#8b949e';
+    function gauge(id,val,label,c1,c2){
+      makeChart(id,{type:'doughnut',data:{labels:[label,'Free'],datasets:[{data:[val,100-val],backgroundColor:[c1,'#21262d'],borderWidth:0}]},options:{cutout:'72%',plugins:{legend:{display:false},tooltip:{enabled:true}},animation:{animateRotate:true}},plugins:[{id:'g_'+id,afterDraw:function(chart){var ctx=chart.ctx,w=chart.width/2,ht=chart.height/2+8;ctx.save();ctx.textAlign='center';ctx.fillStyle='#e6edf3';ctx.font='bold 22px -apple-system,sans-serif';ctx.fillText(Math.round(val)+'%',w,ht);ctx.font='11px -apple-system,sans-serif';ctx.fillStyle='#8b949e';ctx.fillText(label,w,ht+16);ctx.restore()}}]});
+    }
+    gauge('detCpu',ch.avg_cpu,'CPU',threshColor(ch.avg_cpu));
+    gauge('detMem',ch.avg_memory,'Memory',threshColor(ch.avg_memory));
+    // Node health donut.
+    makeChart('detNodes',{type:'doughnut',data:{labels:['Healthy','Unhealthy'],datasets:[{data:[ch.healthy_nodes,ch.node_count-ch.healthy_nodes],backgroundColor:['#3fb950','#f85149'],borderWidth:0}]},options:{cutout:'72%',plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:6}},tooltip:{enabled:true}}},plugins:[{id:'gn',afterDraw:function(chart){var ctx=chart.ctx,w=chart.width/2,ht=chart.height/2;ctx.save();ctx.textAlign='center';ctx.fillStyle='#e6edf3';ctx.font='bold 20px -apple-system,sans-serif';ctx.fillText(ch.healthy_nodes+'/'+ch.node_count,w,ht);ctx.font='11px -apple-system,sans-serif';ctx.fillStyle='#8b949e';ctx.fillText('Nodes',w,ht+14);ctx.restore()}}]});
+    // Security posture donut.
+    var enf=sd.security?sd.security.enforced_count||0:0;
+    var unenf=sd.security?sd.security.unenforced_count||0:0;
+    if(enf+unenf>0){
+      makeChart('detSec',{type:'doughnut',data:{labels:['Enforced','Unenforced'],datasets:[{data:[enf,unenf],backgroundColor:['#3fb950',unenf?'#d29922':'#3fb950'],borderWidth:0}]},options:{cutout:'72%',plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:6}},tooltip:{enabled:true}}},plugins:[{id:'gs',afterDraw:function(chart){var ctx=chart.ctx,w=chart.width/2,ht=chart.height/2;ctx.save();ctx.textAlign='center';ctx.fillStyle='#e6edf3';ctx.font='bold 20px -apple-system,sans-serif';ctx.fillText(enf+'/'+(enf+unenf),w,ht);ctx.font='11px -apple-system,sans-serif';ctx.fillStyle='#8b949e';ctx.fillText('PSS',w,ht+14);ctx.restore()}}]});
+    }
+  }};
+}
+
+window.exportClusterCSV=function(){
+  var d=window._clusterDetail;if(!d)return;
+  var rows=[];
+  Object.keys(d.scanner_data||{}).forEach(function(s){
+    var sd=d.scanner_data[s];
+    Object.keys(sd).forEach(function(k){
+      var v=sd[k];
+      if(typeof v==='object')v=JSON.stringify(v);
+      rows.push([d.cluster,s,k,v]);
+    });
+  });
+  csvExport('fleetsweeper-'+d.cluster+'.csv',['Cluster','Scanner','Field','Value'],rows);
+};
+
+window.exportClusterEvents=function(){
+  var d=window._clusterDetail;if(!d||!d.scanner_data||!d.scanner_data.events)return;
+  var ev=d.scanner_data.events;
+  var rows=[];
+  if(ev.recent_warnings){
+    ev.recent_warnings.forEach(function(e){
+      rows.push([e.namespace,e.kind,e.involved_object,e.reason,e.message,e.count,e.first_seen,e.last_seen]);
+    });
+  }
+  csvExport('fleetsweeper-events-'+d.cluster+'.csv',['Namespace','Kind','Object','Reason','Message','Count','First Seen','Last Seen'],rows);
+};
+
+// === FINDINGS PAGE ===
+async function renderFindings(){
+  renderBar('<span class="btn btn-ac" onclick="exportFindings()">Export CSV</span>');
+  var scans=await api('/scans?limit=1');
+  if(!scans||!scans.length)return '<div class="empty">No scans.</div>';
+  var rpt=await api('/scans/'+scans[0].id+'/report');
+  window._findings=rpt.findings||[];
+  var h='<h2>All findings</h2><p class="sub">'+window._findings.length+' findings from latest scan</p>';
+  if(!window._findings.length)return h+'<div class="empty">No findings. Fleet is healthy.</div>';
+  window._findings.forEach(function(f){h+=renderFinding(f)});
+  return {html:h,post:bindFindingFilters};
+}
+
+window.exportFindings=function(){
+  var ff=window._findings||[];
+  csvExport('fleetsweeper-findings.csv',['Severity','Cluster','Scanner','Title','Description'],ff.map(function(f){return[f.severity,f.cluster,f.scanner,f.title,f.description]}));
+};
+
+// === SCANS ===
+async function renderScans(){
+  renderBar();
+  var scans=await api('/scans?limit=50');
+  var h='<h2>Scan history</h2>';
+  if(!scans||!scans.length)return h+'<div class="empty">No scans recorded.</div>';
+  scans.forEach(function(s){
+    var ts=new Date(s.timestamp).toLocaleString();
+    h+='<div class="si"><div><span class="id" onclick="nav(\'scanReport\',{scanId:\''+esc(s.id)+'\'})">'+esc(s.id)+'</span><br><span class="meta">'+esc(ts)+' &middot; '+(s.clusters?s.clusters.length:0)+' clusters &middot; '+(s.scanners?s.scanners.length:0)+' scanners</span></div></div>';
+  });
+  return h;
+}
+
+// === SCAN REPORT ===
+async function renderScanReport(){
+  renderBar();
+  var rpt=await api('/scans/'+P.scanId+'/report');
+  var h='<span class="back" onclick="nav(\'scans\')">&larr; Back to scan history</span>';
+  h+='<h2>Scan report</h2><p class="sub">'+esc(rpt.timestamp)+' &middot; '+rpt.clusters.length+' clusters</p>';
+  if(rpt.findings&&rpt.findings.length){
+    h+='<h3>Findings ('+rpt.findings.length+')</h3>';
+    rpt.findings.forEach(function(f){h+=renderFinding(f)});
+  }
+  if(rpt.cluster_healths&&rpt.cluster_healths.length){
+    h+='<h3>Cluster health</h3><div class="g g3">';
+    rpt.cluster_healths.forEach(function(ch){
+      var color=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
+      h+='<div class="cd cc" onclick="nav(\'detail\',{cluster:\''+esc(ch.name)+'\'})">';
+      h+='<div class="ind" style="background:'+color+'"></div>';
+      h+='<h4>'+esc(ch.name)+'</h4>';
+      h+='<div class="row"><span>'+esc(ch.kubernetes_version)+'</span><span class="val">'+ch.healthy_nodes+'/'+ch.node_count+' nodes</span></div>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  return h;
+}
+
+// === TRENDS ===
+async function renderTrends(){
+  renderBar();
+  var data=await api('/trends?scans=20');
+  var h='<h2>Fleet trends</h2>';
+  if(data.message)return h+'<div class="empty">'+esc(data.message)+'</div>';
+  if(data.findings&&data.findings.length){
+    h+='<h3>Trend findings</h3>';
+    data.findings.forEach(function(f){h+=renderFinding(f)});
+  }
+  if(data.fleet_trends&&data.fleet_trends.length){
+    h+='<h3>Fleet drift over time</h3>';
+    h+='<table><thead><tr><th>Scanner</th><th>Field</th><th>Direction</th><th>Points</th><th>First value</th><th>Last value</th></tr></thead><tbody>';
+    data.fleet_trends.forEach(function(t){
+      var dc=t.direction==='worsening'?'var(--cr)':t.direction==='improving'?'var(--ok)':'var(--t2)';
+      var first=t.points&&t.points.length?t.points[0].value:'-';
+      var last=t.points&&t.points.length?t.points[t.points.length-1].value:'-';
+      h+='<tr><td>'+esc(t.scanner)+'</td><td>'+esc(t.field)+'</td><td style="color:'+dc+';font-weight:600">'+esc(t.direction)+'</td><td>'+(t.points?t.points.length:0)+'</td><td class="mono">'+first+'</td><td class="mono">'+last+'</td></tr>';
+    });
+    h+='</tbody></table>';
+  }
+  // TODO: line charts for trend data once we have enough scan history.
+  return h;
+}
+
+// === OUTLIERS ===
+async function renderCapacity(){
+  renderBar();
+  var data=await api('/capacity');
+  var h='<h2>Capacity analysis</h2><p class="sub">Signal-correlated assessment: utilization, pressure, events, and headroom combined</p>';
+  if(!data.capacity||!data.capacity.length)return h+'<div class="empty">No capacity data available.</div>';
+  h+='<div class="g g3">';
+  data.capacity.forEach(function(ca){
+    var color=ca.status==='critical'?'var(--cr)':ca.status==='strained'?'var(--wn)':ca.status==='busy'?'var(--ac)':'var(--ok)';
+    var bg=ca.status==='critical'?'rgba(248,81,73,.06)':ca.status==='strained'?'rgba(210,153,34,.06)':ca.status==='busy'?'rgba(88,166,255,.04)':'rgba(63,185,80,.04)';
+    h+='<div class="cd cc" onclick="nav(\'detail\',{cluster:\''+esc(ca.cluster)+'\'})">';
+    h+='<div class="ind" style="background:'+color+'"></div>';
+    h+='<h4 style="margin-left:6px;margin-bottom:2px">'+esc(ca.cluster)+'</h4>';
+    h+='<span class="badge" style="background:'+bg+';color:'+color+';margin-left:6px" data-tip="Status based on correlated signals, not just utilization">'+ca.status+'</span>';
+    h+='<div class="row"><span data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</span><span class="val" style="color:'+threshColor(ca.cpu_utilization)+'">'+pct(ca.cpu_utilization)+'</span></div>';
+    h+='<div class="row"><span data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</span><span class="val" style="color:'+threshColor(ca.memory_utilization)+'">'+pct(ca.memory_utilization)+'</span></div>';
+    h+='<div class="row"><span data-tip="Percentage of total capacity still unused">Headroom (mem)</span><span class="val">'+pct(ca.headroom_memory)+'</span></div>';
+    h+='<div class="row"><span>Nodes</span><span class="val">'+ca.healthy_nodes+'/'+ca.node_count+'</span></div>';
+    var signals=[];
+    if(ca.has_memory_pressure)signals.push('<span style="color:var(--cr)">MemPressure</span>');
+    if(ca.has_oom_events)signals.push('<span style="color:var(--cr)">OOMKill</span>');
+    if(ca.has_scheduling_failures)signals.push('<span style="color:var(--wn)">SchedFail</span>');
+    if(ca.has_disk_pressure)signals.push('<span style="color:var(--wn)">DiskPressure</span>');
+    if(!signals.length)signals.push('<span style="color:var(--ok)">None</span>');
+    h+='<div class="row"><span data-tip="Active pressure conditions and failure events">Signals</span><span class="val">'+signals.join(' ')+'</span></div>';
+    if(ca.nodes_needed_for_target>0)h+='<div class="row"><span data-tip="Additional nodes needed to bring memory below 70%">Scale recommendation</span><span class="val" style="color:var(--ac)">+'+ca.nodes_needed_for_target+' node(s)</span></div>';
+    h+='<div style="font-size:11px;color:var(--t2);margin-top:6px;padding:0 6px;line-height:1.3">'+esc(ca.recommendation)+'</div>';
+    if(ca.group_deviation)h+='<div style="font-size:11px;color:var(--t2);margin-top:4px;padding:0 6px;line-height:1.3;font-style:italic">'+esc(ca.group_deviation)+'</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  return h;
+}
+
+async function renderOutliers(){
+  renderBar();
+  var data=await api('/outliers');
+  var h='<h2>Outlier detection</h2><p class="sub">Clusters that deviate from fleet norms (latest scan)</p>';
+  if(!data.outliers||!data.outliers.length){
+    h+='<div class="empty">No outliers detected. Fleet is consistent.</div>';
+  }else{
+    h+='<table><thead><tr><th>Severity</th><th>Cluster</th><th>Scanner</th><th>Field</th><th>Value</th><th>Fleet norm</th><th data-tip="Modified z-score (standard deviations from median)">Deviation</th></tr></thead><tbody>';
+    data.outliers.forEach(function(o){
+      h+='<tr><td style="color:'+sc(o.severity)+'">'+o.severity+'</td><td style="font-weight:500"><a onclick="nav(\'detail\',{cluster:\''+esc(o.cluster)+'\'})">'+esc(o.cluster)+'</a></td><td>'+esc(o.scanner)+'</td><td>'+esc(o.field)+'</td><td class="mono">'+esc(o.value)+'</td><td class="mono">'+esc(o.fleet_norm)+'</td><td class="mono">'+(o.deviation?o.deviation.toFixed(1):'')+'</td></tr>';
+    });
+    h+='</tbody></table>';
+  }
+  if(data.findings&&data.findings.length){
+    h+='<h3>Findings from outlier analysis</h3>';
+    data.findings.forEach(function(f){h+=renderFinding(f)});
+  }
+  return h;
+}
+
+// === CLUSTERS ===
+async function renderClusters(){
+  renderBar('<span class="btn btn-ac" onclick="exportClustersCSV()">Export CSV</span>');
+  var clusters=await api('/clusters');
+  var h='<h2>Known clusters</h2>';
+  if(!clusters||!clusters.length)return h+'<div class="empty">No clusters scanned yet.</div>';
+
+  // Fetch latest report for health data.
+  var scans=await api('/scans?limit=1');
+  var healthMap={},rpt=null;
+  if(scans&&scans.length){
+    rpt=await api('/scans/'+scans[0].id+'/report');
+    if(rpt&&rpt.cluster_healths){
+      rpt.cluster_healths.forEach(function(ch){healthMap[ch.name]=ch});
+    }
+  }
+
+  h+='<p class="sub">'+clusters.length+' clusters tracked across '+(rpt?rpt.clusters.length:0)+' in latest scan</p>';
+
+  // Health cards view.
+  h+='<div class="g g3">';
+  clusters.forEach(function(c){
+    var ch=healthMap[c.name];
+    var color='var(--t3)',status='unknown',bg='rgba(139,148,158,.06)';
+    if(ch){
+      color=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
+      bg=ch.status==='critical'?'rgba(248,81,73,.06)':ch.status==='degraded'?'rgba(210,153,34,.06)':'rgba(63,185,80,.04)';
+      status=ch.status;
+    }
+    h+='<div class="cd cc" onclick="nav(\'detail\',{cluster:\''+esc(c.name)+'\'})" data-tip="Click for full cluster detail">';
+    h+='<div class="ind" style="background:'+color+'"></div>';
+    h+='<h4 style="margin-left:6px;margin-bottom:2px">'+esc(c.name)+'</h4>';
+    h+='<span class="badge" style="background:'+bg+';color:'+color+';margin-left:6px">'+status+'</span>';
+    if(ch){
+      h+='<div class="row"><span data-tip="'+esc(TIPS.git_version)+'">Version</span><span class="val">'+esc(ch.kubernetes_version||'N/A')+'</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.healthy_nodes)+'">Nodes</span><span class="val">'+ch.healthy_nodes+' / '+ch.node_count+' healthy</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</span><span class="val" '+(ch.avg_cpu>85?'style="color:var(--cr)"':ch.avg_cpu>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_cpu)+'</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</span><span class="val" '+(ch.avg_memory>85?'style="color:var(--cr)"':ch.avg_memory>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_memory)+'</span></div>';
+      h+='<div class="row"><span data-tip="'+esc(TIPS.warning_events)+'">Warning events</span><span class="val"'+(ch.warning_events>50?' style="color:var(--wn)"':'')+'>'+ch.warning_events+'</span></div>';
+      h+='<div class="row"><span>Findings</span><span class="val">'+(ch.finding_counts.critical||0)+' critical, '+(ch.finding_counts.warning||0)+' warn</span></div>';
+    }
+    h+='<div class="row"><span>Groups</span><span class="val">'+(c.groups&&c.groups.length?c.groups.join(', '):'none')+'</span></div>';
+    h+='<div class="row"><span>First seen</span><span class="val mono">'+new Date(c.first_seen).toLocaleDateString()+'</span></div>';
+    h+='<div class="row"><span>Last seen</span><span class="val mono">'+new Date(c.last_seen).toLocaleDateString()+'</span></div>';
+    h+='</div>';
+  });
+  h+='</div>';
+
+  // Comparison table: only color values that represent actual problems.
+  // Counts like node_count and namespace_count are expected to vary and should not be colored.
+  // Utilization percentages use threshold colors. Gap counts (unenforced, no-netpol) are colored
+  // because they represent missing security posture.
+  if(rpt&&rpt.cluster_healths&&rpt.cluster_healths.length>1){
+    // Use capacity analysis if available for smarter status.
+    var capMap={};
+    if(rpt.capacity){rpt.capacity.forEach(function(ca){capMap[ca.cluster]=ca})}
+
+    h+='<h3>Cluster comparison</h3>';
+    h+='<div class="tw"><table><thead><tr>';
+    h+='<th>Cluster</th>';
+    h+='<th data-tip="Correlated status: healthy, busy, strained, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>';
+    h+='<th data-tip="'+esc(TIPS.git_version)+'">Version</th>';
+    h+='<th data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>';
+    h+='<th data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</th>';
+    h+='<th data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</th>';
+    h+='<th data-tip="Percentage of memory capacity still unused. Lower headroom means less ability to absorb traffic spikes.">Headroom</th>';
+    h+='<th data-tip="Active pressure conditions or failure events detected on this cluster">Signals</th>';
+    h+='<th data-tip="Namespaces missing PSS enforce labels. A security gap, not expected to vary.">PSS gaps</th>';
+    h+='<th data-tip="Namespaces with no NetworkPolicy. A security gap, not expected to vary.">NetPol gaps</th>';
+    h+='<th data-tip="Number of critical and warning findings for this cluster">Findings</th>';
+    h+='</tr></thead><tbody>';
+
+    rpt.cluster_healths.forEach(function(ch){
+      var ca=capMap[ch.name]||{};
+      var status=ca.status||ch.status;
+      var stColor=status==='critical'?'var(--cr)':status==='strained'?'var(--wn)':status==='busy'?'var(--ac)':'var(--ok)';
+
+      var unenforced=0,npGaps=0;
+      if(rpt.sections.security&&rpt.sections.security.per_cluster[ch.name]){
+        unenforced=rpt.sections.security.per_cluster[ch.name].unenforced_count||0;
+      }
+      if(rpt.sections['network-policies']&&rpt.sections['network-policies'].per_cluster[ch.name]){
+        npGaps=rpt.sections['network-policies'].per_cluster[ch.name].namespaces_without_policies||0;
+      }
+
+      var headroom=ca.headroom_memory!=null?pct(ca.headroom_memory):'N/A';
+      var signals=[];
+      if(ca.has_memory_pressure)signals.push('MemPressure');
+      if(ca.has_oom_events)signals.push('OOMKill');
+      if(ca.has_scheduling_failures)signals.push('SchedFail');
+      if(ca.has_disk_pressure)signals.push('DiskPressure');
+
+      h+='<tr>';
+      h+='<td style="font-weight:500"><a onclick="nav(\'detail\',{cluster:\''+esc(ch.name)+'\'})">'+esc(ch.name)+'</a></td>';
+      h+='<td style="color:'+stColor+';font-weight:600" data-tip="'+esc(ca.recommendation||'')+'">'+status+'</td>';
+      h+='<td class="mono">'+esc(ch.kubernetes_version||'N/A')+'</td>';
+      h+='<td class="mono">'+ch.node_count+'</td>';
+      h+='<td class="mono" style="color:'+threshColor(ch.avg_cpu)+'">'+pct(ch.avg_cpu)+'</td>';
+      h+='<td class="mono" style="color:'+threshColor(ch.avg_memory)+'">'+pct(ch.avg_memory)+'</td>';
+      h+='<td class="mono" style="color:'+(ca.headroom_memory<15?'var(--cr)':ca.headroom_memory<30?'var(--wn)':'var(--ok)')+'">'+headroom+'</td>';
+      h+='<td style="font-size:11px">'+(signals.length?'<span style="color:var(--cr)">'+signals.join(', ')+'</span>':'<span style="color:var(--ok)">clean</span>')+'</td>';
+      h+='<td class="mono"'+(unenforced>0?' style="color:var(--wn)"':'')+'>'+unenforced+'</td>';
+      h+='<td class="mono"'+(npGaps>0?' style="color:var(--wn)"':'')+'>'+npGaps+'</td>';
+      var crit=ch.finding_counts.critical||0,warn=ch.finding_counts.warning||0;
+      h+='<td class="mono">'+(crit?'<span style="color:var(--cr)">'+crit+'c</span>':'0c')+' / '+(warn?'<span style="color:var(--wn)">'+warn+'w</span>':'0w')+'</td>';
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+
+  window._clustersData={clusters:clusters,healthMap:healthMap,rpt:rpt};
+  return h;
+}
+
+window.exportClustersCSV=function(){
+  var d=window._clustersData;if(!d)return;
+  var rows=[];
+  d.clusters.forEach(function(c){
+    var ch=d.healthMap[c.name]||{};
+    rows.push([c.name,ch.status||'unknown',ch.kubernetes_version||'',ch.node_count||0,ch.healthy_nodes||0,
+      ch.avg_cpu?Math.round(ch.avg_cpu):'',ch.avg_memory?Math.round(ch.avg_memory):'',
+      ch.warning_events||0,(ch.finding_counts||{}).critical||0,(ch.finding_counts||{}).warning||0,
+      (c.groups||[]).join(';'),c.first_seen,c.last_seen]);
+  });
+  csvExport('fleetsweeper-clusters.csv',['Cluster','Status','Version','Nodes','Healthy','CPU%','Mem%','Warnings','Critical','Warnings','Groups','First Seen','Last Seen'],rows);
+};
+
+// === GROUPS ===
+async function renderGroups(){
+  renderBar();
+  var groups=await api('/groups');
+  var h='<h2>Cluster groups</h2>';
+  if(!groups||!groups.length)return h+'<div class="empty">No groups defined. Use <code>fleetsweeper group create</code> to create groups.</div>';
+  h+='<div class="g g3">';
+  groups.forEach(function(g){
+    h+='<div class="cd"><h4 style="font-size:14px;margin-bottom:6px">'+esc(g.name)+'</h4>';
+    h+='<div style="font-size:12px;color:var(--t2);margin-bottom:4px">'+(g.clusters?g.clusters.length:0)+' clusters</div>';
+    if(g.clusters&&g.clusters.length){
+      g.clusters.forEach(function(c){
+        h+='<div style="font-size:12px;padding:2px 0"><a onclick="nav(\'detail\',{cluster:\''+esc(c)+'\'})">'+esc(c)+'</a></div>';
+      });
+    }
+    h+='</div>';
+  });
+  h+='</div>';
+  return h;
+}
+
+// === TRIGGER ===
+async function triggerScan(){
+  if(!confirm('Trigger a scan of all contexts?'))return;
+  await apiPost('/scans',{all_contexts:true});
+  alert('Scan triggered. Refresh in a moment to see results.');
+}
+
+// === RENDER ===
+async function render(){
+  destroyCharts();
+  renderSb();
+  var el=document.getElementById('ct');
+  el.innerHTML='<div class="loading">Loading...</div>';
+  try{
+    var result;
+    if(P.page==='dash')result=await renderDash();
+    else if(P.page==='detail')result=await renderDetail();
+    else if(P.page==='findings')result=await renderFindings();
+    else if(P.page==='scans')result=await renderScans();
+    else if(P.page==='scanReport')result=await renderScanReport();
+    else if(P.page==='trends')result=await renderTrends();
+    else if(P.page==='capacity')result=await renderCapacity();
+    else if(P.page==='outliers')result=await renderOutliers();
+    else if(P.page==='clusters')result=await renderClusters();
+    else if(P.page==='groups')result=await renderGroups();
+
+    if(typeof result==='string'){el.innerHTML=result}
+    else if(result){el.innerHTML=result.html;if(result.post)result.post()}
+  }catch(e){el.innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'}
+}
+
+render();
+</script>
+</body>
+</html>

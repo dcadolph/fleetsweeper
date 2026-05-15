@@ -1,0 +1,439 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"go.uber.org/zap"
+
+	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/report"
+)
+
+// errorResponse is a JSON error body.
+type errorResponse struct {
+	// Error is the error message.
+	Error string `json:"error"`
+	// Code is the HTTP status code.
+	Code int `json:"code"`
+}
+
+// writeJSON writes a JSON response with the given status code.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, `{"error":"marshal failed","code":500}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(status)
+	w.Write(b)
+}
+
+// writeError writes a JSON error response.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, errorResponse{Error: msg, Code: status})
+}
+
+// handleListScans returns recent scans.
+func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	scans, err := s.store.ListScans(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, scans)
+}
+
+// handleGetScan returns a scan record by ID.
+func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	scan, err := s.store.GetScan(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, scan)
+}
+
+// handleGetScanReport rebuilds and returns the full report for a scan.
+func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	scan, err := s.store.GetScan(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	results, err := s.store.GetScanResults(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	rpt := report.Build(scan.Clusters, results)
+	writeJSON(w, http.StatusOK, rpt)
+}
+
+// triggerScanRequest is the JSON body for POST /api/scans.
+type triggerScanRequest struct {
+	// Contexts is the list of kubeconfig contexts to scan.
+	Contexts []string `json:"contexts"`
+	// AllContexts scans all available contexts when true.
+	AllContexts bool `json:"all_contexts"`
+	// Group scans only clusters in this group.
+	Group string `json:"group"`
+}
+
+// triggerScanResponse is the JSON response for POST /api/scans.
+type triggerScanResponse struct {
+	// ScanID is the ID of the triggered scan.
+	ScanID string `json:"scan_id"`
+	// Status is "running" or "complete".
+	Status string `json:"status"`
+}
+
+// handleTriggerScan starts a scan asynchronously.
+func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
+	var req triggerScanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	contexts, err := s.resolveContexts(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if len(contexts) == 0 {
+		writeError(w, http.StatusBadRequest, "no contexts specified")
+		return
+	}
+
+	// Run scan synchronously for simplicity; the client can use a timeout.
+	go func() {
+		s.scanMu.Lock()
+		defer s.scanMu.Unlock()
+
+		ctx := r.Context()
+		s.log.Info("triggered scan starting", zap.Int("contexts", len(contexts)))
+
+		clients := kube.ConnectAll(ctx, s.kubeconfigPath, contexts, s.workers)
+		if len(clients) == 0 {
+			s.log.Warn("triggered scan: no clusters reachable")
+			return
+		}
+
+		results := runScanners(ctx, clients, s.registry.All(), s.workers, s.log)
+		clusterNames := make([]string, len(clients))
+		for i, c := range clients {
+			clusterNames[i] = c.Context
+		}
+
+		scanID, err := s.store.SaveScan(ctx, clusterNames, results)
+		if err != nil {
+			s.log.Error("triggered scan: save failed", zap.Error(err))
+			return
+		}
+		s.log.Info("triggered scan complete", zap.String("scan_id", scanID))
+	}()
+
+	writeJSON(w, http.StatusAccepted, triggerScanResponse{Status: "running"})
+}
+
+// resolveContexts determines which kubeconfig contexts to scan for a trigger request.
+func (s *Server) resolveContexts(ctx context.Context, req triggerScanRequest) ([]string, error) {
+	if req.Group != "" {
+		g, err := s.store.GetGroup(ctx, req.Group)
+		if err != nil {
+			return nil, fmt.Errorf("group %q: %w", req.Group, err)
+		}
+		return g.Clusters, nil
+	}
+	if req.AllContexts {
+		return kube.AvailableContexts(s.kubeconfigPath)
+	}
+	return req.Contexts, nil
+}
+
+// handleListClusters returns all known clusters.
+func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
+	clusters, err := s.store.ListClusters(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, clusters)
+}
+
+// handleGetClusterDetail returns full scanner data for a cluster from the latest scan,
+// plus its health summary and relevant findings.
+func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) {
+	cluster := r.PathValue("name")
+	ctx := r.Context()
+
+	scans, err := s.store.ListScans(ctx, 1)
+	if err != nil || len(scans) == 0 {
+		writeError(w, http.StatusNotFound, "no scans available")
+		return
+	}
+
+	results, err := s.store.GetScanResults(ctx, scans[0].ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	clusterData, ok := results[cluster]
+	if !ok {
+		writeError(w, http.StatusNotFound, "cluster not found in latest scan")
+		return
+	}
+
+	// Build a full report to get findings and health for this cluster.
+	rpt := report.Build(scans[0].Clusters, results)
+
+	var clusterHealth *report.ClusterHealth
+	for i := range rpt.ClusterHealths {
+		if rpt.ClusterHealths[i].Name == cluster {
+			clusterHealth = &rpt.ClusterHealths[i]
+			break
+		}
+	}
+
+	var clusterFindings []report.Finding
+	for _, f := range rpt.Findings {
+		if f.Cluster == cluster || f.Cluster == "fleet" {
+			clusterFindings = append(clusterFindings, f)
+		}
+	}
+
+	// Marshal each scanner's raw data for the detail view.
+	scannerData := make(map[string]any, len(clusterData))
+	for name, result := range clusterData {
+		scannerData[name] = result.Data
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cluster":      cluster,
+		"scan_id":      scans[0].ID,
+		"scan_time":    scans[0].Timestamp,
+		"health":       clusterHealth,
+		"findings":     clusterFindings,
+		"scanner_data": scannerData,
+	})
+}
+
+// handleListGroups returns all groups.
+func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.store.ListGroups(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, groups)
+}
+
+// createGroupRequest is the JSON body for POST /api/groups.
+type createGroupRequest struct {
+	// Name is the group name.
+	Name string `json:"name"`
+	// Clusters is the list of cluster names.
+	Clusters []string `json:"clusters"`
+}
+
+// handleCreateGroup creates a new group.
+func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
+	var req createGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	if err := s.store.SaveGroup(r.Context(), req.Name, req.Clusters); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
+}
+
+// handleDeleteGroup deletes a group.
+func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := s.store.DeleteGroup(r.Context(), name); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetTrends returns fleet-wide trend analysis from the last N scans.
+func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
+	limit := 10
+	if v := r.URL.Query().Get("scans"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	scans, err := s.store.ListScans(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(scans) < 2 {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "need at least 2 scans for trends"})
+		return
+	}
+
+	scanMetas := make([]report.ScanMeta, len(scans))
+	fleetResults := make(map[string]map[string]map[string]any, len(scans))
+
+	for i, scan := range scans {
+		scanMetas[i] = report.ScanMeta{ID: scan.ID, Timestamp: scan.Timestamp}
+		raw, err := s.store.GetScanResults(r.Context(), scan.ID)
+		if err != nil {
+			continue
+		}
+		clusterData := make(map[string]map[string]any)
+		for cluster, scanners := range raw {
+			scannerFields := make(map[string]any)
+			for scannerName, result := range scanners {
+				b, _ := json.Marshal(result.Data)
+				var m map[string]any
+				json.Unmarshal(b, &m)
+				scannerFields[scannerName] = m
+			}
+			clusterData[cluster] = scannerFields
+		}
+		fleetResults[scan.ID] = clusterData
+	}
+
+	trends := report.ComputeFleetTrends(scanMetas, fleetResults)
+	findings := report.GenerateTrendFindings(nil, trends)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"fleet_trends": trends,
+		"findings":     findings,
+	})
+}
+
+// handleGetClusterTrends returns trends for a specific cluster.
+func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) {
+	cluster := r.PathValue("cluster")
+	limit := 10
+	if v := r.URL.Query().Get("scans"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	scans, err := s.store.ListScans(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	scanMetas := make([]report.ScanMeta, len(scans))
+	clusterResults := make(map[string]map[string]map[string]any, len(scans))
+
+	for i, scan := range scans {
+		scanMetas[i] = report.ScanMeta{ID: scan.ID, Timestamp: scan.Timestamp}
+		raw, err := s.store.GetScanResults(r.Context(), scan.ID)
+		if err != nil {
+			continue
+		}
+		if clusterScanners, ok := raw[cluster]; ok {
+			scannerData := make(map[string]map[string]any)
+			for scannerName, result := range clusterScanners {
+				b, _ := json.Marshal(result.Data)
+				var m map[string]any
+				json.Unmarshal(b, &m)
+				scannerData[scannerName] = m
+			}
+			clusterResults[scan.ID] = scannerData
+		}
+	}
+
+	trends := report.ComputeClusterTrends(cluster, scanMetas, clusterResults)
+	findings := report.GenerateTrendFindings(trends, nil)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cluster":        cluster,
+		"cluster_trends": trends,
+		"findings":       findings,
+	})
+}
+
+// handleGetOutliers runs outlier detection on the most recent scan.
+func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
+	scans, err := s.store.ListScans(r.Context(), 1)
+	if err != nil || len(scans) == 0 {
+		writeError(w, http.StatusNotFound, "no scans available")
+		return
+	}
+
+	latest := scans[0]
+	results, err := s.store.GetScanResults(r.Context(), latest.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	threshold := 3.5
+	if v := r.URL.Query().Get("threshold"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			threshold = f
+		}
+	}
+
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{OutlierThreshold: threshold})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"scan_id":  latest.ID,
+		"outliers": rpt.Outliers,
+		"findings": rpt.Findings,
+	})
+}
+
+// handleGetCapacity returns smart capacity analysis with correlated signals.
+func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
+	scans, err := s.store.ListScans(r.Context(), 1)
+	if err != nil || len(scans) == 0 {
+		writeError(w, http.StatusNotFound, "no scans available")
+		return
+	}
+
+	results, err := s.store.GetScanResults(r.Context(), scans[0].ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Load groups for group-aware analysis.
+	groups, _ := s.store.ListGroups(r.Context())
+	groupMap := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		groupMap[g.Name] = g.Clusters
+	}
+
+	rpt := report.Build(scans[0].Clusters, results, report.BuildOptions{Groups: groupMap})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"scan_id":  scans[0].ID,
+		"capacity": rpt.Capacity,
+	})
+}

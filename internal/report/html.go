@@ -31,6 +31,9 @@ var ScannerLabels = map[string]string{
 	"node-health":      "Node Health",
 	"metrics":          "Resource Utilization",
 	"events":           "Cluster Events",
+	"workload-security": "Workload Security",
+	"rbac-audit":       "RBAC Audit",
+	"image-audit":      "Image Hygiene",
 }
 
 // htmlPayload is the data embedded in the HTML report as JSON. Everything the

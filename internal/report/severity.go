@@ -7,7 +7,9 @@ var criticalFields = map[string]map[string]struct{}{
 	"rbac":             {"cluster_role_count": {}, "cluster_role_binding_count": {}},
 	"network-policies": {"namespaces_without_policies": {}},
 	"node-health":      {"unhealthy_nodes": {}, "memory_pressure_nodes": {}, "not_ready_nodes": {}},
-	"metrics":          {"max_cpu_percent": {}, "max_memory_percent": {}},
+	"metrics":           {"max_cpu_percent": {}, "max_memory_percent": {}},
+	"workload-security": {"privileged_containers": {}, "host_network_pods": {}, "host_pid_pods": {}},
+	"rbac-audit":        {"cluster_admin_bindings": {}, "wildcard_rules": {}},
 }
 
 // warningFields maps scanner names to field names whose divergence is a warning.
@@ -17,7 +19,10 @@ var warningFields = map[string]map[string]struct{}{
 	"services":        {"count": {}},
 	"resource-quotas": {"quota_count": {}, "namespaces_with_quotas": {}},
 	"resources":       {"node_count": {}, "ready_nodes": {}, "unschedulable_nodes": {}},
-	"node-health":     {"disk_pressure_nodes": {}, "pid_pressure_nodes": {}, "unschedulable_nodes": {}},
+	"node-health":       {"disk_pressure_nodes": {}, "pid_pressure_nodes": {}, "unschedulable_nodes": {}},
+	"workload-security": {"run_as_root_containers": {}, "capability_additions": {}},
+	"rbac-audit":        {"default_sa_bindings": {}},
+	"image-audit":       {"latest_tag": {}, "no_digest": {}},
 	"metrics":         {"avg_cpu_percent": {}, "avg_memory_percent": {}},
 }
 

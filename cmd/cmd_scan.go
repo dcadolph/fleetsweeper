@@ -15,6 +15,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/crd"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/events"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/imageaudit"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/ingress"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/metrics"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/namespace"
@@ -22,10 +23,12 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/nodehealth"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/quota"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/rbac"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/rbacaudit"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/resources"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/security"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/service"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/version"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadsec"
 )
 
 var scanCmd = &cobra.Command{
@@ -42,6 +45,8 @@ func init() {
 	scanCmd.Flags().StringSlice("scanners", nil, "Scanner names to run (default: all).")
 	scanCmd.Flags().StringP("output", "o", "json", "Output format: json or html.")
 	scanCmd.Flags().String("html-file", "", "Write HTML report to this file path (implies --output html).")
+	scanCmd.Flags().String("group", "", "Scan only clusters in this group (requires --db).")
+	scanCmd.Flags().Float64("outlier-threshold", 3.5, "Outlier detection sensitivity (lower=more sensitive).")
 }
 
 // buildRegistry creates the scanner registry with all available scanners.
@@ -60,6 +65,9 @@ func buildRegistry() *scanner.Registry {
 	r.Register(nodehealth.Name, nodehealth.NewScanner())
 	r.Register(metrics.Name, metrics.NewScanner())
 	r.Register(events.Name, events.NewScanner())
+	r.Register(workloadsec.Name, workloadsec.NewScanner())
+	r.Register(rbacaudit.Name, rbacaudit.NewScanner())
+	r.Register(imageaudit.Name, imageaudit.NewScanner())
 	return r
 }
 
@@ -74,6 +82,21 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	allContexts, _ := cmd.Flags().GetBool("all-contexts")
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
+	groupName, _ := cmd.Flags().GetString("group")
+
+	// Resolve contexts from group if specified.
+	if groupName != "" {
+		s, err := openStore(cmd)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		g, err := s.GetGroup(ctx, groupName)
+		if err != nil {
+			return fmt.Errorf("get group %q: %w", groupName, err)
+		}
+		contextNames = g.Clusters
+	}
 
 	contexts, err := resolveContexts(kubeconfigPath, contextNames, allContexts)
 	if err != nil {
@@ -98,7 +121,27 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		clusterNames[i] = c.Context
 	}
 
-	rpt := report.Build(clusterNames, results)
+	// Persist results to database when --db is set.
+	dbPath, _ := cmd.Flags().GetString("db")
+	if dbPath != "" {
+		s, err := openStore(cmd)
+		if err != nil {
+			return fmt.Errorf("open store: %w", err)
+		}
+		defer s.Close()
+
+		scanID, err := s.SaveScan(ctx, clusterNames, results)
+		if err != nil {
+			return fmt.Errorf("save scan: %w", err)
+		}
+		log.Info("scan persisted", logutil.ContextField(scanID))
+		fmt.Fprintf(os.Stderr, "scan %s saved to %s\n", scanID, dbPath)
+	}
+
+	outlierThreshold, _ := cmd.Flags().GetFloat64("outlier-threshold")
+	rpt := report.Build(clusterNames, results, report.BuildOptions{
+		OutlierThreshold: outlierThreshold,
+	})
 
 	outputFormat, _ := cmd.Flags().GetString("output")
 	htmlFile, _ := cmd.Flags().GetString("html-file")

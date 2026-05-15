@@ -27,6 +27,8 @@ func exitCode(err error) int {
 		return CodeNoContexts
 	case errors.Is(err, ErrNoClients):
 		return CodeConnectionError
+	case errors.Is(err, ErrNoDatabase):
+		return CodeNoDB
 	default:
 		return CodeGeneralError
 	}

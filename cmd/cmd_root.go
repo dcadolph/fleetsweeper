@@ -33,9 +33,13 @@ func init() {
 	rootCmd.PersistentFlags().String("kubeconfig", defaultKubeconfig(), "Path to the kubeconfig file.")
 	rootCmd.PersistentFlags().Bool("pretty", false, "Pretty-print JSON output.")
 	rootCmd.PersistentFlags().String("log-level", "warn", "Log level (debug, info, warn, error).")
+	rootCmd.PersistentFlags().String("db", "", "Path to SQLite database for persisting scan results.")
 
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(groupCmd)
+	rootCmd.AddCommand(historyCmd)
+	rootCmd.AddCommand(serveCmd)
 }
 
 // defaultKubeconfig returns the default kubeconfig path from the environment

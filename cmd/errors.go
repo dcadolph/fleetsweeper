@@ -7,4 +7,6 @@ var (
 	ErrNoContexts = errors.New("no kubeconfig contexts specified")
 	// ErrNoClients indicates all cluster connections failed.
 	ErrNoClients = errors.New("no clusters reachable")
+	// ErrNoDatabase indicates the --db flag is required but was not provided.
+	ErrNoDatabase = errors.New("--db is required for this command")
 )

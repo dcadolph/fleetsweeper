@@ -26,9 +26,9 @@ type Category struct {
 func Categories() []Category {
 	return []Category{
 		{Name: "Cluster Info", Scanners: []string{"version", "namespaces", "crds"}},
-		{Name: "Workloads", Scanners: []string{"services", "ingresses"}},
+		{Name: "Workloads", Scanners: []string{"services", "ingresses", "image-audit"}},
 		{Name: "Health & Resources", Scanners: []string{"node-health", "metrics", "resources", "resource-quotas"}},
-		{Name: "Security & Access", Scanners: []string{"rbac", "security", "network-policies"}},
+		{Name: "Security & Access", Scanners: []string{"workload-security", "rbac-audit", "rbac", "security", "network-policies"}},
 		{Name: "Events & Logs", Scanners: []string{"events"}},
 	}
 }
@@ -49,6 +49,21 @@ type Report struct {
 	Findings []Finding `json:"findings"`
 	// ClusterHealths holds per-cluster health summaries.
 	ClusterHealths []ClusterHealth `json:"cluster_healths"`
+	// Outliers lists clusters that deviate from fleet norms. Populated when
+	// the fleet has more than 20 clusters.
+	Outliers []OutlierResult `json:"outliers,omitempty"`
+	// Capacity holds smart capacity analysis per cluster, correlating
+	// utilization, pressure, events, and headroom.
+	Capacity []CapacityAnalysis `json:"capacity,omitempty"`
+}
+
+// BuildOptions controls report generation behavior.
+type BuildOptions struct {
+	// OutlierThreshold controls outlier sensitivity (standard deviations).
+	// Lower values flag more outliers. Default is 3.5.
+	OutlierThreshold float64
+	// Groups maps group name to cluster names for group-aware analysis.
+	Groups map[string][]string
 }
 
 // CategoryReport holds a category and its scanner names for the report.
@@ -98,8 +113,17 @@ type Divergence struct {
 }
 
 // Build creates a Report from per-cluster scanner results. The results map is
-// keyed by cluster name, then by scanner name.
-func Build(clusters []string, results map[string]map[string]scanner.Result) *Report {
+// keyed by cluster name, then by scanner name. Options are optional; when
+// omitted, defaults are used.
+func Build(clusters []string, results map[string]map[string]scanner.Result, opts ...BuildOptions) *Report {
+	var opt BuildOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	if opt.OutlierThreshold == 0 {
+		opt.OutlierThreshold = 3.5
+	}
+
 	r := &Report{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Clusters:  clusters,
@@ -121,6 +145,12 @@ func Build(clusters []string, results map[string]map[string]scanner.Result) *Rep
 
 	r.Categories = buildCategories(scannerNames)
 	r.Summary = buildSummary(clusters, r.Sections)
+
+	if len(clusters) > 20 {
+		r.Outliers = DetectOutliers(r, opt.OutlierThreshold)
+	}
+
+	r.Capacity = AnalyzeCapacity(r, opt.Groups)
 	r.Findings = GenerateFindings(r)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
 
