@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleetsweeper Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d1117;--s1:#161b22;--s2:#1c2128;--s3:#21262d;--sb:#010409;--tx:#e6edf3;--t2:#8b949e;--t3:#6e7681;--bd:#30363d;--ac:#58a6ff;--ok:#3fb950;--wn:#d29922;--cr:#f85149;--okb:rgba(63,185,80,.12);--wnb:rgba(210,153,34,.12);--crb:rgba(248,81,73,.12);--acb:rgba(88,166,255,.1);--r:8px;--mono:"SF Mono","Fira Code","Cascadia Code",ui-monospace,monospace}
+[data-theme=light]{--bg:#f6f8fa;--s1:#fff;--s2:#f0f2f5;--s3:#e8eaed;--sb:#fff;--tx:#1f2328;--t2:#656d76;--t3:#8b949e;--bd:#d0d7de;--ac:#0969da;--ok:#1a7f37;--wn:#9a6700;--cr:#cf222e;--okb:rgba(26,127,55,.08);--wnb:rgba(154,103,0,.08);--crb:rgba(207,34,46,.08);--acb:rgba(9,105,218,.08)}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5}
+a{color:var(--ac);text-decoration:none}a:hover{text-decoration:underline}
+.lay{display:flex;min-height:100vh}
+/* Sidebar */
+.sb{width:260px;min-width:260px;background:var(--sb);border-right:1px solid var(--bd);position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;padding:16px 0;font-size:13px}
+.sb-brand{padding:0 16px 14px;border-bottom:1px solid var(--bd);margin-bottom:8px}
+.sb-brand h1{font-size:16px;font-weight:600;color:var(--tx)}
+.sb-brand .ts{font-size:11px;color:var(--t3);margin-top:2px}
+.sb-nav{flex:1;overflow-y:auto;padding:4px 8px}
+.sb-cat{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--t3);padding:12px 8px 4px}
+.sb-link{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;color:var(--t2);cursor:pointer;transition:background .1s}
+.sb-link:hover,.sb-link.active{background:var(--acb);color:var(--tx)}
+.sb-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sb-foot{padding:12px 16px;border-top:1px solid var(--bd);margin-top:auto}
+.sb-foot h4{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px}
+.sb-cluster{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);padding:2px 0;cursor:pointer}
+.sb-cluster.dim{opacity:.35}
+.sb-cdot{width:9px;height:9px;border-radius:50%;flex-shrink:0;border:2px solid transparent}
+.sb-cluster.dim .sb-cdot{border-color:var(--t3);background:transparent !important}
+/* Top bar */
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--s1);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:10;flex-wrap:wrap}
+.topbar input[type=search]{background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:5px 10px;color:var(--tx);font-size:13px;width:220px;outline:none}
+.topbar input:focus{border-color:var(--ac)}
+.topbar select{background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:5px 8px;color:var(--tx);font-size:12px;outline:none;cursor:pointer}
+.topbar .spacer{flex:1}
+.tbtn{background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;color:var(--t2);font-size:12px;cursor:pointer;transition:background .1s}
+.tbtn:hover{background:var(--s3);color:var(--tx)}
+.count-pill{background:var(--crb);color:var(--cr);padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+/* Main */
+.main{flex:1;overflow-x:hidden}
+.content{padding:20px 28px;max-width:1200px}
+/* Tabs */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--bd);margin-bottom:20px}
+.tab{padding:8px 16px;font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;transition:color .1s}
+.tab:hover{color:var(--tx)}
+.tab.active{color:var(--ac);border-color:var(--ac)}
+.tpanel{display:none}.tpanel.active{display:block}
+/* Cards */
+.row{display:grid;gap:12px;margin-bottom:20px}
+.row-6{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.row-3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.row-2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px}
+.stat{text-align:center}.stat .v{font-size:26px;font-weight:700}.stat .l{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+/* Cluster health */
+.ch{position:relative;padding-left:12px}
+.ch .bar{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px}
+.ch h3{font-size:14px;color:var(--tx);margin-bottom:2px}
+.ch .st{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:1px 8px;border-radius:10px;display:inline-block;margin-bottom:8px}
+.ch .r{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);padding:2px 0}
+.ch .r .v{color:var(--tx);font-weight:500;font-family:var(--mono);font-size:12px}
+/* Findings */
+.f{display:flex;gap:10px;padding:10px 14px;border:1px solid var(--bd);border-radius:var(--r);background:var(--s1);margin-bottom:6px;align-items:flex-start;transition:opacity .15s}
+.f.hidden{display:none}
+.f .ic{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:1px}
+.f .bd h4{font-size:13px;color:var(--tx);line-height:1.3}
+.f .bd p{font-size:12px;color:var(--t2);line-height:1.4;margin-top:1px}
+.f .tags{display:flex;gap:4px;margin-left:auto;flex-shrink:0;align-self:center}
+.f .tag{font-size:10px;padding:1px 7px;border-radius:4px;font-weight:500}
+.f.critical{border-left:3px solid var(--cr)}.f.critical .ic{background:var(--crb);color:var(--cr)}
+.f.warning{border-left:3px solid var(--wn)}.f.warning .ic{background:var(--wnb);color:var(--wn)}
+.f.info{border-left:3px solid var(--ac)}.f.info .ic{background:var(--acb);color:var(--ac)}
+.no-results{text-align:center;color:var(--t2);padding:40px;font-size:13px}
+/* Charts */
+.chart-card{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:16px}
+.chart-card h3{font-size:12px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;text-align:center}
+.chart-card canvas{max-height:200px}
+/* Tables */
+.tbl-wrap{overflow-x:auto}
+table.dt{width:100%;border-collapse:collapse;font-size:12px}
+table.dt th{text-align:left;padding:7px 10px;font-size:10px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);background:var(--s1);position:sticky;top:0;cursor:pointer;white-space:nowrap;user-select:none}
+table.dt th:hover{color:var(--tx)}
+table.dt th .arrow{font-size:9px;margin-left:3px;opacity:.4}
+table.dt th.sorted .arrow{opacity:1;color:var(--ac)}
+table.dt td{padding:6px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+table.dt tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+table.dt td.mono{font-family:var(--mono);font-size:11px}
+.sev-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500}
+.sev-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.cc-h{display:flex;align-items:center;gap:4px}
+/* Sections */
+.sec{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:12px;overflow:hidden}
+.sec-h{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--bd);cursor:pointer}
+.sec-h h2{font-size:13px;font-weight:600}
+.sec-h:hover{background:var(--s2)}
+.badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.badge-ok{background:var(--okb);color:var(--ok)}.badge-div{background:var(--crb);color:var(--cr)}
+.sec-body{padding:12px 14px;display:none}
+.sec.open .sec-body{display:block}
+.sec.open .sec-h .chevron{transform:rotate(90deg)}
+.chevron{transition:transform .15s;color:var(--t3);font-size:12px}
+/* Detail JSON */
+.json-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-top:10px}
+.json-card{border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.json-card-h{display:flex;align-items:center;gap:5px;padding:5px 8px;background:var(--s2);border-bottom:1px solid var(--bd);font-size:11px;font-weight:600}
+.json-card pre{padding:8px;margin:0;font-family:var(--mono);font-size:10px;line-height:1.4;overflow:auto;background:var(--bg);max-height:300px}
+/* Export */
+.export{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;color:var(--ac);background:var(--acb);border:1px solid rgba(88,166,255,.3);border-radius:5px;cursor:pointer}
+.export:hover{background:rgba(88,166,255,.18)}
+/* Cat header */
+.cat-h{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:var(--t3);margin:24px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--bd)}
+/* Gauge */
+.gauge-row{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;padding:8px 0}
+.gauge{text-align:center}
+.gauge canvas{width:120px;height:120px}
+.gauge .lbl{font-size:11px;color:var(--t2);margin-top:4px}
+/* Responsive */
+@media(max-width:800px){.sb{display:none}.content{padding:16px}}
+@media print{.sb,.topbar,.export,.tbtn{display:none}.content{padding:12px}body{background:#fff;color:#000}}
+</style>
+</head>
+<body>
+<div class="lay">
+<aside class="sb" id="sidebar"></aside>
+<div class="main">
+  <div class="topbar" id="topbar"></div>
+  <div class="content" id="content"></div>
+</div>
+</div>
+<script>
+var DATA = {{.}};
+var R = DATA.report;
+var CC = DATA.clusterColors;
+var SL = DATA.scannerLabels;
+var activeTab = 'overview';
+var filters = {severity:'all', cluster:'all', scanner:'all', search:''};
+var hiddenClusters = {};
+var openSections = {};
+
+function sl(n){return SL[n]||n}
+function sevColor(s){return s==='critical'?'var(--cr)':s==='warning'?'var(--wn)':'var(--ac)'}
+function sevBg(s){return s==='critical'?'var(--crb)':s==='warning'?'var(--wnb)':'var(--acb)'}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function pct(n){return n<0?'N/A':Math.round(n)+'%'}
+function fmtJSON(o){return JSON.stringify(o,null,2)}
+
+// Sidebar
+function renderSidebar(){
+  var h='<div class="sb-brand"><h1>Fleetsweeper</h1><div class="ts">'+esc(R.timestamp)+'</div></div>';
+  h+='<div class="sb-nav">';
+  h+='<div class="sb-link'+(activeTab==='overview'?' active':'')+'" data-tab="overview">Overview</div>';
+  h+='<div class="sb-link'+(activeTab==='findings'?' active':'')+'" data-tab="findings">Findings <span class="count-pill">'+R.findings.length+'</span></div>';
+  h+='<div class="sb-link'+(activeTab==='clusters'?' active':'')+'" data-tab="clusters">Cluster health</div>';
+  h+='<div class="sb-link'+(activeTab==='charts'?' active':'')+'" data-tab="charts">Charts</div>';
+  h+='<div class="sb-link'+(activeTab==='details'?' active':'')+'" data-tab="details">Detail sections</div>';
+  if(R.categories){R.categories.forEach(function(cat){
+    h+='<div class="sb-cat">'+esc(cat.name)+'</div>';
+    cat.scanners.forEach(function(s){
+      var sec=R.sections[s];
+      var col=sec&&!sec.uniform?'var(--cr)':'var(--ok)';
+      h+='<div class="sb-link" data-section="'+s+'"><span class="sb-dot" style="background:'+col+'"></span>'+esc(sl(s))+'</div>';
+    });
+  })}
+  h+='</div>';
+  h+='<div class="sb-foot"><h4>Clusters</h4>';
+  R.clusters.forEach(function(c){
+    var dim=hiddenClusters[c]?' dim':'';
+    h+='<div class="sb-cluster'+dim+'" data-cluster="'+esc(c)+'"><span class="sb-cdot" style="background:'+CC[c]+'"></span>'+esc(c)+'</div>';
+  });
+  h+='<div style="margin-top:8px"><span class="tbtn" id="themeToggle">Toggle theme</span></div>';
+  h+='</div>';
+  document.getElementById('sidebar').innerHTML=h;
+  // Events
+  document.querySelectorAll('.sb-link[data-tab]').forEach(function(el){
+    el.onclick=function(){activeTab=el.dataset.tab;render()};
+  });
+  document.querySelectorAll('.sb-link[data-section]').forEach(function(el){
+    el.onclick=function(){activeTab='details';openSections[el.dataset.section]=true;render();setTimeout(function(){var t=document.getElementById('sec-'+el.dataset.section);if(t)t.scrollIntoView({behavior:'smooth',block:'start'})},50)};
+  });
+  document.querySelectorAll('.sb-cluster').forEach(function(el){
+    el.onclick=function(){var c=el.dataset.cluster;hiddenClusters[c]=!hiddenClusters[c];render()};
+  });
+  var tt=document.getElementById('themeToggle');
+  if(tt)tt.onclick=function(){document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'':'light'};
+}
+
+// Top bar
+function renderTopbar(){
+  var h='<input type="search" id="searchInput" placeholder="Search findings..." value="'+esc(filters.search)+'">';
+  h+='<select id="sevFilter"><option value="all">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>';
+  h+='<select id="clusterFilter"><option value="all">All clusters</option>';
+  R.clusters.forEach(function(c){h+='<option value="'+esc(c)+'">'+esc(c)+'</option>'});
+  h+='</select>';
+  h+='<select id="scannerFilter"><option value="all">All scanners</option>';
+  Object.keys(R.sections).sort().forEach(function(s){h+='<option value="'+esc(s)+'">'+esc(sl(s))+'</option>'});
+  h+='</select>';
+  h+='<span class="spacer"></span>';
+  h+='<span class="export" id="exportCSV">Export CSV</span>';
+  document.getElementById('topbar').innerHTML=h;
+  document.getElementById('searchInput').oninput=function(e){filters.search=e.target.value.toLowerCase();renderContent()};
+  document.getElementById('sevFilter').value=filters.severity;
+  document.getElementById('sevFilter').onchange=function(e){filters.severity=e.target.value;renderContent()};
+  document.getElementById('clusterFilter').value=filters.cluster;
+  document.getElementById('clusterFilter').onchange=function(e){filters.cluster=e.target.value;renderContent()};
+  document.getElementById('scannerFilter').value=filters.scanner;
+  document.getElementById('scannerFilter').onchange=function(e){filters.scanner=e.target.value;renderContent()};
+  document.getElementById('exportCSV').onclick=exportCSV;
+}
+
+// Filtered findings
+function filteredFindings(){
+  return (R.findings||[]).filter(function(f){
+    if(filters.severity!=='all'&&f.severity!==filters.severity)return false;
+    if(filters.cluster!=='all'&&f.cluster!==filters.cluster&&f.cluster!=='fleet')return false;
+    if(filters.scanner!=='all'&&f.scanner!==filters.scanner)return false;
+    if(filters.search&&f.title.toLowerCase().indexOf(filters.search)<0&&f.description.toLowerCase().indexOf(filters.search)<0)return false;
+    if(hiddenClusters[f.cluster])return false;
+    return true;
+  });
+}
+
+function exportCSV(){
+  var ff=filteredFindings();
+  var csv='Severity,Cluster,Scanner,Title,Description\n';
+  ff.forEach(function(f){csv+='"'+f.severity+'","'+f.cluster+'","'+sl(f.scanner)+'","'+f.title.replace(/"/g,'""')+'","'+f.description.replace(/"/g,'""')+'"\n'});
+  var b=new Blob([csv],{type:'text/csv'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='fleetsweeper-findings.csv';a.click();
+}
+
+// Overview tab
+function renderOverview(){
+  var S=R.summary;var h='';
+  h+='<div class="row row-6">';
+  h+='<div class="card stat"><div class="v" style="color:var(--ac)">'+S.cluster_count+'</div><div class="l">Clusters</div></div>';
+  h+='<div class="card stat"><div class="v" style="color:var(--ok)">'+S.uniform_count+'</div><div class="l">Uniform</div></div>';
+  h+='<div class="card stat"><div class="v" style="color:var(--cr)">'+S.divergent_count+'</div><div class="l">Divergent</div></div>';
+  h+='<div class="card stat"><div class="v" style="color:var(--cr)">'+S.critical_count+'</div><div class="l">Critical</div></div>';
+  h+='<div class="card stat"><div class="v" style="color:var(--wn)">'+S.warning_count+'</div><div class="l">Warnings</div></div>';
+  h+='<div class="card stat"><div class="v" style="color:var(--t2)">'+S.total_divergences+'</div><div class="l">Issues</div></div>';
+  h+='</div>';
+  // Cluster health cards
+  h+='<h3 style="font-size:13px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Cluster health</h3>';
+  h+='<div class="row row-3">';
+  (R.cluster_healths||[]).forEach(function(ch){
+    if(hiddenClusters[ch.name])return;
+    var sc=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
+    var sb=ch.status==='critical'?'var(--crb)':ch.status==='degraded'?'var(--wnb)':'var(--okb)';
+    h+='<div class="card ch"><div class="bar" style="background:'+sc+'"></div>';
+    h+='<h3>'+esc(ch.name)+'</h3>';
+    h+='<span class="st" style="background:'+sb+';color:'+sc+'">'+ch.status+'</span>';
+    h+='<div class="r"><span>Kubernetes</span><span class="v">'+esc(ch.kubernetes_version||'N/A')+'</span></div>';
+    h+='<div class="r"><span>Nodes</span><span class="v">'+ch.healthy_nodes+' / '+ch.node_count+' healthy</span></div>';
+    h+='<div class="r"><span>CPU utilization</span><span class="v" '+(ch.avg_cpu>85?'style="color:var(--cr)"':ch.avg_cpu>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_cpu)+'</span></div>';
+    h+='<div class="r"><span>Memory utilization</span><span class="v" '+(ch.avg_memory>85?'style="color:var(--cr)"':ch.avg_memory>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_memory)+'</span></div>';
+    h+='<div class="r"><span>Warning events</span><span class="v"'+(ch.warning_events>50?' style="color:var(--wn)"':'')+'>'+ch.warning_events+'</span></div>';
+    h+='<div class="r"><span>Namespaces</span><span class="v">'+ch.namespace_count+'</span></div>';
+    h+='<div class="r"><span>Findings</span><span class="v">'+(ch.finding_counts.critical||0)+' critical, '+(ch.finding_counts.warning||0)+' warn</span></div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  // Top findings
+  var top=filteredFindings().slice(0,5);
+  if(top.length){
+    h+='<h3 style="font-size:13px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin:16px 0 10px">Top findings</h3>';
+    top.forEach(function(f){h+=renderFinding(f)});
+    if(R.findings.length>5)h+='<div style="text-align:center;margin-top:8px"><span class="tbtn" onclick="activeTab=\'findings\';render()">View all '+R.findings.length+' findings</span></div>';
+  }
+  return h;
+}
+
+function renderFinding(f){
+  var ic=f.severity==='info'?'i':'!';
+  var h='<div class="f '+f.severity+'">';
+  h+='<div class="ic">'+ic+'</div>';
+  h+='<div class="bd"><h4>'+esc(f.title)+'</h4><p>'+esc(f.description)+'</p></div>';
+  h+='<div class="tags">';
+  h+='<span class="tag" style="background:'+sevBg(f.severity)+';color:'+sevColor(f.severity)+'">'+f.severity+'</span>';
+  h+='<span class="tag" style="background:var(--acb);color:var(--ac)">'+esc(f.cluster)+'</span>';
+  h+='</div></div>';
+  return h;
+}
+
+// Findings tab
+function renderFindings(){
+  var ff=filteredFindings();
+  var h='<div style="margin-bottom:12px;color:var(--t2);font-size:12px">Showing '+ff.length+' of '+R.findings.length+' findings</div>';
+  if(!ff.length)h+='<div class="no-results">No findings match the current filters.</div>';
+  ff.forEach(function(f){h+=renderFinding(f)});
+  return h;
+}
+
+// Clusters tab
+function renderClusters(){
+  var h='<div class="row row-3">';
+  (R.cluster_healths||[]).forEach(function(ch){
+    if(hiddenClusters[ch.name])return;
+    var sc=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
+    var sb=ch.status==='critical'?'var(--crb)':ch.status==='degraded'?'var(--wnb)':'var(--okb)';
+    h+='<div class="card ch"><div class="bar" style="background:'+sc+'"></div>';
+    h+='<h3>'+esc(ch.name)+'</h3>';
+    h+='<span class="st" style="background:'+sb+';color:'+sc+'">'+ch.status+'</span>';
+    h+='<div class="r"><span>Kubernetes</span><span class="v">'+esc(ch.kubernetes_version||'N/A')+'</span></div>';
+    h+='<div class="r"><span>Nodes</span><span class="v">'+ch.healthy_nodes+' / '+ch.node_count+' healthy</span></div>';
+    h+='<div class="r"><span>CPU avg / peak</span><span class="v" '+(ch.avg_cpu>85?'style="color:var(--cr)"':ch.avg_cpu>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_cpu)+'</span></div>';
+    h+='<div class="r"><span>Memory avg / peak</span><span class="v" '+(ch.avg_memory>85?'style="color:var(--cr)"':ch.avg_memory>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_memory)+'</span></div>';
+    h+='<div class="r"><span>Warning events</span><span class="v">'+ch.warning_events+'</span></div>';
+    h+='<div class="r"><span>Namespaces</span><span class="v">'+ch.namespace_count+'</span></div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  // Comparison matrix
+  var vis=R.clusters.filter(function(c){return !hiddenClusters[c]});
+  h+='<h3 style="font-size:13px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px">Comparison matrix</h3>';
+  h+='<div class="tbl-wrap"><table class="dt"><thead><tr><th>Metric</th>';
+  vis.forEach(function(c){h+='<th><div class="cc-h"><span class="sb-cdot" style="background:'+CC[c]+'"></span>'+esc(c)+'</div></th>'});
+  h+='</tr></thead><tbody>';
+  var metrics=[
+    {label:'Kubernetes version',scanner:'version',field:'git_version',type:'string'},
+    {label:'Node count',scanner:'node-health',field:'node_count',type:'num'},
+    {label:'Healthy nodes',scanner:'node-health',field:'healthy_nodes',type:'num'},
+    {label:'Memory pressure nodes',scanner:'node-health',field:'memory_pressure_nodes',type:'num'},
+    {label:'Avg CPU %',scanner:'metrics',field:'avg_cpu_percent',type:'pct'},
+    {label:'Avg memory %',scanner:'metrics',field:'avg_memory_percent',type:'pct'},
+    {label:'Peak CPU %',scanner:'metrics',field:'max_cpu_percent',type:'pct'},
+    {label:'Peak memory %',scanner:'metrics',field:'max_memory_percent',type:'pct'},
+    {label:'Namespaces',scanner:'namespaces',field:'count',type:'num'},
+    {label:'Services',scanner:'services',field:'count',type:'num'},
+    {label:'Warning events',scanner:'events',field:'warning_events',type:'num'},
+    {label:'Network policies',scanner:'network-policies',field:'count',type:'num'},
+    {label:'PSS enforced namespaces',scanner:'security',field:'enforced_count',type:'num'},
+    {label:'PSS unenforced namespaces',scanner:'security',field:'unenforced_count',type:'num'},
+    {label:'Resource quotas',scanner:'resource-quotas',field:'quota_count',type:'num'},
+    {label:'ClusterRoles',scanner:'rbac',field:'cluster_role_count',type:'num'},
+  ];
+  metrics.forEach(function(m){
+    var sec=R.sections[m.scanner];if(!sec)return;
+    h+='<tr><td style="font-weight:500;white-space:nowrap">'+m.label+'</td>';
+    var vals=vis.map(function(c){
+      var d=sec.per_cluster[c];if(!d)return null;
+      var b=JSON.parse(JSON.stringify(d));
+      return b[m.field];
+    });
+    var allSame=vals.every(function(v){return v===vals[0]});
+    vis.forEach(function(c,i){
+      var v=vals[i];
+      var display=v===null||v===undefined?'N/A':m.type==='pct'?Math.round(v)+'%':v;
+      var style='';
+      if(!allSame)style=' style="font-weight:600"';
+      if(m.type==='pct'&&v>85)style=' style="color:var(--cr);font-weight:600"';
+      else if(m.type==='pct'&&v>70)style=' style="color:var(--wn);font-weight:600"';
+      h+='<td class="mono"'+style+'>'+display+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  return h;
+}
+
+// Charts tab
+function renderCharts(){
+  var h='<div class="row row-2">';
+  h+='<div class="chart-card"><h3>CPU utilization</h3><canvas id="cpuC"></canvas></div>';
+  h+='<div class="chart-card"><h3>Memory utilization</h3><canvas id="memC"></canvas></div>';
+  h+='<div class="chart-card"><h3>Node health</h3><canvas id="nodeC"></canvas></div>';
+  h+='<div class="chart-card"><h3>Divergences by scanner</h3><canvas id="divC"></canvas></div>';
+  h+='</div>';
+  // Gauges
+  h+='<h3 style="font-size:13px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin:16px 0 10px">Per-cluster resource gauges</h3>';
+  h+='<div class="row row-3">';
+  var vis=R.clusters.filter(function(c){return !hiddenClusters[c]});
+  vis.forEach(function(c){
+    h+='<div class="card"><h4 style="font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px"><span class="sb-cdot" style="background:'+CC[c]+'"></span>'+esc(c)+'</h4>';
+    h+='<div class="gauge-row"><div class="gauge"><canvas id="g-cpu-'+c.replace(/[^a-z0-9]/gi,'_')+'" width="120" height="120"></canvas><div class="lbl">CPU</div></div>';
+    h+='<div class="gauge"><canvas id="g-mem-'+c.replace(/[^a-z0-9]/gi,'_')+'" width="120" height="120"></canvas><div class="lbl">Memory</div></div></div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  return h;
+}
+
+function initCharts(){
+  if(typeof Chart==='undefined')return;
+  Chart.defaults.color='#8b949e';Chart.defaults.borderColor='var(--bd)';Chart.defaults.font.size=11;
+  var vis=R.clusters.filter(function(c){return !hiddenClusters[c]});
+  var colors=vis.map(function(c){return CC[c]});
+  var bgColors=vis.map(function(c){return CC[c]+'40'});
+  function getData(scanner,field){var sec=R.sections[scanner];return vis.map(function(c){if(!sec||!sec.per_cluster[c])return 0;var d=JSON.parse(JSON.stringify(sec.per_cluster[c]));return d[field]||0})}
+
+  // CPU
+  var el=document.getElementById('cpuC');
+  if(el)new Chart(el,{type:'bar',data:{labels:vis,datasets:[
+    {label:'Average',data:getData('metrics','avg_cpu_percent'),backgroundColor:bgColors,borderColor:colors,borderWidth:2,borderRadius:4},
+    {label:'Peak',data:getData('metrics','max_cpu_percent'),backgroundColor:colors.map(function(c){return c+'22'}),borderColor:colors,borderWidth:1,borderRadius:4}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10}}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:function(v){return v+'%'}},grid:{color:'#21262d'}},x:{grid:{display:false}}}}});
+
+  // Memory
+  el=document.getElementById('memC');
+  if(el)new Chart(el,{type:'bar',data:{labels:vis,datasets:[
+    {label:'Average',data:getData('metrics','avg_memory_percent'),backgroundColor:bgColors,borderColor:colors,borderWidth:2,borderRadius:4},
+    {label:'Peak',data:getData('metrics','max_memory_percent'),backgroundColor:colors.map(function(c){return c+'22'}),borderColor:colors,borderWidth:1,borderRadius:4}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10}}},scales:{y:{beginAtZero:true,max:100,ticks:{callback:function(v){return v+'%'}},grid:{color:'#21262d'}},x:{grid:{display:false}}}}});
+
+  // Node health
+  el=document.getElementById('nodeC');
+  if(el)new Chart(el,{type:'bar',data:{labels:vis,datasets:[
+    {label:'Healthy',data:getData('node-health','healthy_nodes'),backgroundColor:'rgba(63,185,80,.6)',borderRadius:4},
+    {label:'Unhealthy',data:getData('node-health','unhealthy_nodes'),backgroundColor:'rgba(248,81,73,.6)',borderRadius:4}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10}}},scales:{y:{beginAtZero:true,stacked:true,grid:{color:'#21262d'}},x:{stacked:true,grid:{display:false}}}}});
+
+  // Divergences
+  el=document.getElementById('divC');
+  if(el){var sKeys=Object.keys(R.sections).sort();
+    new Chart(el,{type:'bar',data:{labels:sKeys.map(sl),datasets:[{data:sKeys.map(function(k){var s=R.sections[k];return s.divergences?s.divergences.length:0}),backgroundColor:sKeys.map(function(k){return R.sections[k].uniform?'rgba(63,185,80,.6)':'rgba(248,81,73,.6)'}),borderRadius:3,barThickness:16}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{stepSize:1},grid:{color:'#21262d'}},y:{grid:{display:false}}}}});
+  }
+
+  // Gauges
+  vis.forEach(function(c){
+    var cpu=getData('metrics','avg_cpu_percent')[vis.indexOf(c)];
+    var mem=getData('metrics','avg_memory_percent')[vis.indexOf(c)];
+    drawGauge('g-cpu-'+c.replace(/[^a-z0-9]/gi,'_'),cpu,CC[c]);
+    drawGauge('g-mem-'+c.replace(/[^a-z0-9]/gi,'_'),mem,CC[c]);
+  });
+}
+
+function drawGauge(id,value,color){
+  var el=document.getElementById(id);if(!el)return;
+  new Chart(el,{type:'doughnut',data:{datasets:[{data:[value,100-value],backgroundColor:[color,'#21262d'],borderWidth:0}]},options:{responsive:false,cutout:'75%',rotation:-90,circumference:180,plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{animateRotate:true}},plugins:[{id:'gaugeText',afterDraw:function(chart){var ctx=chart.ctx;var w=chart.width/2;var h=chart.height-20;ctx.save();ctx.textAlign='center';ctx.fillStyle=value>85?'#f85149':value>70?'#d29922':'#e6edf3';ctx.font='bold 20px -apple-system,sans-serif';ctx.fillText(Math.round(value)+'%',w,h);ctx.restore()}}]});
+}
+
+// Details tab
+function renderDetails(){
+  var h='';
+  (R.categories||[]).forEach(function(cat){
+    h+='<div class="cat-h">'+esc(cat.name)+'</div>';
+    cat.scanners.forEach(function(sn){
+      var sec=R.sections[sn];if(!sec)return;
+      var isOpen=openSections[sn];
+      h+='<div class="sec'+(isOpen?' open':'')+'" id="sec-'+sn+'">';
+      h+='<div class="sec-h" data-toggle="'+sn+'"><h2>'+esc(sl(sn))+'</h2><div style="display:flex;align-items:center;gap:8px"><span class="badge '+(sec.uniform?'badge-ok':'badge-div')+'">'+(sec.uniform?'Uniform':'Divergent')+'</span><span class="chevron">&#9654;</span></div></div>';
+      h+='<div class="sec-body">';
+      if(sec.uniform){
+        h+='<div style="color:var(--t2);font-size:12px;padding:4px 0">All '+R.clusters.length+' clusters are identical for this scanner.</div>';
+      }else if(sec.divergences&&sec.divergences.length){
+        var vis=R.clusters.filter(function(c){return !hiddenClusters[c]});
+        h+='<div class="tbl-wrap"><table class="dt"><thead><tr><th>Severity</th><th>Field</th>';
+        vis.forEach(function(c){h+='<th><div class="cc-h"><span class="sb-cdot" style="background:'+CC[c]+'"></span>'+esc(c)+'</div></th>'});
+        h+='</tr></thead><tbody>';
+        sec.divergences.forEach(function(d){
+          h+='<tr><td><span class="sev-badge"><span class="sev-dot" style="background:'+sevColor(d.severity)+'"></span>'+d.severity+'</span></td>';
+          h+='<td class="field" style="font-weight:500;color:var(--tx)">'+esc(d.field)+'</td>';
+          vis.forEach(function(c){h+='<td class="mono">'+(d.values[c]||'-')+'</td>'});
+          h+='</tr>';
+        });
+        h+='</tbody></table></div>';
+      }
+      // Per-cluster JSON
+      h+='<details style="margin-top:10px"><summary style="font-size:11px;color:var(--ac);cursor:pointer">Per-cluster data</summary>';
+      h+='<div class="json-grid">';
+      var sorted=Object.keys(sec.per_cluster).sort();
+      sorted.forEach(function(c){
+        if(hiddenClusters[c])return;
+        h+='<div class="json-card"><div class="json-card-h"><span class="sb-cdot" style="background:'+CC[c]+'"></span>'+esc(c)+'</div><pre>'+esc(fmtJSON(sec.per_cluster[c]))+'</pre></div>';
+      });
+      h+='</div></details>';
+      h+='</div></div>';
+    });
+  });
+  return h;
+}
+
+function bindSectionToggles(){
+  document.querySelectorAll('.sec-h[data-toggle]').forEach(function(el){
+    el.onclick=function(){
+      var s=el.dataset.toggle;
+      openSections[s]=!openSections[s];
+      el.parentElement.classList.toggle('open');
+    };
+  });
+}
+
+// Render
+function renderContent(){
+  var h='';
+  if(activeTab==='overview')h=renderOverview();
+  else if(activeTab==='findings')h=renderFindings();
+  else if(activeTab==='clusters')h=renderClusters();
+  else if(activeTab==='charts')h=renderCharts();
+  else if(activeTab==='details')h=renderDetails();
+  document.getElementById('content').innerHTML=h;
+  if(activeTab==='details')bindSectionToggles();
+  if(activeTab==='charts'||activeTab==='overview')setTimeout(initCharts,10);
+}
+
+function render(){
+  renderSidebar();
+  renderTopbar();
+  renderContent();
+}
+
+render();
+</script>
+</body>
+</html>

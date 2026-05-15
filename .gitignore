@@ -1,0 +1,5 @@
+fleetsweeper
+.idea
+*.exe
+*.test
+*.out
