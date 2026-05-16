@@ -15,6 +15,15 @@ import (
 // Name is the registry key for this scanner.
 const Name = "events"
 
+// warningWindow caps how far back the scanner looks. A wide-open list call on
+// busy clusters frequently returns tens of thousands of stale records and can
+// overload the apiserver; restricting to the most recent hour keeps the
+// signal-to-noise ratio high.
+const warningWindow = time.Hour
+
+// maxRecentWarnings is the cap on warning detail rows returned per cluster.
+const maxRecentWarnings = 50
+
 // EventInfo describes a single Kubernetes event.
 type EventInfo struct {
 	// Namespace is the namespace of the involved object.
@@ -49,42 +58,53 @@ type ReasonSummary struct {
 
 // Data holds event information for one cluster.
 type Data struct {
-	// TotalEvents is the total number of events.
+	// TotalEvents is the total number of warning events within the time window.
 	TotalEvents int `json:"total_events"`
-	// WarningEvents is the number of Warning-type events.
+	// WarningEvents is the number of Warning-type events within the window.
 	WarningEvents int `json:"warning_events"`
-	// NormalEvents is the number of Normal-type events.
+	// NormalEvents is always zero (kept for backward compatibility); the scanner
+	// no longer ingests Normal events because they are pure noise at fleet scale.
 	NormalEvents int `json:"normal_events"`
 	// TopWarningReasons lists the most common warning event reasons.
 	TopWarningReasons []ReasonSummary `json:"top_warning_reasons"`
-	// RecentWarnings lists the most recent warning events (up to 50).
+	// RecentWarnings lists the most recent warning events.
 	RecentWarnings []EventInfo `json:"recent_warnings"`
+	// WindowSeconds is the lookback window the scan honored, in seconds.
+	WindowSeconds int `json:"window_seconds"`
 }
 
-// NewScanner returns a scanner that collects Kubernetes events from a cluster.
+// NewScanner returns a scanner that collects Kubernetes warning events from
+// the most recent warningWindow only. The field selector pushes the type
+// filter to the apiserver so a 200-node cluster with thousands of Normal
+// events does not stream all of them across the wire.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		eventList, err := client.Clientset().CoreV1().Events("").List(ctx, metav1.ListOptions{})
+		cutoff := time.Now().Add(-warningWindow)
+		eventList, err := client.Clientset().CoreV1().Events("").List(ctx, metav1.ListOptions{
+			FieldSelector:        "type=Warning",
+			ResourceVersion:      "0",
+			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
+		})
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 
-		data := Data{TotalEvents: len(eventList.Items)}
+		data := Data{WindowSeconds: int(warningWindow.Seconds())}
 		reasonCounts := make(map[string]int32)
 		reasonEventCounts := make(map[string]int)
 
 		var warnings []EventInfo
 		for _, ev := range eventList.Items {
-			switch ev.Type {
-			case "Warning":
-				data.WarningEvents++
-			default:
-				data.NormalEvents++
+			lastSeen := ev.LastTimestamp.Time
+			if lastSeen.IsZero() {
+				lastSeen = ev.CreationTimestamp.Time
 			}
-
-			if ev.Type != "Warning" {
+			if lastSeen.Before(cutoff) {
 				continue
 			}
+
+			data.WarningEvents++
+			data.TotalEvents++
 
 			count := ev.Count
 			if count == 0 {
@@ -94,12 +114,8 @@ func NewScanner() scanner.Scanner {
 			reasonEventCounts[ev.Reason]++
 
 			firstSeen := ev.FirstTimestamp.Time
-			lastSeen := ev.LastTimestamp.Time
 			if firstSeen.IsZero() {
 				firstSeen = ev.CreationTimestamp.Time
-			}
-			if lastSeen.IsZero() {
-				lastSeen = ev.CreationTimestamp.Time
 			}
 
 			warnings = append(warnings, EventInfo{
@@ -107,7 +123,7 @@ func NewScanner() scanner.Scanner {
 				InvolvedObject: ev.InvolvedObject.Name,
 				Kind:           ev.InvolvedObject.Kind,
 				Reason:         ev.Reason,
-				Message:        truncateMessage(ev.Message, 200),
+				Message:        truncateMessage(ev.Message, 500),
 				Type:           ev.Type,
 				Count:          count,
 				FirstSeen:      firstSeen.Format(time.RFC3339),
@@ -115,18 +131,14 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		// Sort warnings by last seen descending.
 		sort.Slice(warnings, func(i, j int) bool {
 			return warnings[i].LastSeen > warnings[j].LastSeen
 		})
-
-		// Keep top 50 recent warnings.
-		if len(warnings) > 50 {
-			warnings = warnings[:50]
+		if len(warnings) > maxRecentWarnings {
+			warnings = warnings[:maxRecentWarnings]
 		}
 		data.RecentWarnings = warnings
 
-		// Build top warning reasons.
 		for reason, count := range reasonCounts {
 			data.TopWarningReasons = append(data.TopWarningReasons, ReasonSummary{
 				Reason:     reason,

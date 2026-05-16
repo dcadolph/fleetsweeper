@@ -1,7 +1,9 @@
 package server
 
 import (
+	"crypto/subtle"
 	"net/http"
+	"slices"
 	"time"
 
 	"go.uber.org/zap"
@@ -15,12 +17,19 @@ func jsonMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// corsMiddleware adds permissive CORS headers for development.
-func corsMiddleware(next http.Handler) http.Handler {
+// corsMiddleware echoes back the request Origin when it matches the allowlist.
+// When the allowlist is empty no CORS headers are emitted, so browsers refuse
+// cross-origin requests by default.
+func corsMiddleware(allowOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		if origin != "" && slices.Contains(allowOrigins, origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -29,7 +38,40 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// loggingMiddleware logs each request.
+// bearerAuthMiddleware enforces an Authorization: Bearer <token> header on
+// mutating requests. Read-only requests (GET, HEAD, OPTIONS) pass through.
+// When token is empty and insecure is false, all mutating requests return 403.
+// When insecure is true, no auth is enforced. Comparison is constant-time.
+func bearerAuthMiddleware(token string, insecure bool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if insecure {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if token == "" {
+			writeError(w, http.StatusForbidden, "mutating endpoints require --auth-token (or --insecure)")
+			return
+		}
+		header := r.Header.Get("Authorization")
+		const prefix = "Bearer "
+		if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
+			writeError(w, http.StatusUnauthorized, "missing bearer token")
+			return
+		}
+		got := header[len(prefix):]
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			writeError(w, http.StatusUnauthorized, "invalid bearer token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// loggingMiddleware logs each request as an info-level structured entry.
 func loggingMiddleware(log *zap.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

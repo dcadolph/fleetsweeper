@@ -32,8 +32,14 @@ var ScannerLabels = map[string]string{
 	"metrics":          "Resource Utilization",
 	"events":           "Cluster Events",
 	"workload-security": "Workload Security",
-	"rbac-audit":       "RBAC Audit",
-	"image-audit":      "Image Hygiene",
+	"rbac-audit":        "RBAC Audit",
+	"image-audit":       "Image Hygiene",
+	"certs":             "Certificate Expiry",
+	"deprecated-apis":   "Deprecated APIs",
+	"workload-coverage": "PDB/HPA Coverage",
+	"cluster-info":      "Node OS/Kernel Drift",
+	"admission":         "Admission Webhooks",
+	"geo":               "Geographic Location",
 }
 
 // htmlPayload is the data embedded in the HTML report as JSON. Everything the

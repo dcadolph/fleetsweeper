@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 )
 
-// Execute runs the root command with a signal-cancellable context.
+// Execute runs the root command with a signal-cancellable context. SIGINT and
+// SIGTERM both trigger graceful shutdown so containerized deployments behave
+// correctly under Kubernetes pod termination.
 func Execute() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -51,7 +50,7 @@ type Data struct {
 // NewScanner returns a scanner that collects node resource and condition data.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		nodeList, err := client.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		nodeList, err := client.Clientset().CoreV1().Nodes().List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}

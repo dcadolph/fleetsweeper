@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"sort"
 	"time"
 
@@ -20,16 +22,136 @@ type SQLite struct {
 }
 
 // NewSQLite opens or creates a SQLite database at path and runs migrations.
+// WAL is enabled for read/write concurrency; busy_timeout retries instead of
+// failing under contention; foreign_keys are required for ON DELETE CASCADE
+// to work on scan_results.
 func NewSQLite(path string) (*SQLite, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("%w: open: %w", ErrStore, err)
 	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return &SQLite{db: db}, nil
+}
+
+// Ping verifies database connectivity. Used by the server's /readyz endpoint.
+func (s *SQLite) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
+// Prune deletes scans older than cutoff. The scan_results rows cascade.
+// Returns the number of scans deleted.
+func (s *SQLite) Prune(ctx context.Context, cutoff time.Time) (int, error) {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM scans WHERE timestamp < ?", cutoff.UTC().Format(time.RFC3339))
+	if err != nil {
+		return 0, fmt.Errorf("%w: prune: %w", ErrStore, err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// Vacuum reclaims free pages by running SQLite VACUUM.
+func (s *SQLite) Vacuum(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "VACUUM")
+	if err != nil {
+		return fmt.Errorf("%w: vacuum: %w", ErrStore, err)
+	}
+	return nil
+}
+
+// SetLocation upserts a manual geographic override for a cluster.
+func (s *SQLite) SetLocation(ctx context.Context, loc LocationRecord) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO cluster_locations (cluster, lat, lng, site, notes, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(cluster) DO UPDATE SET
+		   lat=excluded.lat, lng=excluded.lng, site=excluded.site, notes=excluded.notes, updated_at=excluded.updated_at`,
+		loc.Cluster, loc.Lat, loc.Lng, loc.Site, loc.Notes, now)
+	if err != nil {
+		return fmt.Errorf("%w: set location: %w", ErrStore, err)
+	}
+	return nil
+}
+
+// GetLocation returns the manual override for a cluster, or nil/no error
+// when none has been set.
+func (s *SQLite) GetLocation(ctx context.Context, cluster string) (*LocationRecord, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT cluster, lat, lng, site, notes, updated_at
+		 FROM cluster_locations WHERE cluster = ?`, cluster)
+	rec, err := scanLocation(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
+	}
+	return rec, nil
+}
+
+// ListLocations returns every manual override sorted by cluster name.
+func (s *SQLite) ListLocations(ctx context.Context) ([]LocationRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT cluster, lat, lng, site, notes, updated_at
+		 FROM cluster_locations ORDER BY cluster`)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
+	}
+	defer rows.Close()
+	var out []LocationRecord
+	for rows.Next() {
+		var rec LocationRecord
+		var updated, site, notes sql.NullString
+		if err := rows.Scan(&rec.Cluster, &rec.Lat, &rec.Lng, &site, &notes, &updated); err != nil {
+			return nil, fmt.Errorf("%w: scan location: %w", ErrQuery, err)
+		}
+		rec.Site = site.String
+		rec.Notes = notes.String
+		if updated.Valid {
+			t, err := time.Parse(time.RFC3339, updated.String)
+			if err == nil {
+				rec.UpdatedAt = t
+			}
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+// DeleteLocation removes a manual override for a cluster.
+func (s *SQLite) DeleteLocation(ctx context.Context, cluster string) error {
+	_, err := s.db.ExecContext(ctx,
+		"DELETE FROM cluster_locations WHERE cluster = ?", cluster)
+	if err != nil {
+		return fmt.Errorf("%w: delete location: %w", ErrStore, err)
+	}
+	return nil
+}
+
+// scanLocation reads a single cluster_locations row into a LocationRecord.
+func scanLocation(row *sql.Row) (*LocationRecord, error) {
+	var rec LocationRecord
+	var updated, site, notes sql.NullString
+	if err := row.Scan(&rec.Cluster, &rec.Lat, &rec.Lng, &site, &notes, &updated); err != nil {
+		return nil, err
+	}
+	rec.Site = site.String
+	rec.Notes = notes.String
+	if updated.Valid {
+		t, err := time.Parse(time.RFC3339, updated.String)
+		if err == nil {
+			rec.UpdatedAt = t
+		}
+	}
+	return &rec, nil
 }
 
 // Close releases database resources.
@@ -375,9 +497,17 @@ func scanRecordFromRow(row *sql.Row) (*ScanRecord, error) {
 		}
 		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
 	}
-	r.Timestamp, _ = time.Parse(time.RFC3339, ts)
-	json.Unmarshal([]byte(clustersJSON), &r.Clusters)
-	json.Unmarshal([]byte(scannersJSON), &r.Scanners)
+	ts2, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return nil, fmt.Errorf("%w: parse timestamp: %w", ErrQuery, err)
+	}
+	r.Timestamp = ts2
+	if err := json.Unmarshal([]byte(clustersJSON), &r.Clusters); err != nil {
+		return nil, fmt.Errorf("%w: unmarshal clusters: %w", ErrQuery, err)
+	}
+	if err := json.Unmarshal([]byte(scannersJSON), &r.Scanners); err != nil {
+		return nil, fmt.Errorf("%w: unmarshal scanners: %w", ErrQuery, err)
+	}
 	return &r, nil
 }
 
@@ -388,9 +518,17 @@ func scanRecordFromRows(rows *sql.Rows) (*ScanRecord, error) {
 	if err := rows.Scan(&r.ID, &ts, &clustersJSON, &scannersJSON); err != nil {
 		return nil, fmt.Errorf("%w: scan row: %w", ErrQuery, err)
 	}
-	r.Timestamp, _ = time.Parse(time.RFC3339, ts)
-	json.Unmarshal([]byte(clustersJSON), &r.Clusters)
-	json.Unmarshal([]byte(scannersJSON), &r.Scanners)
+	ts2, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return nil, fmt.Errorf("%w: parse timestamp: %w", ErrQuery, err)
+	}
+	r.Timestamp = ts2
+	if err := json.Unmarshal([]byte(clustersJSON), &r.Clusters); err != nil {
+		return nil, fmt.Errorf("%w: unmarshal clusters: %w", ErrQuery, err)
+	}
+	if err := json.Unmarshal([]byte(scannersJSON), &r.Scanners); err != nil {
+		return nil, fmt.Errorf("%w: unmarshal scanners: %w", ErrQuery, err)
+	}
 	return &r, nil
 }
 
@@ -410,10 +548,16 @@ func collectScannerNames(results map[string]map[string]scanner.Result) []string 
 	return names
 }
 
-// generateID produces a time-sortable unique identifier.
+// generateID produces a time-sortable unique identifier. The leading millisecond
+// timestamp keeps natural sort order; the random suffix uses crypto/rand so
+// concurrent scan triggers cannot collide.
 func generateID() string {
-	now := time.Now()
-	ms := now.UnixMilli()
-	r := rand.Int63()
-	return fmt.Sprintf("%013d-%016x", ms, r)
+	ms := time.Now().UnixMilli()
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand should not fail on supported platforms; fall back to
+		// the timestamp alone so the caller still gets a usable ID.
+		binary.BigEndian.PutUint64(b[:], uint64(ms))
+	}
+	return fmt.Sprintf("%013d-%s", ms, hex.EncodeToString(b[:]))
 }

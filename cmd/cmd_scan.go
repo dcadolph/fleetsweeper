@@ -13,8 +13,13 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/admission"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/certs"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/clusterinfo"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/crd"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/deprecatedapis"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/events"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/geo"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/imageaudit"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/ingress"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/metrics"
@@ -28,6 +33,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/security"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/service"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/version"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadcoverage"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadsec"
 )
 
@@ -68,6 +74,12 @@ func buildRegistry() *scanner.Registry {
 	r.Register(workloadsec.Name, workloadsec.NewScanner())
 	r.Register(rbacaudit.Name, rbacaudit.NewScanner())
 	r.Register(imageaudit.Name, imageaudit.NewScanner())
+	r.Register(certs.Name, certs.NewScanner())
+	r.Register(deprecatedapis.Name, deprecatedapis.NewScanner())
+	r.Register(workloadcoverage.Name, workloadcoverage.NewScanner())
+	r.Register(clusterinfo.Name, clusterinfo.NewScanner())
+	r.Register(admission.Name, admission.NewScanner())
+	r.Register(geo.Name, geo.NewScanner())
 	return r
 }
 

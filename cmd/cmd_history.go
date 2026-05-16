@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -43,15 +46,94 @@ var historyTrendCmd = &cobra.Command{
 	RunE:  runHistoryTrend,
 }
 
+// historyPruneCmd deletes scans older than a cutoff.
+var historyPruneCmd = &cobra.Command{
+	Use:   "prune",
+	Short: "Delete scans older than a cutoff",
+	Long:  "Delete scan records older than --older-than. Supports duration suffixes like 24h, 7d, 30d, 1y.",
+	RunE:  runHistoryPrune,
+}
+
 func init() {
 	historyListCmd.Flags().Int("limit", 20, "Maximum scans to show.")
 	historyTrendCmd.Flags().String("cluster", "", "Show trend for a specific cluster.")
 	historyTrendCmd.Flags().Int("scans", 10, "Number of historical scans to analyze.")
+	historyPruneCmd.Flags().String("older-than", "30d", "Delete scans older than this duration (for example 24h, 7d, 30d, 1y).")
+	historyPruneCmd.Flags().Bool("vacuum", false, "Run VACUUM after pruning to reclaim disk space.")
+	historyPruneCmd.Flags().Bool("dry-run", false, "Show how many scans would be deleted without deleting them.")
 
 	historyCmd.AddCommand(historyListCmd)
 	historyCmd.AddCommand(historyShowCmd)
 	historyCmd.AddCommand(historyDiffCmd)
 	historyCmd.AddCommand(historyTrendCmd)
+	historyCmd.AddCommand(historyPruneCmd)
+}
+
+// runHistoryPrune deletes scans older than the configured cutoff. With --dry-run
+// it counts matching scans without deleting.
+func runHistoryPrune(cmd *cobra.Command, _ []string) error {
+	s, err := openStore(cmd)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	olderThan, _ := cmd.Flags().GetString("older-than")
+	vacuum, _ := cmd.Flags().GetBool("vacuum")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	dur, err := parseRetentionDuration(olderThan)
+	if err != nil {
+		return fmt.Errorf("--older-than: %w", err)
+	}
+	cutoff := time.Now().Add(-dur)
+
+	if dryRun {
+		scans, err := s.GetScansByTimeRange(cmd.Context(), time.Unix(0, 0), cutoff)
+		if err != nil {
+			return fmt.Errorf("count scans: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "would delete %d scans older than %s\n", len(scans), cutoff.UTC().Format(time.RFC3339))
+		return nil
+	}
+
+	n, err := s.Prune(cmd.Context(), cutoff)
+	if err != nil {
+		return fmt.Errorf("prune: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "deleted %d scans older than %s\n", n, cutoff.UTC().Format(time.RFC3339))
+
+	if vacuum {
+		if err := s.Vacuum(cmd.Context()); err != nil {
+			return fmt.Errorf("vacuum: %w", err)
+		}
+		fmt.Fprintln(os.Stderr, "vacuum complete")
+	}
+	return nil
+}
+
+// parseRetentionDuration extends time.ParseDuration with day (d) and year (y)
+// suffixes so retention CLIs can use natural units.
+func parseRetentionDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+	if strings.HasSuffix(s, "d") {
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil {
+			return 0, fmt.Errorf("invalid days: %w", err)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	if strings.HasSuffix(s, "y") {
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil {
+			return 0, fmt.Errorf("invalid years: %w", err)
+		}
+		return time.Duration(n) * 365 * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }
 
 // runHistoryList lists past scans from the database.

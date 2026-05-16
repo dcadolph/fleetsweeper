@@ -61,11 +61,11 @@ h3{font-size:12px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;ma
 .cc canvas{margin-top:6px}
 
 /* Findings */
-.fi{display:flex;gap:8px;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--c1);margin-bottom:4px;align-items:flex-start;font-size:13px}
-.fi .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
-.fi .bd{flex:1;min-width:0}.fi .bd h4{font-size:12px;line-height:1.3}.fi .bd p{font-size:11px;color:var(--t2);line-height:1.3;margin-top:1px}
-.fi .tags{display:flex;gap:3px;flex-shrink:0;align-self:center}
-.fi .tag{font-size:9px;padding:1px 6px;border-radius:4px;font-weight:600}
+.fi{padding:10px 14px;border:1px solid var(--bd);border-radius:6px;background:var(--c1);margin-bottom:5px}
+.fi .tag{font-size:9px;padding:1px 7px;border-radius:4px;font-weight:600;display:inline-block}
+.fi.critical{border-left:3px solid var(--cr)}
+.fi.warning{border-left:3px solid var(--wn)}
+.fi.info{border-left:3px solid var(--ac)}
 .fi.hidden{display:none}
 
 /* Tables */
@@ -85,7 +85,7 @@ tr:nth-child(even) td{background:rgba(255,255,255,.01)}
 /* Tooltip (JS-positioned) */
 #tip-el{position:fixed;background:#1c1f26;color:#e5e7eb;font-size:12px;padding:8px 12px;border-radius:6px;max-width:340px;z-index:9999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.6);border:1px solid #444c56;line-height:1.45;display:none;word-wrap:break-word}
 /* Remediation block inside findings */
-.remediation{margin-top:4px;padding:6px 8px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--ac);white-space:pre-wrap;user-select:all;cursor:text}
+.remediation{margin-top:4px;padding:6px 8px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--ac);white-space:pre-wrap;word-break:break-all;overflow-x:auto;user-select:all;cursor:text;max-height:120px}
 
 /* Back link */
 .back{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ac);margin-bottom:12px;cursor:pointer}
@@ -278,8 +278,9 @@ var REMEDIATION={
   ]
 };
 
-// Match a finding to remediation commands.
-function getRemediation(f){
+// Legacy remediation lookup. Used as a fallback when a finding lacks the
+// server-supplied Remediation block (older scans, third-party scanners).
+function getRemediationLegacy(f){
   var key='';
   var t=(f.title||'').toLowerCase();
   if(f.scanner==='node-health'&&t.indexOf('memory pressure')>=0)key='node-health_memory pressure';
@@ -370,6 +371,9 @@ function renderSb(){
   h+='<a class="'+(P.page==='capacity'?'on':'')+'" onclick="nav(\'capacity\')">Capacity</a>';
   h+='<a class="'+(P.page==='trends'?'on':'')+'" onclick="nav(\'trends\')">Trends</a>';
   h+='<a class="'+(P.page==='outliers'?'on':'')+'" onclick="nav(\'outliers\')">Outliers</a>';
+  h+='<a class="'+(P.page==='heatmap'?'on':'')+'" onclick="nav(\'heatmap\')">Fleet heatmap</a>';
+  h+='<a class="'+(P.page==='globe'?'on':'')+'" onclick="nav(\'globe\')">Globe</a>';
+  h+='<a class="'+(P.page==='diff'?'on':'')+'" onclick="nav(\'diff\')">Scan diff</a>';
   h+='<div class="hd">Manage</div>';
   h+='<a class="'+(P.page==='clusters'?'on':'')+'" onclick="nav(\'clusters\')">Clusters</a>';
   h+='<a class="'+(P.page==='groups'?'on':'')+'" onclick="nav(\'groups\')">Groups</a>';
@@ -392,24 +396,57 @@ function renderFinding(f){
   var c=f.severity==='critical'?'var(--cr)':f.severity==='warning'?'var(--wn)':'var(--ac)';
   var sevTip=TIPS['sev_'+f.severity]||'';
   var scanTip=TIPS[f.scanner]||'';
-  var h='<div class="fi" data-sev="'+f.severity+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
-  h+='<span class="dot" style="background:'+c+'" data-tip="'+esc(sevTip)+'"></span>';
-  h+='<div class="bd"><h4>'+esc(f.title)+'</h4><p>'+esc(f.description)+'</p>';
-  // Remediation commands.
-  var cmds=getRemediation(f);
-  if(cmds&&f.severity!=='info'){
-    h+='<div class="remediation" data-tip="Suggested kubectl commands. Click to select.">';
-    cmds.forEach(function(cmd){h+=esc(cmd)+'\n'});
-    h+='</div>';
-  }
-  h+='</div>';
-  h+='<div class="tags">';
+  var scanLabel=_scannerLabels[f.scanner]||f.scanner;
+  var h='<div class="fi '+f.severity+'" data-sev="'+f.severity+'" data-cluster="'+esc(f.cluster)+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
+  // Header row: severity + scanner + cluster.
+  h+='<div style="width:100%">';
+  h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">';
   h+='<span class="tag" style="background:'+sb(f.severity)+';color:'+c+'" data-tip="'+esc(sevTip)+'">'+f.severity+'</span>';
-  if(f.scanner)h+='<span class="tag" style="background:rgba(139,148,158,.06);color:var(--t3)" data-tip="'+esc(scanTip)+'">'+esc(f.scanner)+'</span>';
+  h+='<span class="tag" style="background:rgba(139,148,158,.06);color:var(--t3)" data-tip="'+esc(scanTip)+'">'+esc(scanLabel)+'</span>';
   if(f.cluster&&f.cluster!=='fleet')h+='<span class="tag" style="background:rgba(88,166,255,.08);color:var(--ac);cursor:pointer" data-tip="Click to view cluster detail" onclick="event.stopPropagation();nav(\'detail\',{cluster:\''+esc(f.cluster)+'\'})">'+esc(f.cluster)+'</span>';
   else h+='<span class="tag" style="background:rgba(139,148,158,.08);color:var(--t2)" data-tip="Affects the entire fleet, not a single cluster">fleet</span>';
+  h+='</div>';
+  // Title and description.
+  h+='<div style="font-size:13px;font-weight:500;color:var(--tx);line-height:1.3">'+esc(f.title)+'</div>';
+  h+='<div style="font-size:12px;color:var(--t2);line-height:1.3;margin-top:2px">'+esc(f.description)+'</div>';
+  // Affected resources surfaced by the server (named nodes, pods, bindings, images).
+  if(f.affected&&f.affected.length){
+    h+='<div style="font-size:11px;color:var(--t2);margin-top:3px"><strong style="color:var(--t3);text-transform:uppercase;font-size:9px;letter-spacing:.5px">Affected:</strong> ';
+    h+=f.affected.slice(0,8).map(function(a){return '<code class="mono" style="background:var(--c2);padding:1px 4px;border-radius:3px;font-size:10px">'+esc(a)+'</code>'}).join(' ');
+    if(f.affected.length>8)h+=' <span style="color:var(--t3)">+'+(f.affected.length-8)+' more</span>';
+    h+='</div>';
+  }
+  // Remediation: prefer the server-supplied parameterized command, fall back to the
+  // legacy lookup. The copy button is wired by a delegated handler at the page level.
+  var rem=getRemediation(f);
+  if(rem&&rem.length&&f.severity!=='info'){
+    h+='<div class="remediation-wrap" style="position:relative;margin-top:4px">';
+    h+='<button class="btn copy-btn" data-copy="'+esc(rem.join('\n'))+'" style="position:absolute;top:4px;right:4px;font-size:9px;padding:2px 6px;z-index:1">Copy</button>';
+    h+='<div class="remediation" data-tip="Suggested kubectl commands. Use the Copy button or triple-click to select.">';
+    rem.forEach(function(cmd){h+=esc(cmd)+'\n'});
+    h+='</div>';
+    // If the server included an inline YAML manifest, surface it too.
+    if(f.remediation&&f.remediation.yaml){
+      h+='<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11px;color:var(--ac)">Baseline YAML</summary>';
+      h+='<div class="remediation-wrap" style="position:relative;margin-top:4px">';
+      h+='<button class="btn copy-btn" data-copy="'+esc(f.remediation.yaml)+'" style="position:absolute;top:4px;right:4px;font-size:9px;padding:2px 6px;z-index:1">Copy</button>';
+      h+='<div class="remediation">'+esc(f.remediation.yaml)+'</div>';
+      h+='</div></details>';
+    }
+    h+='</div>';
+  }
   h+='</div></div>';
   return h;
+}
+
+// getRemediationFromFinding pulls remediation commands from the server-supplied
+// Remediation block. Falls back to the legacy static REMEDIATION lookup when the
+// finding does not carry one.
+function getRemediation(f){
+  if(f.remediation&&f.remediation.command){
+    return [f.remediation.command];
+  }
+  return getRemediationLegacy(f);
 }
 
 function bindFindingFilters(){
@@ -449,26 +486,58 @@ async function renderDash(){
   h+='</div>';
   h+='<div id="dashDrilldown"></div>';
 
-  // Cluster health cards with mini gauges.
+  // Cluster health cards grouped by status (critical/degraded first).
   if(rpt.cluster_healths&&rpt.cluster_healths.length){
-    h+='<h3>Cluster health</h3><div class="g g3">';
-    rpt.cluster_healths.forEach(function(ch,i){
-      var color=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
-      var bg=ch.status==='critical'?'rgba(248,81,73,.08)':ch.status==='degraded'?'rgba(210,153,34,.08)':'rgba(63,185,80,.06)';
-      h+='<div class="cd cc" data-tip="Click to view full cluster detail" onclick="nav(\'detail\',{cluster:\''+esc(ch.name)+'\'})">';
-      h+='<div class="ind" style="background:'+color+'"></div>';
-      h+='<h4>'+esc(ch.name)+'</h4>';
-      h+='<span class="badge" style="background:'+bg+';color:'+color+'" data-tip="'+esc(TIPS['sev_'+(ch.status==='critical'?'critical':ch.status==='degraded'?'warning':'info')]||'')+'">'+ch.status+'</span>';
-      h+='<div class="row"><span data-tip="'+esc(TIPS.git_version)+'">Version</span><span class="val">'+esc(ch.kubernetes_version||'N/A')+'</span></div>';
-      h+='<div class="row"><span data-tip="'+esc(TIPS.healthy_nodes)+'">Nodes</span><span class="val">'+ch.healthy_nodes+'/'+ch.node_count+' healthy</span></div>';
-      h+='<div class="row"><span data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</span><span class="val" '+(ch.avg_cpu>85?'style="color:var(--cr)"':ch.avg_cpu>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_cpu)+'</span></div>';
-      h+='<div class="row"><span data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</span><span class="val" '+(ch.avg_memory>85?'style="color:var(--cr)"':ch.avg_memory>70?'style="color:var(--wn)"':'')+'>'+pct(ch.avg_memory)+'</span></div>';
-      h+='<div class="row"><span data-tip="'+esc(TIPS.warning_events)+'">Warnings</span><span class="val"'+(ch.warning_events>50?' style="color:var(--wn)"':'')+'>'+ch.warning_events+' events</span></div>';
-      h+='<div class="row"><span data-tip="Critical and warning findings attributed to this cluster">Findings</span><span class="val">'+(ch.finding_counts.critical||0)+' crit, '+(ch.finding_counts.warning||0)+' warn</span></div>';
-      h+='<div style="display:flex;gap:8px;margin-top:6px"><canvas id="gc-'+i+'" width="80" height="50" data-tip="CPU utilization: '+pct(ch.avg_cpu)+'"></canvas><canvas id="gm-'+i+'" width="80" height="50" data-tip="Memory utilization: '+pct(ch.avg_memory)+'"></canvas></div>';
+    // Use capacity analysis for smarter status.
+    var capMap={};
+    if(rpt.capacity){rpt.capacity.forEach(function(ca){capMap[ca.cluster]=ca})}
+
+    var sorted=rpt.cluster_healths.slice().sort(function(a,b){
+      var order={'critical':0,'degraded':1,'healthy':2};
+      var as=capMap[a.name]?capMap[a.name].status:a.status;
+      var bs=capMap[b.name]?capMap[b.name].status:b.status;
+      // Map capacity statuses to health ordering.
+      var ao={'critical':0,'degraded':1,'busy':2,'healthy':3}[as]||3;
+      var bo={'critical':0,'degraded':1,'busy':2,'healthy':3}[bs]||3;
+      return ao-bo;
+    });
+
+    // Group by status. Map legacy "strained" output to "degraded" so the UI
+    // speaks one vocabulary regardless of which scanner emitted the value.
+    var statusGroups={};
+    sorted.forEach(function(ch){
+      var ca=capMap[ch.name];
+      var st=ca?ca.status:ch.status;
+      if(st==='strained')st='degraded';
+      if(!statusGroups[st])statusGroups[st]=[];
+      statusGroups[st].push(ch);
+    });
+    var statusOrder=['critical','degraded','busy','healthy'];
+    var statusLabels={'critical':'Critical','degraded':'Degraded','busy':'Busy','healthy':'Healthy'};
+    var statusColors={'critical':'var(--cr)','degraded':'var(--wn)','busy':'var(--ac)','healthy':'var(--ok)'};
+
+    h+='<h3>Cluster health</h3>';
+    statusOrder.forEach(function(st){
+      var group=statusGroups[st];
+      if(!group||!group.length)return;
+      h+='<div style="display:flex;align-items:center;gap:6px;margin:10px 0 6px"><span style="width:8px;height:8px;border-radius:50%;background:'+statusColors[st]+'"></span><span style="font-size:12px;font-weight:600;color:'+statusColors[st]+'">'+statusLabels[st]+'</span><span style="font-size:11px;color:var(--t3)">('+group.length+')</span></div>';
+      h+='<div class="g g3">';
+      group.forEach(function(ch,i){
+        var ca=capMap[ch.name]||{};
+        var color=statusColors[ca.status||st]||'var(--ok)';
+        h+='<div class="cd cc" data-tip="Click to view full cluster detail" onclick="nav(\'detail\',{cluster:\''+esc(ch.name)+'\'})">';
+        h+='<div class="ind" style="background:'+color+'"></div>';
+        h+='<h4 style="margin-left:6px">'+esc(ch.name)+'</h4>';
+        h+='<div class="row"><span>Version</span><span class="val">'+esc(ch.kubernetes_version||'N/A')+'</span></div>';
+        h+='<div class="row"><span>Nodes</span><span class="val">'+ch.healthy_nodes+'/'+ch.node_count+'</span></div>';
+        h+='<div class="row"><span>CPU</span><span class="val" style="color:'+threshColor(ch.avg_cpu)+'">'+pct(ch.avg_cpu)+'</span></div>';
+        h+='<div class="row"><span>Memory</span><span class="val" style="color:'+threshColor(ch.avg_memory)+'">'+pct(ch.avg_memory)+'</span></div>';
+        if(ca.recommendation)h+='<div style="font-size:10px;color:var(--t2);margin-top:4px;padding:0 6px;line-height:1.2">'+esc(ca.recommendation).substring(0,120)+(ca.recommendation.length>120?'...':'')+'</div>';
+        h+='<div style="display:flex;gap:6px;margin-top:4px"><canvas id="gc-'+ch.name.replace(/[^a-z0-9]/gi,'_')+'" width="70" height="40"></canvas><canvas id="gm-'+ch.name.replace(/[^a-z0-9]/gi,'_')+'" width="70" height="40"></canvas></div>';
+        h+='</div>';
+      });
       h+='</div>';
     });
-    h+='</div>';
   }
 
   // Charts row.
@@ -477,19 +546,29 @@ async function renderDash(){
   h+='<div class="chc"><h4>Memory utilization by cluster</h4><canvas id="dashMem"></canvas></div>';
   h+='</div>';
 
-  // Top findings.
+  // Top findings grouped by severity.
   if(rpt.findings&&rpt.findings.length){
+    var critFindings=rpt.findings.filter(function(f){return f.severity==='critical'});
+    var warnFindings=rpt.findings.filter(function(f){return f.severity==='warning'});
     h+='<h3>Top findings <a onclick="nav(\'findings\')" style="font-size:11px;text-transform:none;letter-spacing:0;font-weight:400">(view all '+rpt.findings.length+')</a></h3>';
-    rpt.findings.slice(0,8).forEach(function(f){h+=renderFinding(f)});
+    if(critFindings.length){
+      h+='<div style="font-size:11px;font-weight:600;color:var(--cr);margin-bottom:4px">Critical ('+critFindings.length+')</div>';
+      critFindings.slice(0,5).forEach(function(f){h+=renderFinding(f)});
+    }
+    if(warnFindings.length){
+      h+='<div style="font-size:11px;font-weight:600;color:var(--wn);margin:8px 0 4px">Warning ('+warnFindings.length+')</div>';
+      warnFindings.slice(0,5).forEach(function(f){h+=renderFinding(f)});
+    }
   }
 
   return {html:h,post:function(){
     // Mini gauges.
     if(typeof Chart!=='undefined'&&rpt.cluster_healths){
       Chart.defaults.color='#8b949e';
-      rpt.cluster_healths.forEach(function(ch,i){
-        miniGauge('gc-'+i,ch.avg_cpu,'CPU');
-        miniGauge('gm-'+i,ch.avg_memory,'Mem');
+      rpt.cluster_healths.forEach(function(ch){
+        var safe=ch.name.replace(/[^a-z0-9]/gi,'_');
+        miniGauge('gc-'+safe,ch.avg_cpu,'CPU');
+        miniGauge('gm-'+safe,ch.avg_memory,'Mem');
       });
       // Bar charts with threshold-based colors.
       var labels=rpt.cluster_healths.map(function(c){return c.name});
@@ -638,7 +717,12 @@ async function renderDetail(){
   }
 
   // === SECTIONS ===
-  function sec(title,id,content){return '<div class="dsec open" id="dsec-'+id+'"><div class="dsec-h" onclick="this.parentElement.classList.toggle(\'open\')"><h4>'+title+'</h4><span class="chev" style="transform:rotate(90deg)">&#9654;</span></div><div class="dsec-b">'+content+'</div></div>'}
+  // hasProblem: auto-open sections with issues.
+  function sec(title,id,content,hasProblem){
+    var open=hasProblem?' open':'';
+    var chevStyle=hasProblem?' style="transform:rotate(90deg)"':'';
+    return '<div class="dsec'+open+'" id="dsec-'+id+'"><div class="dsec-h" onclick="this.parentElement.classList.toggle(\'open\')"><h4>'+title+'</h4><span class="chev"'+chevStyle+'>&#9654;</span></div><div class="dsec-b">'+content+'</div></div>';
+  }
 
   // Version.
   if(sd.version){
@@ -670,7 +754,7 @@ async function renderDetail(){
       });
       nhc+='</tbody></table>';
     }
-    h+=sec('Node Health ('+nh.node_count+' nodes)','node-health',nhc);
+    h+=sec('Node Health ('+nh.node_count+' nodes)','node-health',nhc,nh.unhealthy_nodes>0);
   }
 
   // Metrics.
@@ -693,7 +777,7 @@ async function renderDetail(){
       });
       mc+='</tbody></table>';
     }
-    h+=sec('Resource Utilization','metrics',mc);
+    h+=sec('Resource Utilization','metrics',mc,m.avg_memory_percent>70||m.avg_cpu_percent>70);
   }
 
   // Resources.
@@ -737,7 +821,7 @@ async function renderDetail(){
       });
       ec+='</tbody></table></div>';
     }
-    h+=sec('Events','events',ec);
+    h+=sec('Events','events',ec,ev.warning_events>20);
   }
 
   // Security.
@@ -760,7 +844,7 @@ async function renderDetail(){
       });
       sc2+='</tbody></table>';
     }
-    h+=sec('Pod Security Standards','security',sc2);
+    h+=sec('Pod Security Standards','security',sc2,s.unenforced_count>0);
   }
 
   // Network policies.
@@ -778,7 +862,7 @@ async function renderDetail(){
       });
       npc+='</tbody></table>';
     }
-    h+=sec('Network Policies','network-policies',npc);
+    h+=sec('Network Policies','network-policies',npc,np.namespaces_without_policies>0);
   }
 
   // RBAC.
@@ -946,10 +1030,89 @@ async function renderFindings(){
   if(!scans||!scans.length)return '<div class="empty">No scans.</div>';
   var rpt=await api('/scans/'+scans[0].id+'/report');
   window._findings=rpt.findings||[];
-  var h='<h2>All findings</h2><p class="sub">'+window._findings.length+' findings from latest scan</p>';
-  if(!window._findings.length)return h+'<div class="empty">No findings. Fleet is healthy.</div>';
-  window._findings.forEach(function(f){h+=renderFinding(f)});
-  return {html:h,post:bindFindingFilters};
+  var all=window._findings;
+  var h='<h2>Findings</h2>';
+
+  // Summary counts.
+  var critN=all.filter(function(f){return f.severity==='critical'}).length;
+  var warnN=all.filter(function(f){return f.severity==='warning'}).length;
+  var infoN=all.filter(function(f){return f.severity==='info'}).length;
+  h+='<p class="sub">'+all.length+' findings: <span style="color:var(--cr);font-weight:600">'+critN+' critical</span>, <span style="color:var(--wn);font-weight:600">'+warnN+' warning</span>, <span style="color:var(--ac)">'+infoN+' info</span></p>';
+
+  h+='<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">';
+  h+='<input type="search" id="fSearch" placeholder="Filter findings..." style="background:var(--c2);border:1px solid var(--bd);border-radius:5px;padding:4px 10px;color:var(--tx);font-size:12px;width:200px">';
+  h+='<select id="fSev" style="background:var(--c2);border:1px solid var(--bd);border-radius:5px;padding:4px 8px;color:var(--tx);font-size:11px"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>';
+  h+='<select id="fCluster" style="background:var(--c2);border:1px solid var(--bd);border-radius:5px;padding:4px 8px;color:var(--tx);font-size:11px"><option value="">All clusters</option>';
+  var clusterSet={};all.forEach(function(f){clusterSet[f.cluster]=1});
+  Object.keys(clusterSet).sort().forEach(function(c){h+='<option value="'+esc(c)+'">'+esc(c)+'</option>'});
+  h+='</select>';
+  h+='</div>';
+
+  if(!all.length)return h+'<div class="empty">No findings. Fleet is healthy.</div>';
+
+  // Group by cluster.
+  var groups={};
+  all.forEach(function(f){
+    var k=f.cluster||'fleet';
+    if(!groups[k])groups[k]=[];
+    groups[k].push(f);
+  });
+
+  // Sort cluster keys: fleet first, then by critical count descending.
+  var keys=Object.keys(groups).sort(function(a,b){
+    if(a==='fleet')return -1;if(b==='fleet')return 1;
+    var ac=groups[a].filter(function(f){return f.severity==='critical'}).length;
+    var bc=groups[b].filter(function(f){return f.severity==='critical'}).length;
+    return bc-ac;
+  });
+
+  keys.forEach(function(cluster){
+    var findings=groups[cluster];
+    var gc=findings.filter(function(f){return f.severity==='critical'}).length;
+    var gw=findings.filter(function(f){return f.severity==='warning'}).length;
+
+    var statusColor=gc?'var(--cr)':gw?'var(--wn)':'var(--ok)';
+    var isFleet=cluster==='fleet';
+
+    h+='<div class="finding-group" data-gcluster="'+esc(cluster)+'" style="margin-bottom:16px">';
+    h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--bd)">';
+    h+='<span style="width:10px;height:10px;border-radius:50%;background:'+statusColor+';flex-shrink:0"></span>';
+    if(isFleet){
+      h+='<span style="font-size:14px;font-weight:600;color:var(--tx)">Fleet-wide</span>';
+    }else{
+      h+='<a style="font-size:14px;font-weight:600;color:var(--ac);cursor:pointer" onclick="nav(\'detail\',{cluster:\''+esc(cluster)+'\'})">'+esc(cluster)+'</a>';
+    }
+    h+='<span style="font-size:11px;color:var(--t2)">'+findings.length+' finding'+(findings.length!==1?'s':'');
+    if(gc)h+=' &middot; <span style="color:var(--cr)">'+gc+' critical</span>';
+    if(gw)h+=' &middot; <span style="color:var(--wn)">'+gw+' warning</span>';
+    h+='</span>';
+    h+='</div>';
+    findings.forEach(function(f){h+=renderFinding(f)});
+    h+='</div>';
+  });
+
+  return {html:h,post:function(){
+    var s=document.getElementById('fSearch'),sv=document.getElementById('fSev'),sc=document.getElementById('fCluster');
+    function apply(){
+      var q=(s?s.value:'').toLowerCase(),sev=sv?sv.value:'',cl=sc?sc.value:'';
+      // Filter individual findings.
+      document.querySelectorAll('.fi').forEach(function(el){
+        var show=true;
+        if(sev&&el.dataset.sev!==sev)show=false;
+        if(cl&&el.dataset.cluster!==cl)show=false;
+        if(q&&el.dataset.text.indexOf(q)<0)show=false;
+        el.style.display=show?'':'none';
+      });
+      // Hide group headers if all findings in the group are hidden.
+      document.querySelectorAll('.finding-group').forEach(function(g){
+        var visible=g.querySelectorAll('.fi:not([style*="display: none"])');
+        g.style.display=visible.length?'':'none';
+      });
+    }
+    if(s)s.oninput=apply;
+    if(sv)sv.onchange=apply;
+    if(sc)sc.onchange=apply;
+  }};
 }
 
 window.exportFindings=function(){
@@ -1028,8 +1191,9 @@ async function renderCapacity(){
   if(!data.capacity||!data.capacity.length)return h+'<div class="empty">No capacity data available.</div>';
   h+='<div class="g g3">';
   data.capacity.forEach(function(ca){
-    var color=ca.status==='critical'?'var(--cr)':ca.status==='strained'?'var(--wn)':ca.status==='busy'?'var(--ac)':'var(--ok)';
-    var bg=ca.status==='critical'?'rgba(248,81,73,.06)':ca.status==='strained'?'rgba(210,153,34,.06)':ca.status==='busy'?'rgba(88,166,255,.04)':'rgba(63,185,80,.04)';
+    var st=ca.status==='strained'?'degraded':ca.status;
+    var color=st==='critical'?'var(--cr)':st==='degraded'?'var(--wn)':st==='busy'?'var(--ac)':'var(--ok)';
+    var bg=st==='critical'?'rgba(248,81,73,.06)':st==='degraded'?'rgba(210,153,34,.06)':st==='busy'?'rgba(88,166,255,.04)':'rgba(63,185,80,.04)';
     h+='<div class="cd cc" onclick="nav(\'detail\',{cluster:\''+esc(ca.cluster)+'\'})">';
     h+='<div class="ind" style="background:'+color+'"></div>';
     h+='<h4 style="margin-left:6px;margin-bottom:2px">'+esc(ca.cluster)+'</h4>';
@@ -1134,7 +1298,7 @@ async function renderClusters(){
     h+='<h3>Cluster comparison</h3>';
     h+='<div class="tw"><table><thead><tr>';
     h+='<th>Cluster</th>';
-    h+='<th data-tip="Correlated status: healthy, busy, strained, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>';
+    h+='<th data-tip="Correlated status: healthy, busy, degraded, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>';
     h+='<th data-tip="'+esc(TIPS.git_version)+'">Version</th>';
     h+='<th data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>';
     h+='<th data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</th>';
@@ -1149,7 +1313,7 @@ async function renderClusters(){
     rpt.cluster_healths.forEach(function(ch){
       var ca=capMap[ch.name]||{};
       var status=ca.status||ch.status;
-      var stColor=status==='critical'?'var(--cr)':status==='strained'?'var(--wn)':status==='busy'?'var(--ac)':'var(--ok)';
+      var stColor=status==='critical'?'var(--cr)':(status==='degraded'||status==='strained')?'var(--wn)':status==='busy'?'var(--ac)':'var(--ok)';
 
       var unenforced=0,npGaps=0;
       if(rpt.sections.security&&rpt.sections.security.per_cluster[ch.name]){
@@ -1245,6 +1409,9 @@ async function render(){
     else if(P.page==='trends')result=await renderTrends();
     else if(P.page==='capacity')result=await renderCapacity();
     else if(P.page==='outliers')result=await renderOutliers();
+    else if(P.page==='heatmap')result=await renderHeatmap();
+    else if(P.page==='globe')result=await renderGlobe();
+    else if(P.page==='diff')result=await renderDiff();
     else if(P.page==='clusters')result=await renderClusters();
     else if(P.page==='groups')result=await renderGroups();
 
@@ -1253,7 +1420,650 @@ async function render(){
   }catch(e){el.innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'}
 }
 
+// === Fleet heatmap: clusters x scanners colored by worst severity ===
+async function renderHeatmap(){
+  renderBar('');
+  var scans=await api('/scans?limit=1');
+  if(!scans||!scans.length)return '<div class="empty">No scans yet. Trigger a scan from the Dashboard.</div>';
+  var rpt=await api('/scans/'+scans[0].id+'/report');
+  var clusters=rpt.clusters||[];
+  var scannerSet={};
+  var byCellSev={}; // key = cluster||scanner
+  var byCellCount={};
+  (rpt.findings||[]).forEach(function(f){
+    if(!f.scanner||f.cluster==='fleet')return;
+    scannerSet[f.scanner]=true;
+    var key=f.cluster+'||'+f.scanner;
+    var rank={'critical':3,'warning':2,'info':1};
+    if((rank[f.severity]||0)>(rank[byCellSev[key]]||0))byCellSev[key]=f.severity;
+    byCellCount[key]=(byCellCount[key]||0)+1;
+  });
+  var scanners=Object.keys(scannerSet).sort();
+  if(!scanners.length)return '<div class="empty">No findings to plot.</div>';
+  var labels=window._scannerLabels||{};
+  var h='<h2>Fleet heatmap</h2><p class="sub">Clusters × scanners, colored by worst-severity finding for the cell. Click a cell to drill into the Findings page filtered to that cluster + scanner.</p>';
+  h+='<div style="display:flex;gap:14px;align-items:center;margin-bottom:10px;font-size:11px;color:var(--t2)">';
+  h+='Legend: <span style="display:inline-block;width:14px;height:14px;background:rgba(63,185,80,.5);border-radius:3px"></span> ok ';
+  h+='<span style="display:inline-block;width:14px;height:14px;background:rgba(88,166,255,.5);border-radius:3px"></span> info ';
+  h+='<span style="display:inline-block;width:14px;height:14px;background:rgba(210,153,34,.5);border-radius:3px"></span> warning ';
+  h+='<span style="display:inline-block;width:14px;height:14px;background:rgba(248,81,73,.6);border-radius:3px"></span> critical';
+  h+='</div>';
+  h+='<div class="tw"><table style="border-collapse:separate;border-spacing:2px"><thead><tr><th></th>';
+  scanners.forEach(function(s){h+='<th style="text-align:center;writing-mode:vertical-rl;transform:rotate(180deg);padding:6px 2px;height:120px">'+esc(labels[s]||s)+'</th>'});
+  h+='</tr></thead><tbody>';
+  clusters.forEach(function(c){
+    h+='<tr><td style="font-weight:500;font-size:12px;white-space:nowrap;padding-right:8px">'+esc(c)+'</td>';
+    scanners.forEach(function(s){
+      var sev=byCellSev[c+'||'+s];
+      var count=byCellCount[c+'||'+s]||0;
+      var bg='rgba(63,185,80,.25)';
+      if(sev==='info')bg='rgba(88,166,255,.5)';
+      else if(sev==='warning')bg='rgba(210,153,34,.6)';
+      else if(sev==='critical')bg='rgba(248,81,73,.7)';
+      var tip=count?(count+' '+(sev||'')+' finding(s)'):'no findings';
+      h+='<td style="background:'+bg+';width:32px;height:24px;cursor:pointer;text-align:center;font-size:10px;color:var(--tx);border-radius:3px" data-tip="'+esc(tip)+'" onclick="nav(\'findings\');setTimeout(function(){var s=document.getElementById(\'fSearch\');if(s){s.value=\''+esc(c)+'\';s.dispatchEvent(new Event(\'input\'))}},150)">'+(count||'')+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  return h;
+}
+
+// === Globe: 3D fleet view via globe.gl ===
+// Clusters are placed by either an operator-set manual location override or
+// auto-detected from node region labels. The page is a full operator console:
+// the globe on the left, a side panel on the right with severity-sorted
+// cluster list, filter chips, search, action buttons, and a tour-critical
+// auto-cycler. Click a row or a marker to fly the camera and open the action
+// panel for that cluster.
+async function renderGlobe(){
+  renderBar(''+
+    '<input type="search" id="globeSearch" placeholder="Search clusters..." style="width:200px">'+
+    '<span class="btn" id="globeTourBtn">Tour critical</span>'+
+    '<span class="btn" id="globeRotateBtn">Pause rotation</span>'
+  );
+  var h='<h2 style="margin-bottom:4px">Fleet globe</h2>'+
+    '<p class="sub" style="margin-bottom:10px">Click a cluster on the globe or in the right panel to fly there and see actions.</p>';
+  h+='<div id="globeFilter" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap"></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 320px;gap:10px;align-items:start">';
+  h+='  <div id="globe-wrap" style="position:relative;height:640px;background:radial-gradient(circle at center,#0a1424 0%,#050810 100%);border:1px solid var(--bd);border-radius:8px;overflow:hidden"></div>';
+  h+='  <div id="globe-side" style="height:640px;background:var(--c1);border:1px solid var(--bd);border-radius:8px;display:flex;flex-direction:column;overflow:hidden">'+
+    '    <div id="globe-summary" style="padding:10px 12px;border-bottom:1px solid var(--bd);font-size:11px;color:var(--t2)">Loading...</div>'+
+    '    <div id="globe-action" style="padding:10px 12px;border-bottom:1px solid var(--bd);display:none;background:var(--c2)"></div>'+
+    '    <div style="padding:6px 12px;font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid var(--bd)">Clusters worst first</div>'+
+    '    <div id="globe-list" style="overflow-y:auto;flex:1"></div>'+
+    '  </div>';
+  h+='</div>';
+  h+='<div id="globe-legend" style="margin-top:10px;font-size:11px;color:var(--t2);display:flex;gap:18px;flex-wrap:wrap">';
+  h+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3fb950;margin-right:4px"></span>healthy</span>';
+  h+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#58a6ff;margin-right:4px"></span>busy</span>';
+  h+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#d29922;margin-right:4px"></span>degraded</span>';
+  h+='<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f85149;margin-right:4px"></span>critical (pulsing)</span>';
+  h+='<span style="margin-left:auto"><span id="globe-located-count">0</span> placed &middot; <span id="globe-unlocated-count">0</span> unplaced</span>';
+  h+='</div>';
+  h+='<div id="globe-unlocated" style="margin-top:6px;font-size:11px;color:var(--t3)"></div>';
+  return {html:h,post:initGlobe};
+}
+
+// globeState holds runtime state for the page: the filter set, currently
+// selected cluster, tour interval, and the full point set so list rebuilds
+// don't need to refetch.
+var globeState={
+  points:[],
+  filter:{healthy:true,busy:true,degraded:true,critical:true},
+  selected:null,
+  tourTimer:null,
+  search:'',
+};
+
+// renderGlobeSide rebuilds the side panel: severity-count chips, action
+// panel for the selected cluster, and the cluster list filtered by status
+// and search. Called whenever filter/selection/search changes.
+function renderGlobeSide(){
+  var pts=globeState.points;
+  var counts={critical:0,degraded:0,busy:0,healthy:0};
+  pts.forEach(function(p){var s=p.status==='strained'?'degraded':p.status;if(counts[s]!==undefined)counts[s]++});
+
+  var filterHTML='';
+  ['critical','degraded','busy','healthy'].forEach(function(st){
+    var color={critical:'#f85149',degraded:'#d29922',busy:'#58a6ff',healthy:'#3fb950'}[st];
+    var on=globeState.filter[st];
+    filterHTML+='<button class="btn globe-filter-btn" data-status="'+st+'" style="border-color:'+color+';color:'+(on?color:'var(--t3)')+';background:'+(on?'rgba(255,255,255,.02)':'transparent')+';text-transform:capitalize">'+st+' '+counts[st]+'</button>';
+  });
+  document.getElementById('globeFilter').innerHTML=filterHTML;
+  document.querySelectorAll('.globe-filter-btn').forEach(function(b){
+    b.onclick=function(){var s=b.dataset.status;globeState.filter[s]=!globeState.filter[s];renderGlobeSide();applyGlobeLayers()};
+  });
+
+  var summary=document.getElementById('globe-summary');
+  summary.innerHTML=
+    '<div style="display:flex;justify-content:space-between"><span>Critical</span><span style="color:#f85149;font-weight:600">'+counts.critical+'</span></div>'+
+    '<div style="display:flex;justify-content:space-between"><span>Degraded</span><span style="color:#d29922;font-weight:600">'+counts.degraded+'</span></div>'+
+    '<div style="display:flex;justify-content:space-between"><span>Busy</span><span style="color:#58a6ff;font-weight:600">'+counts.busy+'</span></div>'+
+    '<div style="display:flex;justify-content:space-between"><span>Healthy</span><span style="color:#3fb950;font-weight:600">'+counts.healthy+'</span></div>';
+
+  var sevOrder={critical:0,degraded:1,strained:1,busy:2,healthy:3};
+  var visible=pts.filter(function(p){
+    var s=p.status==='strained'?'degraded':p.status;
+    if(!globeState.filter[s])return false;
+    if(globeState.search){
+      var q=globeState.search.toLowerCase();
+      if((p.cluster||'').toLowerCase().indexOf(q)<0 &&
+         (p.site||'').toLowerCase().indexOf(q)<0 &&
+         (p.region||'').toLowerCase().indexOf(q)<0 &&
+         (p.city||'').toLowerCase().indexOf(q)<0)return false;
+    }
+    return true;
+  }).slice().sort(function(a,b){
+    var as=a.status==='strained'?'degraded':a.status;
+    var bs=b.status==='strained'?'degraded':b.status;
+    var d=(sevOrder[as]||4)-(sevOrder[bs]||4);
+    if(d!==0)return d;
+    return (a.cluster||'').localeCompare(b.cluster||'');
+  });
+
+  var list=document.getElementById('globe-list');
+  if(!visible.length){list.innerHTML='<div class="empty" style="padding:30px 16px;font-size:12px">No clusters match your filters.</div>';return}
+  var color={critical:'#f85149',degraded:'#d29922',busy:'#58a6ff',healthy:'#3fb950'};
+  var rows='';
+  visible.forEach(function(p){
+    var s=p.status==='strained'?'degraded':p.status;
+    var c=color[s]||'#8b949e';
+    var sub=p.site||p.city||p.region||'';
+    var sel=globeState.selected===p.cluster;
+    rows+='<div class="globe-row" data-cluster="'+esc(p.cluster)+'" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--bd);'+(sel?'background:var(--c3)':'')+';transition:background .1s">'+
+      '<div style="display:flex;align-items:center;gap:8px">'+
+      '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+c+';flex-shrink:0"></span>'+
+      '<div style="flex:1;min-width:0">'+
+      '<div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(p.cluster)+'</div>'+
+      '<div style="font-size:10px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(sub)+'</div>'+
+      '</div>'+
+      (p.critical_findings?'<span style="font-size:10px;color:#f85149;font-weight:600">'+p.critical_findings+'</span>':'')+
+      '</div></div>';
+  });
+  list.innerHTML=rows;
+  list.querySelectorAll('.globe-row').forEach(function(row){
+    row.onclick=function(){selectGlobeCluster(row.dataset.cluster)};
+    row.onmouseenter=function(){if(!row.style.background)row.style.background='var(--c2)'};
+    row.onmouseleave=function(){var sel=globeState.selected===row.dataset.cluster;row.style.background=sel?'var(--c3)':''};
+  });
+}
+
+// selectGlobeCluster flies the camera to a cluster, marks it selected in
+// the side list, and surfaces an action panel with drill-in buttons. This
+// is the central interaction: a single click on either the globe or the
+// list activates the same flow.
+function selectGlobeCluster(cluster){
+  var p=globeState.points.filter(function(x){return x.cluster===cluster})[0];
+  if(!p)return;
+  globeState.selected=cluster;
+  if(window._globeInstance){
+    window._globeInstance.pointOfView({lat:p.lat,lng:p.lng,altitude:1.6},900);
+  }
+  var s=p.status==='strained'?'degraded':p.status;
+  var color={critical:'#f85149',degraded:'#d29922',busy:'#58a6ff',healthy:'#3fb950'}[s]||'#8b949e';
+  var act=document.getElementById('globe-action');
+  act.style.display='block';
+  act.innerHTML=
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="width:10px;height:10px;border-radius:50%;background:'+color+';display:inline-block"></span><span style="font-weight:600;font-size:13px">'+esc(p.cluster)+'</span></div>'+
+    '<div style="font-size:11px;color:var(--t2);margin-bottom:8px">'+esc(s)+' &middot; '+esc(p.source||'auto')+(p.region?(' &middot; '+esc(p.region)):'')+(p.site?(' &middot; '+esc(p.site)):(p.city?(' &middot; '+esc(p.city)):''))+'</div>'+
+    (p.critical_findings?'<div style="font-size:11px;color:#f85149;margin-bottom:2px">'+p.critical_findings+' critical findings</div>':'')+
+    (p.warning_findings?'<div style="font-size:11px;color:#d29922;margin-bottom:6px">'+p.warning_findings+' warning findings</div>':'')+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+
+    '<button class="btn btn-ac" data-action="globe-drill" data-cluster="'+esc(p.cluster)+'">Drill into details</button>'+
+    '<button class="btn" data-action="globe-findings" data-cluster="'+esc(p.cluster)+'">View findings</button>'+
+    '<button class="btn copy-btn" data-copy="kubectl --context '+esc(p.cluster)+' get nodes">Copy kubectl</button>'+
+    '</div>';
+  act.querySelectorAll('button[data-action]').forEach(function(b){
+    b.onclick=function(){
+      var a=b.dataset.action,c=b.dataset.cluster;
+      if(a==='globe-drill')window.nav('detail',{cluster:c});
+      else if(a==='globe-findings'){window.nav('findings');setTimeout(function(){var s=document.getElementById('fSearch');if(s){s.value=c;s.dispatchEvent(new Event('input'))}},150)}
+    };
+  });
+  renderGlobeSide();
+}
+
+// applyGlobeLayers refreshes the globe's points/rings/labels data based on
+// the active filter set, without recreating the scene.
+function applyGlobeLayers(){
+  if(!window._globeInstance)return;
+  var f=globeState.filter;
+  var pts=globeState.points.filter(function(p){var s=p.status==='strained'?'degraded':p.status;return f[s]});
+  var colors={'healthy':'#3fb950','busy':'#58a6ff','degraded':'#d29922','strained':'#d29922','critical':'#f85149'};
+  var pointsData=pts.map(function(p){return {
+    lat:p.lat,lng:p.lng,
+    size:p.status==='critical'?0.8:(globeState.selected===p.cluster?0.7:0.4),
+    color:colors[p.status]||'#8b949e',
+    cluster:p.cluster,status:p.status,source:p.source,region:p.region,provider:p.provider,
+    site:p.site,city:p.city,
+    critical:p.critical_findings,warning:p.warning_findings,
+  }});
+  var ringsData=pts.filter(function(p){return p.status==='critical'}).map(function(p){
+    return {lat:p.lat,lng:p.lng,maxR:5,propagationSpeed:2,repeatPeriod:1100};
+  });
+  var labelsData=pts.filter(function(p){return p.source==='manual'||p.source==='configmap'||p.source==='annotation'||p.status==='critical'||globeState.selected===p.cluster}).map(function(p){
+    return {lat:p.lat,lng:p.lng,text:p.site||p.cluster,size:globeState.selected===p.cluster?0.55:(p.source!=='auto'?0.45:0.35),color:p.status==='critical'?'#ffb4b4':'#e6edf3'};
+  });
+  window._globeInstance.pointsData(pointsData).ringsData(ringsData).labelsData(labelsData);
+}
+
+// initGlobe fetches /api/geo, loads globe.gl on first use, and mounts the
+// scene into #globe-wrap. Safe to call repeatedly: a prior globe instance
+// is disposed before a new one mounts. Surfaces failures visibly so a
+// blocked CDN or empty endpoint cannot leave a silent blank canvas.
+async function initGlobe(){
+  var wrap=document.getElementById('globe-wrap');
+  function showError(msg,detail){
+    wrap.innerHTML='<div class="empty" style="padding:60px 30px;color:#e6edf3;text-align:left;max-width:700px;margin:0 auto"><div style="font-size:15px;color:#f85149;margin-bottom:10px">'+escapeHtml(msg)+'</div><pre style="font-size:11px;color:#8b949e;white-space:pre-wrap;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px">'+escapeHtml(detail||'')+'</pre></div>';
+  }
+  try{
+    await loadGlobeLib();
+  }catch(e){
+    showError('Could not load globe library from CDN.','Browser blocked or could not reach unpkg.com. Check your network and devtools console.\n\n'+e.message);
+    return;
+  }
+  var resp;
+  try{
+    resp=await api('/geo');
+  }catch(e){
+    showError('Could not fetch /api/geo.',e.message);
+    return;
+  }
+  if(!resp){
+    showError('Empty response from /api/geo.','');
+    return;
+  }
+  if(!resp.points||!resp.points.length){
+    wrap.innerHTML='<div class="empty" style="padding-top:200px">No clusters with locations. Run <code class="mono">fleetsweeper location set &lt;cluster&gt; --lat X --lng Y --site "..."</code> or scan a cluster with cloud region labels. (demo: '+(resp.demo?'on':'off')+')</div>';
+    document.getElementById('globe-located-count').textContent='0';
+    document.getElementById('globe-unlocated-count').textContent=String((resp.unlocated||[]).length);
+    return;
+  }
+  var pts=resp.points;
+  globeState.points=pts;
+  globeState.selected=null;
+  if(globeState.tourTimer){clearInterval(globeState.tourTimer);globeState.tourTimer=null}
+  document.getElementById('globe-located-count').textContent=pts.length;
+  document.getElementById('globe-unlocated-count').textContent=(resp.unlocated||[]).length;
+  if(resp.unlocated&&resp.unlocated.length){
+    document.getElementById('globe-unlocated').textContent='Unplaced: '+resp.unlocated.slice(0,10).join(', ')+(resp.unlocated.length>10?' (and '+(resp.unlocated.length-10)+' more)':'');
+  }
+
+  var colors={'healthy':'#3fb950','busy':'#58a6ff','degraded':'#d29922','strained':'#d29922','critical':'#f85149'};
+  function colorOf(s){return colors[s]||'#8b949e'}
+
+  if(window._globeInstance&&window._globeInstance._destructor){window._globeInstance._destructor()}
+  wrap.innerHTML='';
+
+  // Two layers: steady points for every cluster, rings for critical only.
+  var pointsData=pts.map(function(p){
+    return {
+      lat:p.lat,lng:p.lng,
+      size: p.status==='critical'?0.8:0.4,
+      color: colorOf(p.status),
+      label:p.cluster+(p.site?(' • '+p.site):(p.city?(' • '+p.city):'')),
+      cluster:p.cluster,
+      status:p.status,
+      source:p.source,
+      region:p.region,
+      provider:p.provider,
+      critical:p.critical_findings,
+      warning:p.warning_findings,
+    };
+  });
+  var ringsData=pts.filter(function(p){return p.status==='critical'}).map(function(p){
+    return {lat:p.lat,lng:p.lng,maxR:5,propagationSpeed:2,repeatPeriod:1100};
+  });
+  var labelsData=pts.filter(function(p){return p.source==='manual'||p.status==='critical'}).map(function(p){
+    return {
+      lat:p.lat,lng:p.lng,
+      text:p.site||p.cluster,
+      size:p.source==='manual'?0.45:0.35,
+      color:p.status==='critical'?'#ffb4b4':'#e6edf3',
+    };
+  });
+
+  if(typeof Globe!=='function'){
+    showError('globe.gl loaded but the Globe constructor is not available.','window.Globe is '+(typeof Globe));
+    return;
+  }
+  var globe;
+  try{
+    globe=Globe()(wrap)
+    .globeImageUrl('/vendor/earth-night.jpg')
+    .bumpImageUrl('/vendor/earth-topology.png')
+    .backgroundColor('rgba(0,0,0,0)')
+    .atmosphereColor('#58a6ff')
+    .atmosphereAltitude(0.18)
+    .pointsData(pointsData)
+    .pointLat('lat').pointLng('lng').pointColor('color')
+    .pointAltitude(function(d){return d.status==='critical'?0.06:0.02})
+    .pointRadius('size')
+    .pointLabel(function(d){
+      var sourceLabel={'manual':'manual override','configmap':'in-cluster ConfigMap','annotation':'in-cluster annotation','auto':'auto-detected'}[d.source]||d.source;
+      return '<div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 10px;font-family:system-ui;font-size:12px;color:#e6edf3;max-width:260px">'+
+        '<div style="font-weight:600;margin-bottom:4px">'+escapeHtml(d.cluster)+'</div>'+
+        '<div style="color:#8b949e">'+escapeHtml(d.status)+' &middot; '+escapeHtml(sourceLabel)+'</div>'+
+        (d.region?'<div style="color:#8b949e">'+escapeHtml(d.region)+(d.provider?' &middot; '+escapeHtml(d.provider):'')+'</div>':'')+
+        (d.critical?'<div style="color:#f85149">'+d.critical+' critical</div>':'')+
+        (d.warning?'<div style="color:#d29922">'+d.warning+' warning</div>':'')+
+      '</div>';
+    })
+    .onPointClick(function(d){selectGlobeCluster(d.cluster)})
+    .ringsData(ringsData)
+    .ringColor(function(){return function(t){return 'rgba(248,81,73,'+(1-t)+')'}})
+    .ringMaxRadius('maxR')
+    .ringPropagationSpeed('propagationSpeed')
+    .ringRepeatPeriod('repeatPeriod')
+    .labelsData(labelsData)
+    .labelLat('lat').labelLng('lng').labelText('text').labelSize('size')
+    .labelColor(function(d){return d.color})
+    .labelDotRadius(0.25)
+    .labelResolution(2);
+  }catch(e){
+    showError('Globe failed to initialize.',e.message+(e.stack?('\n\n'+e.stack):''));
+    return;
+  }
+
+  globe.width(wrap.clientWidth).height(640);
+  globe.controls().autoRotate=window.globeAutoRotate!==false;
+  globe.controls().autoRotateSpeed=0.4;
+  globe.controls().enableDamping=true;
+
+  // Focus the camera on the worst cluster after a beat so the eye lands on trouble first.
+  var worst=pts.filter(function(p){return p.status==='critical'})[0]||pts[0];
+  if(worst){
+    setTimeout(function(){globe.pointOfView({lat:worst.lat,lng:worst.lng,altitude:2.2},1500)},400);
+  }
+
+  window._globeInstance=globe;
+  window.addEventListener('resize',function(){if(window._globeInstance)window._globeInstance.width(wrap.clientWidth)});
+
+  renderGlobeSide();
+
+  // Wire the toolbar controls (search, tour, rotation toggle). These live in
+  // the top bar so they don't compete for space with the globe.
+  var search=document.getElementById('globeSearch');
+  if(search){
+    search.oninput=function(){globeState.search=search.value||'';renderGlobeSide()};
+  }
+  var rotateBtn=document.getElementById('globeRotateBtn');
+  if(rotateBtn){
+    rotateBtn.onclick=function(){
+      window.globeAutoRotate=!window.globeAutoRotate;
+      globe.controls().autoRotate=window.globeAutoRotate;
+      rotateBtn.textContent=window.globeAutoRotate?'Pause rotation':'Resume rotation';
+    };
+  }
+  var tourBtn=document.getElementById('globeTourBtn');
+  if(tourBtn){
+    tourBtn.onclick=function(){
+      if(globeState.tourTimer){clearInterval(globeState.tourTimer);globeState.tourTimer=null;tourBtn.textContent='Tour critical';return}
+      var criticals=globeState.points.filter(function(p){return p.status==='critical'});
+      if(!criticals.length){tourBtn.textContent='No critical clusters';setTimeout(function(){tourBtn.textContent='Tour critical'},1500);return}
+      tourBtn.textContent='Stop tour';
+      var i=0;
+      function step(){selectGlobeCluster(criticals[i%criticals.length].cluster);i++}
+      step();
+      globeState.tourTimer=setInterval(step,3500);
+    };
+  }
+}
+
+// loadGlobeLib loads globe.gl from CDN once and resolves when window.Globe
+// is available. globe.gl bundles Three.js so a single script tag is enough.
+function loadGlobeLib(){
+  if(window.Globe)return Promise.resolve();
+  return new Promise(function(resolve,reject){
+    var s=document.createElement('script');
+    s.src='/vendor/globe.gl.min.js';
+    s.onload=resolve;
+    s.onerror=function(){reject(new Error('failed to load globe.gl'))};
+    document.head.appendChild(s);
+  });
+}
+
+// escapeHtml is a tiny escape for the globe label HTML, which renders outside
+// the SPA's normal sanitization path.
+function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]})}
+
+window.globeAutoRotate=true;
+
+// === Scan diff: pick two scans, show resolved vs new findings ===
+async function renderDiff(){
+  renderBar('');
+  var scans=await api('/scans?limit=20');
+  if(!scans||scans.length<2)return '<div class="empty">Need at least 2 scans for diff. Trigger a scan from the Dashboard.</div>';
+  var aId=P.diffA||scans[1].id;
+  var bId=P.diffB||scans[0].id;
+  var h='<h2>Scan diff</h2><p class="sub">Compare two scans to see what changed: findings that resolved, findings that are new, summary deltas.</p>';
+  function opts(sel){return scans.map(function(s){return '<option value="'+s.id+'"'+(s.id===sel?' selected':'')+'>'+esc(s.id)+' — '+esc(s.timestamp)+'</option>'}).join('')}
+  h+='<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;font-size:12px">';
+  h+='<label>Base (older): <select id="diffA" style="background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;color:var(--tx);font-size:11px">'+opts(aId)+'</select></label>';
+  h+='<label>Target (newer): <select id="diffB" style="background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;color:var(--tx);font-size:11px">'+opts(bId)+'</select></label>';
+  h+='<button class="btn btn-ac" onclick="P.diffA=document.getElementById(\'diffA\').value;P.diffB=document.getElementById(\'diffB\').value;render()">Compare</button>';
+  h+='</div>';
+  var ra=await api('/scans/'+aId+'/report');
+  var rb=await api('/scans/'+bId+'/report');
+  function key(f){return f.severity+'|'+f.cluster+'|'+f.scanner+'|'+f.title}
+  var aSet={};(ra.findings||[]).forEach(function(f){aSet[key(f)]=f});
+  var bSet={};(rb.findings||[]).forEach(function(f){bSet[key(f)]=f});
+  var resolved=[],added=[];
+  Object.keys(aSet).forEach(function(k){if(!bSet[k])resolved.push(aSet[k])});
+  Object.keys(bSet).forEach(function(k){if(!aSet[k])added.push(bSet[k])});
+  h+='<div class="g g2">';
+  h+='<div class="cd"><h3 style="color:var(--cr);margin-top:0">New ('+added.length+')</h3>';
+  if(!added.length)h+='<p class="sub">No new findings.</p>';
+  else added.slice(0,50).forEach(function(f){h+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px"><span class="tag" style="background:rgba(248,81,73,.1);color:var(--cr)">'+esc(f.severity)+'</span> '+esc(f.cluster)+' — '+esc(f.title)+'</div>'});
+  h+='</div>';
+  h+='<div class="cd"><h3 style="color:var(--ok);margin-top:0">Resolved ('+resolved.length+')</h3>';
+  if(!resolved.length)h+='<p class="sub">No resolved findings.</p>';
+  else resolved.slice(0,50).forEach(function(f){h+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;opacity:.7"><span class="tag" style="background:rgba(63,185,80,.1);color:var(--ok)">'+esc(f.severity)+'</span> '+esc(f.cluster)+' — '+esc(f.title)+'</div>'});
+  h+='</div></div>';
+  h+='<button class="btn btn-ac copy-btn" data-copy="'+esc(diffMarkdown(aId,bId,resolved,added))+'" style="margin-top:14px">Copy Markdown summary</button>';
+  return h;
+}
+
+// diffMarkdown formats a scan diff as markdown for incident-channel paste.
+function diffMarkdown(a,b,resolved,added){
+  var lines=['## Scan diff: '+a+' → '+b,'','### Resolved ('+resolved.length+')'];
+  resolved.forEach(function(f){lines.push('- '+f.severity+' '+f.cluster+': '+f.title)});
+  lines.push('','### New ('+added.length+')');
+  added.forEach(function(f){lines.push('- '+f.severity+' '+f.cluster+': '+f.title)});
+  return lines.join('\n');
+}
+
 render();
+
+// === Enhancements: hash routing, copy buttons, Cmd-K palette, markdown export ===
+// The original SPA mutated a private P state and called render() directly. This
+// layer wraps nav() so every navigation also pushes a hash, and a hashchange
+// listener restores state on reload or back/forward — making URLs bookmarkable
+// and Slack-pasteable. Hash routing works under file:// as well as http://.
+
+(function(){
+  var originalNav=window.nav;
+  function pageToHash(page,opts){
+    opts=opts||{};
+    if(page==='dash')return '#/';
+    if(page==='detail'&&opts.cluster)return '#/cluster/'+encodeURIComponent(opts.cluster);
+    if(page==='scanReport'&&opts.scanId)return '#/scan/'+encodeURIComponent(opts.scanId);
+    return '#/'+page;
+  }
+  function hashToState(){
+    var h=(location.hash||'#/').replace(/^#\/?/,'');
+    if(!h)return {page:'dash'};
+    var parts=h.split('/');
+    if(parts[0]==='cluster'&&parts[1])return {page:'detail',cluster:decodeURIComponent(parts[1])};
+    if(parts[0]==='scan'&&parts[1])return {page:'scanReport',scanId:decodeURIComponent(parts[1])};
+    return {page:parts[0]||'dash'};
+  }
+  window.nav=function(page,opts){
+    var hash=pageToHash(page,opts);
+    if(location.hash!==hash){
+      try{history.pushState({},'',hash)}catch(_){location.hash=hash}
+    }
+    originalNav(page,opts);
+  };
+  window.addEventListener('hashchange',function(){
+    var s=hashToState();
+    originalNav(s.page,s);
+  });
+  window.addEventListener('popstate',function(){
+    var s=hashToState();
+    originalNav(s.page,s);
+  });
+  // Boot: if a hash was present on load, restore that view.
+  if(location.hash&&location.hash!=='#/'){
+    var s=hashToState();
+    originalNav(s.page,s);
+  }
+})();
+
+// Delegated copy-button handler: every .copy-btn writes its data-copy attribute
+// to the clipboard and flashes a "Copied" badge for 1.2s. This is keyboard
+// accessible because .copy-btn is a real <button>.
+document.addEventListener('click',function(ev){
+  var btn=ev.target.closest('.copy-btn');
+  if(!btn)return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  var text=btn.getAttribute('data-copy')||'';
+  function done(ok){
+    var original=btn.textContent;
+    btn.textContent=ok?'Copied':'Copy failed';
+    btn.classList.add('btn-ac');
+    setTimeout(function(){btn.textContent=original;btn.classList.remove('btn-ac')},1200);
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){done(true)},function(){done(false)});
+  }else{
+    // Fallback for older browsers.
+    var ta=document.createElement('textarea');
+    ta.value=text;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');done(true)}catch(_){done(false)}
+    document.body.removeChild(ta);
+  }
+});
+
+// Markdown export of "today's criticals". Wires a floating action button on
+// the Findings page. Builds a markdown block of all critical findings with
+// their remediation commands and triggers a file download.
+function exportCriticalsMarkdown(){
+  var nodes=document.querySelectorAll('.fi[data-sev="critical"]');
+  var dateStr=new Date().toISOString().slice(0,10);
+  var lines=['## Critical findings — '+dateStr,''];
+  if(!nodes.length){
+    lines.push('_No critical findings._');
+  }else{
+    nodes.forEach(function(el){
+      var cluster=el.dataset.cluster||'fleet';
+      var title=el.querySelector('div[style*="font-size:13px"]');
+      var titleText=title?title.textContent.trim():'';
+      var rem=el.querySelector('.remediation');
+      var remText=rem?rem.textContent.trim():'';
+      lines.push('- **'+cluster+'** — '+titleText);
+      if(remText)lines.push('  ```');
+      if(remText)remText.split('\n').forEach(function(l){lines.push('  '+l)});
+      if(remText)lines.push('  ```');
+    });
+  }
+  var blob=new Blob([lines.join('\n')+'\n'],{type:'text/markdown'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='fleetsweeper-criticals-'+dateStr+'.md';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+// Inject the markdown export button when the Findings page renders. We watch
+// for #ct changes via a MutationObserver — cheap and resilient to the SPA's
+// frequent full-replacement re-renders.
+(function(){
+  var ct=document.getElementById('ct');
+  if(!ct)return;
+  var observer=new MutationObserver(function(){
+    if(typeof P==='undefined'||P.page!=='findings')return;
+    var bar=document.getElementById('bar');
+    if(!bar||bar.querySelector('.md-export'))return;
+    var btn=document.createElement('button');
+    btn.className='btn btn-ac md-export';
+    btn.type='button';
+    btn.textContent='Export critical findings (Markdown)';
+    btn.onclick=exportCriticalsMarkdown;
+    bar.appendChild(btn);
+  });
+  observer.observe(ct,{childList:true,subtree:true});
+})();
+
+// Cmd-K command palette. Press Cmd-K (Ctrl-K on Linux/Windows) to open a
+// fuzzy-matched picker over clusters, scanners, and navigation commands.
+(function(){
+  var overlay=null;
+  function open(){
+    if(overlay)return;
+    overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
+    overlay.innerHTML='<div style="background:var(--c1);border:1px solid var(--bd);border-radius:8px;width:520px;max-width:90vw;max-height:60vh;display:flex;flex-direction:column;overflow:hidden">'+
+      '<input type="search" id="cmdkSearch" placeholder="Type to search clusters, scanners, pages..." autofocus style="border:0;border-bottom:1px solid var(--bd);padding:12px 14px;font-size:14px;background:transparent;color:var(--tx);outline:none">'+
+      '<div id="cmdkList" style="overflow-y:auto;flex:1"></div>'+
+      '<div style="border-top:1px solid var(--bd);padding:6px 12px;font-size:10px;color:var(--t3)">Up/Down to navigate &nbsp;|&nbsp; Enter to select &nbsp;|&nbsp; Esc to close</div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click',function(e){if(e.target===overlay)close()});
+    var input=overlay.querySelector('#cmdkSearch');
+    var list=overlay.querySelector('#cmdkList');
+    var sel=0;
+    function items(){
+      var nav=[
+        {label:'Dashboard',action:function(){window.nav('dash')}},
+        {label:'Findings',action:function(){window.nav('findings')}},
+        {label:'Scan history',action:function(){window.nav('scans')}},
+        {label:'Capacity',action:function(){window.nav('capacity')}},
+        {label:'Trends',action:function(){window.nav('trends')}},
+        {label:'Outliers',action:function(){window.nav('outliers')}},
+        {label:'Fleet heatmap',action:function(){window.nav('heatmap')}},
+        {label:'Globe (3D fleet map)',action:function(){window.nav('globe')}},
+        {label:'Scan diff',action:function(){window.nav('diff')}},
+        {label:'Clusters',action:function(){window.nav('clusters')}},
+        {label:'Groups',action:function(){window.nav('groups')}},
+        {label:'Trigger scan',action:function(){if(typeof triggerScan==='function')triggerScan()}},
+      ];
+      var clusters=(window._dashReport&&window._dashReport.clusters||[]).map(function(c){
+        return {label:'Cluster: '+c,action:function(){window.nav('detail',{cluster:c})}};
+      });
+      return nav.concat(clusters);
+    }
+    function render(){
+      var q=input.value.toLowerCase();
+      var matches=items().filter(function(it){return !q||it.label.toLowerCase().indexOf(q)>=0});
+      if(sel>=matches.length)sel=matches.length-1;
+      if(sel<0)sel=0;
+      list.innerHTML=matches.map(function(it,i){
+        return '<div class="cmdk-item" data-i="'+i+'" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--bd);'+(i===sel?'background:var(--c3);color:var(--ac)':'color:var(--tx)')+'">'+it.label.replace(/</g,'&lt;')+'</div>';
+      }).join('') || '<div style="padding:20px;text-align:center;color:var(--t2)">No matches</div>';
+      list.querySelectorAll('.cmdk-item').forEach(function(el){
+        el.addEventListener('mouseenter',function(){sel=parseInt(el.dataset.i,10);render()});
+        el.addEventListener('click',function(){var m=items().filter(function(it){return !q||it.label.toLowerCase().indexOf(q)>=0});if(m[sel]){m[sel].action();close()}});
+      });
+    }
+    input.addEventListener('input',render);
+    input.addEventListener('keydown',function(e){
+      var q=input.value.toLowerCase();
+      var matches=items().filter(function(it){return !q||it.label.toLowerCase().indexOf(q)>=0});
+      if(e.key==='ArrowDown'){sel=(sel+1)%matches.length;render();e.preventDefault()}
+      else if(e.key==='ArrowUp'){sel=(sel-1+matches.length)%matches.length;render();e.preventDefault()}
+      else if(e.key==='Enter'){if(matches[sel]){matches[sel].action();close()};e.preventDefault()}
+      else if(e.key==='Escape'){close();e.preventDefault()}
+    });
+    render();
+  }
+  function close(){if(overlay){overlay.remove();overlay=null}}
+  document.addEventListener('keydown',function(e){
+    if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();open()}
+  });
+})();
 </script>
 </body>
 </html>

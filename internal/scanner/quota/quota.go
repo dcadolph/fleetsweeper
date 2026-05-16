@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -53,12 +52,12 @@ type Data struct {
 // NewScanner returns a scanner that collects ResourceQuota and LimitRange data.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		qList, err := client.Clientset().CoreV1().ResourceQuotas("").List(ctx, metav1.ListOptions{})
+		qList, err := client.Clientset().CoreV1().ResourceQuotas("").List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: quotas: %w", scanner.ErrScan, Name, err)
 		}
 
-		lrList, err := client.Clientset().CoreV1().LimitRanges("").List(ctx, metav1.ListOptions{})
+		lrList, err := client.Clientset().CoreV1().LimitRanges("").List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: limit ranges: %w", scanner.ErrScan, Name, err)
 		}

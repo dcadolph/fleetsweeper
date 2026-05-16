@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -62,7 +61,7 @@ func NewScanner() scanner.Scanner {
 		rbacClient := client.Clientset().RbacV1()
 		data := Data{}
 
-		crList, err := rbacClient.ClusterRoles().List(ctx, metav1.ListOptions{})
+		crList, err := rbacClient.ClusterRoles().List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: cluster roles: %w", scanner.ErrScan, Name, err)
 		}
@@ -75,7 +74,7 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		rList, err := rbacClient.Roles("").List(ctx, metav1.ListOptions{})
+		rList, err := rbacClient.Roles("").List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: roles: %w", scanner.ErrScan, Name, err)
 		}
@@ -89,7 +88,7 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		crbList, err := rbacClient.ClusterRoleBindings().List(ctx, metav1.ListOptions{})
+		crbList, err := rbacClient.ClusterRoleBindings().List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: cluster role bindings: %w", scanner.ErrScan, Name, err)
 		}
@@ -103,7 +102,7 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		rbList, err := rbacClient.RoleBindings("").List(ctx, metav1.ListOptions{})
+		rbList, err := rbacClient.RoleBindings("").List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: role bindings: %w", scanner.ErrScan, Name, err)
 		}

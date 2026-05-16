@@ -51,6 +51,24 @@ type GroupRecord struct {
 	Clusters []string `json:"clusters"`
 }
 
+// LocationRecord is a user-supplied geographic override for a cluster. This
+// is how operators map clusters to physical sites (retail stores, factories,
+// edge devices) that have no cloud-region label to auto-detect.
+type LocationRecord struct {
+	// Cluster is the cluster context name.
+	Cluster string `json:"cluster"`
+	// Lat is latitude in degrees north (positive) or south (negative).
+	Lat float64 `json:"lat"`
+	// Lng is longitude in degrees east (positive) or west (negative).
+	Lng float64 `json:"lng"`
+	// Site is a human-readable label (for example "Store #42, Manhattan").
+	Site string `json:"site,omitempty"`
+	// Notes is free-form text the operator can use.
+	Notes string `json:"notes,omitempty"`
+	// UpdatedAt is when the record was last written.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Store persists and retrieves scan data.
 type Store interface {
 	// SaveScan persists a complete scan with all per-cluster results. Returns
@@ -94,6 +112,24 @@ type Store interface {
 
 	// GetScansByTimeRange returns scans within a time window.
 	GetScansByTimeRange(ctx context.Context, start, end time.Time) ([]ScanRecord, error)
+
+	// Prune deletes scans older than cutoff. Returns the number of scans deleted.
+	Prune(ctx context.Context, cutoff time.Time) (int, error)
+
+	// Vacuum reclaims unused database pages.
+	Vacuum(ctx context.Context) error
+
+	// SetLocation upserts a manual location override for a cluster.
+	SetLocation(ctx context.Context, loc LocationRecord) error
+
+	// GetLocation returns a single cluster's manual override, or nil if none.
+	GetLocation(ctx context.Context, cluster string) (*LocationRecord, error)
+
+	// ListLocations returns every manual override.
+	ListLocations(ctx context.Context) ([]LocationRecord, error)
+
+	// DeleteLocation removes a manual override.
+	DeleteLocation(ctx context.Context, cluster string) error
 
 	// Close releases database resources.
 	Close() error

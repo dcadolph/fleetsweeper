@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -43,12 +42,12 @@ type Data struct {
 // NewScanner returns a scanner that collects NetworkPolicy data from a cluster.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		npList, err := client.Clientset().NetworkingV1().NetworkPolicies("").List(ctx, metav1.ListOptions{})
+		npList, err := client.Clientset().NetworkingV1().NetworkPolicies("").List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 
-		nsList, err := client.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+		nsList, err := client.Clientset().CoreV1().Namespaces().List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: namespaces: %w", scanner.ErrScan, Name, err)
 		}

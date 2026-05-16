@@ -40,6 +40,7 @@ func init() {
 	rootCmd.AddCommand(groupCmd)
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(locationCmd)
 }
 
 // defaultKubeconfig returns the default kubeconfig path from the environment

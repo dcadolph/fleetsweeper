@@ -32,8 +32,76 @@ func testServer(t *testing.T) (*Server, *store.SQLite) {
 		Registry: registry,
 		Log:      zap.NewNop(),
 		Workers:  2,
+		Insecure: true,
 	})
 	return srv, s
+}
+
+// TestBearerAuth verifies that mutating endpoints reject requests when an auth
+// token is configured but the request lacks a matching bearer header, and
+// accept requests that carry the correct token.
+func TestBearerAuth(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "auth.db")
+	s, err := store.NewSQLite(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	srv := New(Config{
+		Store:     s,
+		Registry:  scanner.NewRegistry(),
+		Log:       zap.NewNop(),
+		Workers:   2,
+		AuthToken: "secret-token",
+	})
+
+	body := `{"name":"prod","clusters":["a","b"]}`
+
+	noAuth := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, noAuth)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token: want 401, got %d", w.Code)
+	}
+
+	wrongAuth := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(body))
+	wrongAuth.Header.Set("Authorization", "Bearer wrong-token")
+	w = httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, wrongAuth)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong token: want 401, got %d", w.Code)
+	}
+
+	rightAuth := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(body))
+	rightAuth.Header.Set("Authorization", "Bearer secret-token")
+	w = httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, rightAuth)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("right token: want 201, got %d body %s", w.Code, w.Body.String())
+	}
+
+	// GET should always pass when no Authorization header is supplied.
+	read := httptest.NewRequest(http.MethodGet, "/api/groups", nil)
+	w = httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, read)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read without token: want 200, got %d", w.Code)
+	}
+}
+
+// TestHealthz confirms the liveness probe endpoint is unauthenticated and OK.
+func TestHealthz(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("healthz: status %d", w.Code)
+	}
 }
 
 func TestListScansEmpty(t *testing.T) {

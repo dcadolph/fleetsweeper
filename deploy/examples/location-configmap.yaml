@@ -1,0 +1,30 @@
+# In-cluster location override for fleetsweeper.
+#
+# Apply this ConfigMap to any cluster you want fleetsweeper to place at a
+# specific lat/lng on the globe — for example a retail store, factory floor,
+# or on-prem cluster that doesn't carry a cloud-region label on its nodes.
+#
+# Fleetsweeper checks for this ConfigMap on every scan; whatever it finds
+# overrides auto-detection from node region labels. Both lat and lng are
+# required; site and notes are optional.
+#
+# Apply with:
+#   kubectl --context <your-cluster> apply -f location-configmap.yaml
+#
+# Or commit it next to your cluster's other manifests so the location
+# travels with the cluster definition in Git.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleetsweeper
+  namespace: kube-system
+data:
+  lat: "40.7589"
+  lng: "-73.9851"
+  site: "Store #42, Times Square"
+  notes: "Flagship retail location, opened 2024-09."
+  # Optional: override the cloud-region label fleetsweeper would otherwise
+  # auto-detect. Useful when you want the globe to show a more precise
+  # placement than a generic region centroid (e.g. AZ-level placement).
+  # region: "us-east-1"

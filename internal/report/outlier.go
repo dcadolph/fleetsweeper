@@ -7,6 +7,17 @@ import (
 	"sort"
 )
 
+// minMADSample is the minimum number of values required before MAD-based
+// outlier detection emits any finding. Below this the median itself is
+// unreliable and false positives dominate; the audit flagged the previous
+// floor of 3 as statistical garbage.
+const minMADSample = 8
+
+// minStringModeMass is the minimum share of the population the mode must hold
+// before string outliers are flagged. Without this guard a three-way tied
+// version distribution incorrectly flagged 2/3 of the fleet as outliers.
+const minStringModeMass = 0.6
+
 // OutlierResult describes a cluster that deviates from the fleet norm.
 type OutlierResult struct {
 	// Cluster is the cluster that deviates.
@@ -27,12 +38,13 @@ type OutlierResult struct {
 
 // DetectOutliers analyzes a report and returns clusters that deviate from fleet
 // norms. The threshold controls sensitivity for numeric fields: lower values
-// flag more outliers.
+// flag more outliers. The function only emits findings when the sample is
+// large enough to be statistically meaningful (see minMADSample).
 func DetectOutliers(r *Report, threshold float64) []OutlierResult {
 	var outliers []OutlierResult
 
 	for scannerName, sec := range r.Sections {
-		if sec.Uniform || len(sec.PerCluster) < 3 {
+		if sec.Uniform || len(sec.PerCluster) < minMADSample {
 			continue
 		}
 
@@ -54,7 +66,6 @@ func DetectOutliers(r *Report, threshold float64) []OutlierResult {
 		}
 	}
 
-	// Sort by severity then scanner then cluster.
 	sevOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	sort.Slice(outliers, func(i, j int) bool {
 		if sevOrder[outliers[i].Severity] != sevOrder[outliers[j].Severity] {
@@ -70,8 +81,11 @@ func DetectOutliers(r *Report, threshold float64) []OutlierResult {
 }
 
 // detectNumericOutliers flags clusters where a numeric field is beyond threshold
-// modified z-scores from the fleet median. Uses MAD (median absolute deviation)
-// which is robust to the outliers themselves.
+// modified z-scores from the fleet median. Uses MAD (median absolute deviation),
+// which is robust to the outliers themselves. When MAD is zero the population
+// is uniform enough that a single non-median value is not statistically
+// distinguishable from noise; we emit nothing in that case rather than flagging
+// every minority value.
 func detectNumericOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string, threshold float64) []OutlierResult {
 	vals := make([]float64, 0, len(clusters))
 	clusterVals := make(map[string]float64, len(clusters))
@@ -88,7 +102,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		clusterVals[c] = v
 	}
 
-	if len(vals) < 3 {
+	if len(vals) < minMADSample {
 		return nil
 	}
 
@@ -96,22 +110,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 	mad := computeMAD(vals, median)
 
 	if mad == 0 {
-		// All values are the same except outliers. Use simple deviation from median.
-		var outliers []OutlierResult
-		for c, v := range clusterVals {
-			if v != median {
-				outliers = append(outliers, OutlierResult{
-					Cluster:   c,
-					Field:     field,
-					Value:     formatNum(v),
-					FleetNorm: formatNum(median),
-					Deviation: math.Abs(v - median),
-					Scanner:   scannerName,
-					Severity:  classifySeverity(scannerName, field),
-				})
-			}
-		}
-		return outliers
+		return nil
 	}
 
 	var outliers []OutlierResult
@@ -132,7 +131,10 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 	return outliers
 }
 
-// detectStringOutliers flags clusters whose string value differs from the mode.
+// detectStringOutliers flags clusters whose string value differs from the mode,
+// but only when the mode commands at least minStringModeMass of the population.
+// Tied or near-tied distributions produce no findings to avoid arbitrary
+// majority-vs-minority reports.
 func detectStringOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) []OutlierResult {
 	counts := make(map[string]int)
 	clusterVals := make(map[string]string, len(clusters))
@@ -147,21 +149,18 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 		clusterVals[c] = v
 	}
 
-	if len(counts) <= 1 {
+	if len(counts) <= 1 || len(clusterVals) == 0 {
 		return nil
 	}
 
-	// Find mode.
-	var mode string
-	modeCount := 0
-	for v, n := range counts {
-		if n > modeCount {
-			mode = v
-			modeCount = n
-		}
+	mode := dominantString(counts)
+	if mode == "" {
+		return nil
+	}
+	if float64(counts[mode])/float64(len(clusterVals)) < minStringModeMass {
+		return nil
 	}
 
-	// Only flag minority values (not the majority).
 	var outliers []OutlierResult
 	for c, v := range clusterVals {
 		if v != mode {
@@ -178,8 +177,23 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 	return outliers
 }
 
-// detectSetOutliers flags clusters missing items present in the consensus set
-// (items in >50% of clusters).
+// dominantString returns the mode of a string population. Ties break
+// deterministically by smallest string so callers get stable output.
+func dominantString(counts map[string]int) string {
+	var mode string
+	best := 0
+	for v, n := range counts {
+		if n > best || (n == best && v < mode) {
+			mode = v
+			best = n
+		}
+	}
+	return mode
+}
+
+// detectSetOutliers flags clusters missing items present in the consensus set.
+// Consensus requires an item to appear in at least 60% of clusters, eliminating
+// the discontinuity the previous integer-divide threshold produced at small N.
 func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) []OutlierResult {
 	itemCounts := make(map[string]int)
 	clusterSets := make(map[string]map[string]struct{}, len(clusters))
@@ -200,11 +214,14 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 		clusterSets[c] = set
 	}
 
-	// Consensus: items in >50% of clusters.
-	threshold := len(clusterSets) / 2
+	if len(clusterSets) == 0 {
+		return nil
+	}
+
+	threshold := int(math.Ceil(float64(len(clusterSets)) * 0.6))
 	consensus := make(map[string]struct{})
 	for item, count := range itemCounts {
-		if count > threshold {
+		if count >= threshold {
 			consensus[item] = struct{}{}
 		}
 	}
@@ -269,35 +286,50 @@ func collectFields(flat map[string]map[string]any) []string {
 	return fields
 }
 
-// isNumericInFlat checks if a field is numeric in the flattened data.
+// isNumericInFlat reports whether a field is numeric in at least one cluster
+// and not non-numeric in any cluster. Earlier this consulted only the first
+// cluster, so a leading nil silently classified an otherwise numeric field as
+// non-numeric.
 func isNumericInFlat(clusters []string, flat map[string]map[string]any, field string) bool {
+	sawNumeric := false
 	for _, c := range clusters {
 		m := flat[c]
 		if m == nil {
 			continue
 		}
-		switch m[field].(type) {
-		case float64:
-			return true
+		v, present := m[field]
+		if !present || v == nil {
+			continue
+		}
+		if _, ok := v.(float64); ok {
+			sawNumeric = true
+			continue
 		}
 		return false
 	}
-	return false
+	return sawNumeric
 }
 
-// isArrayInFlat checks if a field is an array in the flattened data.
+// isArrayInFlat reports whether a field is an array in at least one cluster
+// and not a non-array in any cluster.
 func isArrayInFlat(clusters []string, flat map[string]map[string]any, field string) bool {
+	sawArray := false
 	for _, c := range clusters {
 		m := flat[c]
 		if m == nil {
 			continue
 		}
-		if _, ok := m[field].([]any); ok {
-			return true
+		v, present := m[field]
+		if !present || v == nil {
+			continue
+		}
+		if _, ok := v.([]any); ok {
+			sawArray = true
+			continue
 		}
 		return false
 	}
-	return false
+	return sawArray
 }
 
 // toOptionalFloat64 attempts to convert a value to float64.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
@@ -49,7 +48,7 @@ func NewScanner() scanner.Scanner {
 			return scanner.Result{Scanner: Name, Data: Data{}}, nil
 		}
 
-		list, err := dyn.Resource(crdGVR).List(ctx, metav1.ListOptions{})
+		list, err := dyn.Resource(crdGVR).List(ctx, scanner.CacheReadOptions())
 		if err != nil {
 			return scanner.Result{Scanner: Name, Data: Data{}}, nil //nolint:nilerr // CRD API may not be available.
 		}

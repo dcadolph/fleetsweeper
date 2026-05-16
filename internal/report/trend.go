@@ -41,6 +41,11 @@ type ClusterTrend struct {
 	Points []TrendPoint `json:"points"`
 	// Direction indicates the overall trend.
 	Direction TrendDirection `json:"direction"`
+	// Confidence describes how trustworthy this direction is: "high", "low",
+	// or empty when no direction was computed.
+	Confidence string `json:"confidence,omitempty"`
+	// RSquared is the coefficient of determination for the fitted slope.
+	RSquared float64 `json:"r_squared,omitempty"`
 }
 
 // FleetTrend tracks a fleet-wide metric over time.
@@ -53,6 +58,10 @@ type FleetTrend struct {
 	Direction TrendDirection `json:"direction"`
 	// Points are fleet-aggregated values over time (e.g. count of unique versions).
 	Points []TrendPoint `json:"points"`
+	// Confidence describes how trustworthy this direction is.
+	Confidence string `json:"confidence,omitempty"`
+	// RSquared is the coefficient of determination for the fitted slope.
+	RSquared float64 `json:"r_squared,omitempty"`
 }
 
 // trendFields defines which (scanner, field) pairs we track trends for and
@@ -110,22 +119,23 @@ func ComputeClusterTrends(cluster string, scans []ScanMeta, resultsByScan map[st
 			})
 		}
 
-		if len(points) < 2 {
+		if len(points) < minTrendSample {
 			continue
 		}
 
-		// Sort oldest first.
 		sort.Slice(points, func(i, j int) bool {
 			return points[i].Timestamp.Before(points[j].Timestamp)
 		})
 
-		dir := computeDirection(points, tf.UpIsBad)
+		fit := fitDirection(points, tf.UpIsBad)
 		trends = append(trends, ClusterTrend{
-			Cluster:   cluster,
-			Scanner:   tf.Scanner,
-			Field:     tf.Field,
-			Points:    points,
-			Direction: dir,
+			Cluster:    cluster,
+			Scanner:    tf.Scanner,
+			Field:      tf.Field,
+			Points:     points,
+			Direction:  fit.Direction,
+			Confidence: fit.Confidence,
+			RSquared:   fit.RSquared,
 		})
 	}
 
@@ -186,30 +196,63 @@ func computeUniquenessOverTime(scans []ScanMeta, allResults map[string]map[strin
 		}
 	}
 
-	// Sort oldest first.
 	sort.Slice(ft.Points, func(i, j int) bool {
 		return ft.Points[i].Timestamp.Before(ft.Points[j].Timestamp)
 	})
 
-	if len(ft.Points) >= 2 {
-		ft.Direction = computeDirection(ft.Points, true)
+	if len(ft.Points) >= minTrendSample {
+		fit := fitDirection(ft.Points, true)
+		ft.Direction = fit.Direction
+		ft.Confidence = fit.Confidence
+		ft.RSquared = fit.RSquared
 	}
 
 	return ft
 }
 
-// computeDirection determines if a metric is trending up (worsening if upIsBad),
-// down (improving if upIsBad), or stable. Uses simple linear regression slope.
-func computeDirection(points []TrendPoint, upIsBad bool) TrendDirection {
-	if len(points) < 2 {
-		return TrendStable
+// minTrendSample is the minimum number of points required before a direction
+// is reported. Below this the linear fit is meaningless and the audit found
+// the prior threshold of 2 was producing routine "worsening" calls from
+// single-deploy noise.
+const minTrendSample = 5
+
+// minTrendR2 is the minimum coefficient of determination required for a
+// non-stable direction. A low R² means the linear model does not explain the
+// variance and the slope sign is unreliable.
+const minTrendR2 = 0.25
+
+// minTrendT is the minimum absolute t-statistic on the slope. With t > 2 the
+// slope is roughly significant at the 95% level for the kinds of N we see.
+const minTrendT = 2.0
+
+// trendFit packages the outputs of a single linear-regression call.
+type trendFit struct {
+	// Direction is the qualitative result.
+	Direction TrendDirection
+	// Confidence is "high" when both R² and t-stat clear their thresholds,
+	// "low" when the data is too noisy or sparse to commit to a direction.
+	Confidence string
+	// RSquared is the coefficient of determination of the fit.
+	RSquared float64
+}
+
+// fitDirection determines if a metric is trending up (worsening if upIsBad),
+// down (improving if upIsBad), or stable. The x-axis is elapsed seconds from
+// the first point, so irregular scan cadence does not corrupt the slope.
+// Significance combines a relative-slope check, R², and a t-statistic so a
+// single transient bump does not flip the direction.
+func fitDirection(points []TrendPoint, upIsBad bool) trendFit {
+	if len(points) < minTrendSample {
+		return trendFit{Direction: TrendStable, Confidence: "low"}
 	}
 
-	// Simple linear regression.
+	x0 := points[0].Timestamp
 	n := float64(len(points))
 	var sumX, sumY, sumXY, sumXX float64
+	xs := make([]float64, len(points))
 	for i, p := range points {
-		x := float64(i)
+		x := p.Timestamp.Sub(x0).Seconds()
+		xs[i] = x
 		sumX += x
 		sumY += p.Value
 		sumXY += x * p.Value
@@ -217,30 +260,88 @@ func computeDirection(points []TrendPoint, upIsBad bool) TrendDirection {
 	}
 	denom := n*sumXX - sumX*sumX
 	if denom == 0 {
-		return TrendStable
+		return trendFit{Direction: TrendStable, Confidence: "low"}
 	}
 	slope := (n*sumXY - sumX*sumY) / denom
-
-	// Normalize slope relative to the mean to determine significance.
+	intercept := (sumY - slope*sumX) / n
 	mean := sumY / n
-	if mean == 0 {
-		mean = 1
-	}
-	relativeSlope := slope / math.Abs(mean)
 
-	// Threshold: 5% relative change per step is significant.
-	if math.Abs(relativeSlope) < 0.05 {
-		return TrendStable
+	var ssRes, ssTot float64
+	for i, p := range points {
+		fitVal := intercept + slope*xs[i]
+		ssRes += (p.Value - fitVal) * (p.Value - fitVal)
+		ssTot += (p.Value - mean) * (p.Value - mean)
+	}
+	rSquared := 0.0
+	if ssTot > 0 {
+		rSquared = 1 - ssRes/ssTot
 	}
 
+	scale := math.Abs(mean)
+	if scale < 1e-9 {
+		scale = math.Max(math.Abs(maxFloat(points)), math.Abs(minFloat(points)))
+	}
+	if scale < 1e-9 {
+		return trendFit{Direction: TrendStable, Confidence: "high", RSquared: rSquared}
+	}
+
+	xRange := xs[len(xs)-1] - xs[0]
+	if xRange == 0 {
+		return trendFit{Direction: TrendStable, Confidence: "low", RSquared: rSquared}
+	}
+	relativeSlopePerScan := (slope * (xRange / (n - 1))) / scale
+
+	var slopeStdErr float64
+	if n > 2 {
+		varRes := ssRes / (n - 2)
+		slopeStdErr = math.Sqrt(varRes / (sumXX - sumX*sumX/n))
+	}
+	tStat := 0.0
+	if slopeStdErr > 0 {
+		tStat = slope / slopeStdErr
+	}
+
+	if math.Abs(relativeSlopePerScan) < 0.05 || rSquared < minTrendR2 || math.Abs(tStat) < minTrendT {
+		return trendFit{Direction: TrendStable, Confidence: "low", RSquared: rSquared}
+	}
+
+	dir := TrendWorsening
 	if slope > 0 {
-		if upIsBad {
-			return TrendWorsening
+		if !upIsBad {
+			dir = TrendImproving
 		}
-		return TrendImproving
+	} else {
+		if upIsBad {
+			dir = TrendImproving
+		}
 	}
-	if upIsBad {
-		return TrendImproving
+	return trendFit{Direction: dir, Confidence: "high", RSquared: rSquared}
+}
+
+// maxFloat returns the largest Value across points.
+func maxFloat(points []TrendPoint) float64 {
+	if len(points) == 0 {
+		return 0
 	}
-	return TrendWorsening
+	v := points[0].Value
+	for _, p := range points[1:] {
+		if p.Value > v {
+			v = p.Value
+		}
+	}
+	return v
+}
+
+// minFloat returns the smallest Value across points.
+func minFloat(points []TrendPoint) float64 {
+	if len(points) == 0 {
+		return 0
+	}
+	v := points[0].Value
+	for _, p := range points[1:] {
+		if p.Value < v {
+			v = p.Value
+		}
+	}
+	return v
 }

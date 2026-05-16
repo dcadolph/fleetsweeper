@@ -2,9 +2,10 @@ package metrics
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -15,6 +16,7 @@ import (
 // Name is the registry key for this scanner.
 const Name = "metrics"
 
+// nodeMetricsGVR identifies the metrics.k8s.io NodeMetrics resource.
 var nodeMetricsGVR = schema.GroupVersionResource{
 	Group:    "metrics.k8s.io",
 	Version:  "v1beta1",
@@ -25,9 +27,9 @@ var nodeMetricsGVR = schema.GroupVersionResource{
 type NodeMetrics struct {
 	// Name is the node name.
 	Name string `json:"name"`
-	// CPUUsage is the current CPU usage (e.g. "250m").
+	// CPUUsage is the current CPU usage (for example "250m").
 	CPUUsage string `json:"cpu_usage"`
-	// MemoryUsage is the current memory usage (e.g. "1.2Gi").
+	// MemoryUsage is the current memory usage (for example "1.2Gi").
 	MemoryUsage string `json:"memory_usage"`
 	// CPUPercent is usage as a percentage of allocatable CPU (-1 if unknown).
 	CPUPercent float64 `json:"cpu_percent"`
@@ -37,8 +39,12 @@ type NodeMetrics struct {
 
 // Data holds cluster-wide resource utilization metrics.
 type Data struct {
-	// Available is false when metrics-server is not installed.
+	// Available is false when metrics-server is not installed or not authorized.
 	Available bool `json:"available"`
+	// Forbidden is true when the API returned 403 (metrics-server installed but
+	// RBAC denied). Distinguishing this from "not installed" lets operators fix
+	// the right thing.
+	Forbidden bool `json:"forbidden,omitempty"`
 	// NodeCount is the number of nodes with metrics.
 	NodeCount int `json:"node_count"`
 	// AvgCPUPercent is the average CPU utilization across all nodes.
@@ -58,8 +64,8 @@ type Data struct {
 }
 
 // NewScanner returns a scanner that collects node resource utilization from
-// the metrics API. Gracefully returns unavailable when metrics-server is not
-// installed.
+// the metrics API. Returns Available=false with Forbidden=true on 403 so
+// operators know whether to install metrics-server or fix RBAC.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
@@ -69,12 +75,16 @@ func NewScanner() scanner.Scanner {
 
 		metricsList, err := dyn.Resource(nodeMetricsGVR).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			// Metrics API not available. Not an error; just report unavailable.
-			return scanner.Result{Scanner: Name, Data: Data{Available: false}}, nil //nolint:nilerr // Expected when metrics-server is absent.
+			if errors.IsForbidden(err) {
+				return scanner.Result{Scanner: Name, Data: Data{Available: false, Forbidden: true}}, nil
+			}
+			return scanner.Result{Scanner: Name, Data: Data{Available: false}}, nil
 		}
 
-		// Also fetch nodes to get allocatable for percentage calculations.
-		nodeList, nodeErr := client.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		nodeList, nodeErr := client.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{
+			ResourceVersion:      "0",
+			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
+		})
 		allocatable := make(map[string]allocInfo)
 		if nodeErr == nil {
 			for _, n := range nodeList.Items {
@@ -130,12 +140,19 @@ func NewScanner() scanner.Scanner {
 	})
 }
 
+// allocInfo captures the allocatable CPU (millicores) and memory (bytes) for
+// one node, used to convert raw usage into percentages.
 type allocInfo struct {
+	// cpuMilli is allocatable CPU in millicores.
 	cpuMilli int64
+	// memBytes is allocatable memory in bytes.
 	memBytes int64
 }
 
 // extractNodeMetrics pulls fields from an unstructured NodeMetrics object.
+// CPU and memory quantities are parsed through k8s.io/apimachinery's
+// resource.ParseQuantity so every Kubernetes quantity format (nanocores,
+// millicores, decimal cores, Ki/Mi/Gi/Ti/Pi/Ei) is handled correctly.
 func extractNodeMetrics(obj map[string]any, alloc map[string]allocInfo) NodeMetrics {
 	nm := NodeMetrics{CPUPercent: -1, MemoryPercent: -1}
 
@@ -151,68 +168,23 @@ func extractNodeMetrics(obj map[string]any, alloc map[string]allocInfo) NodeMetr
 	nm.CPUUsage, _ = usage["cpu"].(string)
 	nm.MemoryUsage, _ = usage["memory"].(string)
 
-	if info, ok := alloc[nm.Name]; ok && info.cpuMilli > 0 && info.memBytes > 0 {
-		cpuMilli := parseQuantityMilli(nm.CPUUsage)
-		memBytes := parseQuantityBytes(nm.MemoryUsage)
-		if cpuMilli > 0 {
-			nm.CPUPercent = float64(cpuMilli) / float64(info.cpuMilli) * 100
+	info, ok := alloc[nm.Name]
+	if !ok || info.cpuMilli <= 0 || info.memBytes <= 0 {
+		return nm
+	}
+
+	if q, err := resource.ParseQuantity(nm.CPUUsage); err == nil {
+		used := q.MilliValue()
+		if used > 0 {
+			nm.CPUPercent = float64(used) / float64(info.cpuMilli) * 100
 		}
-		if memBytes > 0 {
-			nm.MemoryPercent = float64(memBytes) / float64(info.memBytes) * 100
+	}
+	if q, err := resource.ParseQuantity(nm.MemoryUsage); err == nil {
+		used := q.Value()
+		if used > 0 {
+			nm.MemoryPercent = float64(used) / float64(info.memBytes) * 100
 		}
 	}
 
 	return nm
-}
-
-// parseQuantityMilli parses a Kubernetes CPU quantity string to millicores.
-func parseQuantityMilli(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	// Handle nanocores (e.g. "250000000n").
-	if s[len(s)-1] == 'n' {
-		var n int64
-		fmt.Sscanf(s[:len(s)-1], "%d", &n)
-		return n / 1_000_000
-	}
-	// Handle millicores (e.g. "250m").
-	if s[len(s)-1] == 'm' {
-		var m int64
-		fmt.Sscanf(s[:len(s)-1], "%d", &m)
-		return m
-	}
-	// Handle whole cores (e.g. "2").
-	var cores int64
-	fmt.Sscanf(s, "%d", &cores)
-	return cores * 1000
-}
-
-// parseQuantityBytes parses a Kubernetes memory quantity string to bytes.
-func parseQuantityBytes(s string) int64 {
-	if s == "" {
-		return 0
-	}
-	// Handle Ki suffix.
-	if len(s) >= 3 && s[len(s)-2:] == "Ki" {
-		var v int64
-		fmt.Sscanf(s[:len(s)-2], "%d", &v)
-		return v * 1024
-	}
-	// Handle Mi suffix.
-	if len(s) >= 3 && s[len(s)-2:] == "Mi" {
-		var v int64
-		fmt.Sscanf(s[:len(s)-2], "%d", &v)
-		return v * 1024 * 1024
-	}
-	// Handle Gi suffix.
-	if len(s) >= 3 && s[len(s)-2:] == "Gi" {
-		var v int64
-		fmt.Sscanf(s[:len(s)-2], "%d", &v)
-		return v * 1024 * 1024 * 1024
-	}
-	// Bare bytes.
-	var v int64
-	fmt.Sscanf(s, "%d", &v)
-	return v
 }

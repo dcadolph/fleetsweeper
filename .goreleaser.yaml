@@ -1,0 +1,81 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: fleetsweeper
+    main: ./
+    binary: fleetsweeper
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: fleetsweeper
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+dockers:
+  - image_templates:
+      - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/dcadolph/fleetsweeper"
+      - "--label=org.opencontainers.image.licenses=MIT"
+  - image_templates:
+      - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-amd64"
+      - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/dcadolph/fleetsweeper:latest"
+    image_templates:
+      - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-amd64"
+      - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-arm64"
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request

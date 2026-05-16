@@ -1,0 +1,21 @@
+# Alternative to the ConfigMap: stamp annotations onto the kube-system
+# namespace. Either approach works; pick whichever fits your tooling.
+# Annotations are convenient when you already have a namespace patch step
+# in your provisioning pipeline.
+#
+# Apply with:
+#   kubectl --context <your-cluster> annotate namespace kube-system \
+#     fleetsweeper.io/lat=40.7589 \
+#     fleetsweeper.io/lng=-73.9851 \
+#     fleetsweeper.io/site="Store #42, Times Square" \
+#     --overwrite
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+  annotations:
+    fleetsweeper.io/lat: "40.7589"
+    fleetsweeper.io/lng: "-73.9851"
+    fleetsweeper.io/site: "Store #42, Times Square"
+    fleetsweeper.io/notes: "Flagship retail location."
