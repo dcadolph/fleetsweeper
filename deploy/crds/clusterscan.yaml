@@ -1,0 +1,149 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterscans.fleetsweeper.io
+  labels:
+    app.kubernetes.io/managed-by: fleetsweeper
+spec:
+  group: fleetsweeper.io
+  scope: Namespaced
+  names:
+    plural: clusterscans
+    singular: clusterscan
+    kind: ClusterScan
+    shortNames:
+      - cs
+      - fscan
+    listKind: ClusterScanList
+    categories:
+      - fleetsweeper
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              description: Declarative scan definition reconciled by the fleetsweeper controller.
+              properties:
+                contexts:
+                  type: array
+                  description: Kubeconfig context names to include in the scan. Use this when fleetsweeper runs outside the target clusters.
+                  items:
+                    type: string
+                group:
+                  type: string
+                  description: Name of a fleetsweeper group whose member clusters will be scanned. Mutually exclusive with contexts.
+                interval:
+                  type: string
+                  description: Scan cadence as a Go duration string (for example 15m, 1h, 6h). Required.
+                  pattern: '^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$'
+                scanners:
+                  type: array
+                  description: Optional allowlist of scanner names. Empty runs all registered scanners.
+                  items:
+                    type: string
+                emit:
+                  type: object
+                  description: What artefacts to emit on each scan completion.
+                  properties:
+                    fleetDriftReport:
+                      type: boolean
+                      description: When true, emit FleetDriftReport YAMLs to the configured output directory.
+                    policyReport:
+                      type: boolean
+                      description: When true, emit wgpolicyk8s.io PolicyReport YAMLs.
+                    slack:
+                      type: boolean
+                      description: When true, deliver new critical findings to the configured Slack webhook.
+                paused:
+                  type: boolean
+                  description: When true, the controller skips this resource during reconciliation. Useful for incident response.
+            status:
+              type: object
+              description: Controller-managed status reflecting the last reconciliation cycle.
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Running, Succeeded, Failed, Paused]
+                  description: High-level reconciliation state.
+                lastScanID:
+                  type: string
+                  description: Identifier of the most recently completed scan.
+                lastScanTime:
+                  type: string
+                  format: date-time
+                  description: When the most recently completed scan finished.
+                nextScanTime:
+                  type: string
+                  format: date-time
+                  description: When the controller intends to run the next scan.
+                observedScore:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  description: Fleet score from the most recent scan.
+                observedGrade:
+                  type: string
+                  enum: [A, B, C, D, F]
+                observedCritical:
+                  type: integer
+                  minimum: 0
+                observedWarning:
+                  type: integer
+                  minimum: 0
+                observedClusters:
+                  type: integer
+                  minimum: 0
+                  description: Number of clusters that returned data in the most recent scan.
+                message:
+                  type: string
+                  description: Human-readable summary of the most recent reconciliation outcome.
+                conditions:
+                  type: array
+                  description: Standard Kubernetes status conditions for downstream tooling.
+                  items:
+                    type: object
+                    required: [type, status, lastTransitionTime]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Interval
+          type: string
+          jsonPath: .spec.interval
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Score
+          type: integer
+          jsonPath: .status.observedScore
+        - name: Grade
+          type: string
+          jsonPath: .status.observedGrade
+        - name: Critical
+          type: integer
+          jsonPath: .status.observedCritical
+        - name: LastScan
+          type: date
+          jsonPath: .status.lastScanTime
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

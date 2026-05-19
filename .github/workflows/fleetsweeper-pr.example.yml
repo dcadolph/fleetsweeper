@@ -1,0 +1,58 @@
+# Example workflow demonstrating the Fleetsweeper PR-time gates.
+# Combines drift, whatchanged, and recommend so every pull request
+# gets a clear "what your deploy will move" preview before merge.
+# Rename to fleetsweeper-pr.yml in your own repo to enable it.
+
+name: Fleetsweeper PR check (example)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  fleet-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage kubeconfig
+        run: |
+          mkdir -p "${HOME}/.kube"
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "${HOME}/.kube/config"
+          chmod 600 "${HOME}/.kube/config"
+
+      - name: Restore Fleetsweeper state
+        # The database holds the pinned baseline + scan history that
+        # whatchanged and recommend need. Restore it from an artifact
+        # written by your nightly scan job, or pull from S3, etc.
+        run: |
+          mkdir -p "${HOME}/.fleetsweeper/data"
+          echo "${{ secrets.FLEETSWEEPER_DB_B64 }}" | base64 -d > "${HOME}/.fleetsweeper/data/fleet.db"
+
+      - name: Run drift audit against staging
+        uses: dcadolph/fleetsweeper/.github/actions/drift@main
+        with:
+          context: staging
+          baseline: ./baseline/fleet.yaml
+          fail-on-drift: "true"
+
+      - name: Diff against the last green scan
+        uses: dcadolph/fleetsweeper/.github/actions/whatchanged@main
+        with:
+          db: ${{ env.HOME }}/.fleetsweeper/data/fleet.db
+          severity: warning
+          fail-on-new-critical: "true"
+          fail-on-score-drop: "5"
+
+      - name: Post top recommendations to PR
+        uses: dcadolph/fleetsweeper/.github/actions/recommend@main
+        with:
+          db: ${{ env.HOME }}/.fleetsweeper/data/fleet.db
+          severity: warning
+          limit: "5"
+          pr-comment: "true"

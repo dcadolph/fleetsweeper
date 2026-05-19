@@ -24,7 +24,6 @@ func testServer(t *testing.T) (*Server, *store.SQLite) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
 
 	registry := scanner.NewRegistry()
 	srv := New(Config{
@@ -33,6 +32,10 @@ func testServer(t *testing.T) (*Server, *store.SQLite) {
 		Log:      zap.NewNop(),
 		Workers:  2,
 		Insecure: true,
+	})
+	t.Cleanup(func() {
+		srv.Close()
+		s.Close()
 	})
 	return srv, s
 }
@@ -47,7 +50,6 @@ func TestBearerAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
 
 	srv := New(Config{
 		Store:     s,
@@ -55,6 +57,10 @@ func TestBearerAuth(t *testing.T) {
 		Log:       zap.NewNop(),
 		Workers:   2,
 		AuthToken: "secret-token",
+	})
+	t.Cleanup(func() {
+		srv.Close()
+		s.Close()
 	})
 
 	body := `{"name":"prod","clusters":["a","b"]}`

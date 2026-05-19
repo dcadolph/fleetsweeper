@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleetsweeper — the fleet is the policy</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;
+  --c1:#161b22;
+  --c2:#21262d;
+  --bd:#30363d;
+  --tx:#c9d1d9;
+  --hd:#f0f6fc;
+  --mu:#8b949e;
+  --ac:#58a6ff;
+  --ok:#3fb950;
+  --wn:#d29922;
+  --cr:#f85149;
+  --pu:#a371f7;
+  --mono:"SF Mono","Fira Code","JetBrains Mono",monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column;align-items:stretch}
+
+/* Frame */
+#fs-cin-frame{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+#fs-cin-frame:hover #fs-cin-controls{opacity:1}
+#fs-cin-stage{width:100%;max-width:1100px;height:560px;background:radial-gradient(ellipse at center,#11161d 0%,#0d1117 70%);border:1px solid var(--bd);border-radius:12px;position:relative;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.4)}
+#fs-cin-stage svg{width:100%;height:100%;display:block}
+
+/* Caption */
+#fs-cin-caption{margin-top:18px;text-align:center;max-width:840px;min-height:64px}
+#fs-cin-caption .hl{font-size:22px;font-weight:600;color:var(--hd);letter-spacing:-0.01em}
+#fs-cin-caption .sb{margin-top:6px;font-size:14px;color:var(--mu)}
+#fs-cin-caption .accent{color:var(--ac)}
+
+/* Controls */
+#fs-cin-controls{position:absolute;top:18px;right:24px;display:flex;gap:8px;opacity:0.4;transition:opacity 0.15s}
+#fs-cin-controls button{background:var(--c2);border:1px solid var(--bd);color:var(--tx);padding:6px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit}
+#fs-cin-controls button:hover{background:#2d333b;color:var(--hd)}
+
+/* Scrubber */
+#fs-cin-scrubber-wrap{width:100%;max-width:1100px;margin:14px auto 24px;padding:0 4px;position:relative}
+#fs-cin-scrubber{position:relative;height:6px;background:var(--c2);border-radius:3px;cursor:pointer;transition:height 0.1s}
+#fs-cin-scrubber:hover{height:10px}
+#fs-cin-fill{position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,var(--ac),#79b8ff);border-radius:3px;transition:width 0.25s linear;will-change:width}
+#fs-cin-head{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--ac);transform:translate(-50%,-50%);box-shadow:0 0 0 4px rgba(88,166,255,0.18);transition:left 0.25s linear}
+#fs-cin-tooltip{position:absolute;bottom:18px;transform:translateX(-50%);background:var(--c2);border:1px solid var(--bd);color:var(--hd);padding:4px 10px;border-radius:5px;font-size:11px;font-family:var(--mono);pointer-events:none;opacity:0;transition:opacity 0.1s;white-space:nowrap}
+.fs-cin-marker{position:absolute;top:0;height:100%;width:2px;background:rgba(255,255,255,0.18)}
+
+/* Header */
+#fs-cin-header{display:flex;align-items:center;justify-content:space-between;padding:16px 32px;border-bottom:1px solid var(--bd);background:var(--c1)}
+#fs-cin-brand{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mu)}
+#fs-cin-brand strong{color:var(--hd);font-size:15px}
+#fs-cin-brand .dot{width:8px;height:8px;border-radius:50%;background:var(--ac);box-shadow:0 0 12px var(--ac)}
+#fs-cin-progress{font-size:12px;font-family:var(--mono);color:var(--mu)}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce){
+  #fs-cin-fill,#fs-cin-head{transition:none !important}
+  .fs-cin-pulse{animation:none !important}
+}
+
+@keyframes fs-cin-pulse{
+  0%,100%{opacity:0.4}
+  50%{opacity:1}
+}
+.fs-cin-pulse{animation:fs-cin-pulse 1.4s ease-in-out infinite}
+
+@keyframes fs-cin-fade-in{
+  from{opacity:0}
+  to{opacity:1}
+}
+.fs-cin-fade{animation:fs-cin-fade-in 0.6s ease-out forwards}
+</style>
+</head>
+<body>
+
+<div id="fs-cin-header">
+  <div id="fs-cin-brand">
+    <span class="dot"></span>
+    <strong>Fleetsweeper</strong>
+    <span>— the fleet is the policy</span>
+  </div>
+  <div id="fs-cin-progress">scene 1 / 10</div>
+</div>
+
+<div id="fs-cin-frame">
+  <div id="fs-cin-controls">
+    <button id="fs-cin-prev">Prev</button>
+    <button id="fs-cin-pause">Pause</button>
+    <button id="fs-cin-next">Next</button>
+    <button id="fs-cin-restart">Restart</button>
+  </div>
+  <div id="fs-cin-stage"></div>
+  <div id="fs-cin-caption">
+    <div class="hl">Loading...</div>
+    <div class="sb"></div>
+  </div>
+</div>
+
+<div id="fs-cin-scrubber-wrap">
+  <div id="fs-cin-tooltip"></div>
+  <div id="fs-cin-scrubber">
+    <div id="fs-cin-fill"></div>
+    <div id="fs-cin-head"></div>
+  </div>
+</div>
+
+<script src="cinematic.js"></script>
+</body>
+</html>

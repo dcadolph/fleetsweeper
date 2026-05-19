@@ -1,0 +1,103 @@
+{{- if .Values.crds.install }}
+{{- /*
+  CRD installation is gated by .Values.crds.install so operators can install
+  CRDs separately (the recommended pattern for chart upgrades) by setting it
+  to false. Defaults to true for an out-of-the-box "helm install just works"
+  experience.
+*/ -}}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterscans.fleetsweeper.io
+  labels:
+    app.kubernetes.io/managed-by: fleetsweeper
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  group: fleetsweeper.io
+  scope: Namespaced
+  names:
+    plural: clusterscans
+    singular: clusterscan
+    kind: ClusterScan
+    shortNames: [cs, fscan]
+    listKind: ClusterScanList
+    categories: [fleetsweeper]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              properties:
+                contexts:
+                  type: array
+                  items: { type: string }
+                group:
+                  type: string
+                interval:
+                  type: string
+                scanners:
+                  type: array
+                  items: { type: string }
+                emit:
+                  type: object
+                  properties:
+                    fleetDriftReport: { type: boolean }
+                    policyReport: { type: boolean }
+                    slack: { type: boolean }
+                paused:
+                  type: boolean
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                lastScanID: { type: string }
+                lastScanTime: { type: string, format: date-time }
+                nextScanTime: { type: string, format: date-time }
+                observedScore: { type: integer }
+                observedGrade: { type: string }
+                observedCritical: { type: integer }
+                observedWarning: { type: integer }
+                observedClusters: { type: integer }
+                message: { type: string }
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string }
+                      status: { type: string }
+                      reason: { type: string }
+                      message: { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Interval
+          type: string
+          jsonPath: .spec.interval
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Score
+          type: integer
+          jsonPath: .status.observedScore
+        - name: Grade
+          type: string
+          jsonPath: .status.observedGrade
+        - name: Critical
+          type: integer
+          jsonPath: .status.observedCritical
+        - name: LastScan
+          type: date
+          jsonPath: .status.lastScanTime
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+{{- end }}

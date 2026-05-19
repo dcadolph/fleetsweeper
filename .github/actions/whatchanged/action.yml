@@ -1,0 +1,143 @@
+name: Fleetsweeper whatchanged
+description: |
+  Diff two scans (or the latest two) and surface the new findings,
+  cleared findings, fleet score delta, and per-cluster score
+  regressions. Designed for post-deploy verification: run after a
+  release and gate promotion when critical findings appear.
+author: dcadolph
+branding:
+  icon: git-pull-request
+  color: blue
+
+inputs:
+  db:
+    description: Database DSN. SQLite path or postgres:// URL.
+    required: true
+  scan-a:
+    description: Older scan ID. When empty, the previous scan is used.
+    required: false
+    default: ""
+  scan-b:
+    description: Newer scan ID. When empty, the latest scan is used.
+    required: false
+    default: ""
+  severity:
+    description: Only consider findings at or above this severity. Empty includes all.
+    required: false
+    default: ""
+  fail-on-new-critical:
+    description: Fail the job when any new critical finding is introduced.
+    required: false
+    default: "true"
+  fail-on-score-drop:
+    description: |
+      Fail the job when the fleet score regressed by more than this
+      many points. Set to 0 to disable the score-drop gate.
+    required: false
+    default: "0"
+  fleetsweeper-version:
+    description: Fleetsweeper release tag to install. "latest" pulls the most recent release.
+    required: false
+    default: "latest"
+
+outputs:
+  fleet-score-delta:
+    description: Newer fleet score minus older fleet score.
+    value: ${{ steps.diff.outputs.fleet-score-delta }}
+  new-findings:
+    description: Count of findings present in B but not A.
+    value: ${{ steps.diff.outputs.new-findings }}
+  cleared-findings:
+    description: Count of findings present in A but not B.
+    value: ${{ steps.diff.outputs.cleared-findings }}
+  report-path:
+    description: Path to the JSON diff report.
+    value: ${{ steps.diff.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Fleetsweeper
+      shell: bash
+      env:
+        VERSION: ${{ inputs.fleetsweeper-version }}
+      run: |
+        set -euo pipefail
+        if command -v fleetsweeper >/dev/null 2>&1; then exit 0; fi
+        bin_dir="${HOME}/.fleetsweeper/bin"
+        mkdir -p "${bin_dir}"
+        if [[ "${VERSION}" == "latest" ]]; then
+          api_url="https://api.github.com/repos/dcadolph/fleetsweeper/releases/latest"
+        else
+          api_url="https://api.github.com/repos/dcadolph/fleetsweeper/releases/tags/${VERSION}"
+        fi
+        download_url=$(curl -sSL -H "Accept: application/vnd.github+json" "${api_url}" |
+          grep -oE "https://[^\"]+fleetsweeper_.*_linux_x86_64.tar.gz" | head -n1)
+        if [[ -z "${download_url}" ]]; then
+          echo "::error::Could not find Fleetsweeper release asset"
+          exit 1
+        fi
+        curl -sSL "${download_url}" | tar -xz -C "${bin_dir}" fleetsweeper
+        chmod +x "${bin_dir}/fleetsweeper"
+        echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+    - name: Run Fleetsweeper whatchanged
+      id: diff
+      shell: bash
+      env:
+        DB: ${{ inputs.db }}
+        SCAN_A: ${{ inputs.scan-a }}
+        SCAN_B: ${{ inputs.scan-b }}
+        SEVERITY: ${{ inputs.severity }}
+        FAIL_ON_NEW_CRITICAL: ${{ inputs.fail-on-new-critical }}
+        FAIL_ON_SCORE_DROP: ${{ inputs.fail-on-score-drop }}
+      run: |
+        set -euo pipefail
+        report_path="$(mktemp -t fleetsweeper-whatchanged.XXXXXX).json"
+        args=("whatchanged" "--db" "${DB}" "--json")
+        if [[ -n "${SEVERITY}" ]]; then args+=("--severity" "${SEVERITY}"); fi
+        if [[ -n "${SCAN_A}" ]]; then
+          if [[ -n "${SCAN_B}" ]]; then
+            args+=("${SCAN_A}" "${SCAN_B}")
+          else
+            args+=("${SCAN_A}")
+          fi
+        fi
+        fleetsweeper "${args[@]}" > "${report_path}"
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::error::jq is required for whatchanged action"
+          exit 2
+        fi
+        delta=$(jq -r '.fleet_score_delta // 0' "${report_path}")
+        new_count=$(jq -r '(.new_findings // []) | length' "${report_path}")
+        cleared_count=$(jq -r '(.cleared_findings // []) | length' "${report_path}")
+        new_crit=$(jq -r '[(.new_findings // [])[] | select(.severity=="critical")] | length' "${report_path}")
+        echo "fleet-score-delta=${delta}" >> "${GITHUB_OUTPUT}"
+        echo "new-findings=${new_count}" >> "${GITHUB_OUTPUT}"
+        echo "cleared-findings=${cleared_count}" >> "${GITHUB_OUTPUT}"
+        echo "report-path=${report_path}" >> "${GITHUB_OUTPUT}"
+        {
+          echo "## Fleetsweeper whatchanged"
+          echo ""
+          echo "| Metric | Value |"
+          echo "| ------ | ----- |"
+          echo "| Fleet score delta | ${delta} |"
+          echo "| New findings | ${new_count} |"
+          echo "| Cleared findings | ${cleared_count} |"
+          if [[ "${new_count}" -gt 0 ]]; then
+            echo ""
+            echo "### New findings"
+            jq -r '(.new_findings // [])[] | "- [\(.severity | ascii_upcase)] \(.cluster) — \(.title)"' "${report_path}"
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"
+        if [[ "${FAIL_ON_NEW_CRITICAL}" == "true" && "${new_crit}" -gt 0 ]]; then
+          echo "::error::${new_crit} new critical finding(s) introduced. Failing job."
+          exit 1
+        fi
+        if [[ "${FAIL_ON_SCORE_DROP}" -gt 0 && "${delta}" -lt 0 ]]; then
+          drop=$(( - delta ))
+          if [[ "${drop}" -ge "${FAIL_ON_SCORE_DROP}" ]]; then
+            echo "::error::Fleet score dropped ${drop} points (limit ${FAIL_ON_SCORE_DROP}). Failing job."
+            exit 1
+          fi
+        fi

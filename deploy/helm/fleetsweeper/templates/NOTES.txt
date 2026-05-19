@@ -1,0 +1,58 @@
+Fleetsweeper {{ .Chart.AppVersion }} is installed.
+
+1. Port-forward the dashboard:
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} 8080:{{ .Values.service.port }}
+
+   Then open http://localhost:8080.
+
+{{- if .Values.auth.token }}
+
+2. Authenticate API calls with the bootstrap token (stored in Secret
+   {{ .Release.Name }}-auth, key=token):
+
+   TOKEN=$(kubectl --namespace {{ .Release.Namespace }} get secret {{ .Release.Name }}-auth -o jsonpath='{.data.token}' | base64 -d)
+   curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/scans
+
+3. Mint a scoped operator key for your pipelines:
+
+   curl -X POST -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"ci-runner","role":"operator","cluster_scope":["group:prod"],"ttl":"720h"}' \
+     http://localhost:8080/api/admin/keys
+{{- else if .Values.auth.insecure }}
+
+2. WARNING: --insecure is enabled. All endpoints are open. This is suitable
+   only for development or private networks. Set auth.token to a random
+   string for production.
+{{- else }}
+
+2. Mutating endpoints currently return 403 (no auth.token, auth.insecure
+   false). Provide an auth.token to use the API:
+
+   helm upgrade {{ .Release.Name }} <chart> --reuse-values \
+     --set auth.token="$(openssl rand -hex 32)"
+{{- end }}
+
+{{- if .Values.controller.enabled }}
+
+4. The ClusterScan controller is enabled. Apply a sample resource:
+
+   kubectl apply -f https://raw.githubusercontent.com/dcadolph/fleetsweeper/main/deploy/examples/clusterscan-prod.yaml
+   kubectl get clusterscan -A
+{{- else }}
+
+4. Enable declarative scans by setting controller.enabled=true:
+
+   helm upgrade {{ .Release.Name }} <chart> --reuse-values \
+     --set controller.enabled=true
+{{- end }}
+
+{{- if eq .Values.database.driver "postgres" }}
+
+5. Postgres backend is configured. Multiple replicas are now safe; bump
+   replicaCount and disable persistence if you have not already.
+{{- end }}
+
+Docs: https://fleetsweeper.dev/  (mkdocs source in docs/)
+Issues / discussions: https://github.com/dcadolph/fleetsweeper

@@ -8,12 +8,45 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
+
+// writeDemoClusterDetail synthesizes a per-cluster detail payload from
+// demoReport so the cluster-detail page works end-to-end in demo mode.
+func (s *Server) writeDemoClusterDetail(w http.ResponseWriter, cluster string) {
+	rpt := demoReport()
+	var health *report.ClusterHealth
+	for i := range rpt.ClusterHealths {
+		if rpt.ClusterHealths[i].Name == cluster {
+			health = &rpt.ClusterHealths[i]
+			break
+		}
+	}
+	if health == nil {
+		writeError(w, http.StatusNotFound, "cluster not found in demo fleet")
+		return
+	}
+	var findings []report.Finding
+	for _, f := range rpt.Findings {
+		if f.Cluster == cluster || f.Cluster == "fleet" {
+			findings = append(findings, f)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cluster":      cluster,
+		"scan_id":      demoScanID,
+		"scan_time":    demoTimestamp(),
+		"health":       health,
+		"findings":     findings,
+		"scanner_data": map[string]any{},
+	})
+}
 
 // errorResponse is a JSON error body.
 type errorResponse struct {
@@ -67,12 +100,21 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list scans failed")
 		return
 	}
+	if len(scans) == 0 && s.demo {
+		writeJSON(w, http.StatusOK, []store.ScanRecord{demoScanRecord()})
+		return
+	}
 	writeJSON(w, http.StatusOK, scans)
 }
 
 // handleGetScan returns a scan record by ID.
 func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if s.demo && id == demoScanID {
+		rec := demoScanRecord()
+		writeJSON(w, http.StatusOK, rec)
+		return
+	}
 	scan, err := s.store.GetScan(r.Context(), id)
 	if err != nil {
 		s.log.Info("get scan", zap.String("id", id), zap.Error(err))
@@ -86,6 +128,11 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
+
+	if s.demo && id == demoScanID {
+		writeJSON(w, http.StatusOK, demoReport())
+		return
+	}
 
 	scan, err := s.store.GetScan(ctx, id)
 	if err != nil {
@@ -101,6 +148,26 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rpt := report.Build(scan.Clusters, results)
+
+	if len(r.URL.Query()["tag"]) > 0 {
+		tagAllows, err := s.parseTagFilter(ctx, r)
+		if err != nil {
+			s.log.Warn("tag filter", zap.Error(err))
+			writeError(w, http.StatusInternalServerError, "load tag filter failed")
+			return
+		}
+		filtered := rpt.Findings[:0]
+		for _, f := range rpt.Findings {
+			// Fleet-wide findings (cluster=="" or "fleet") are kept
+			// regardless of tags because they aren't owned by any one
+			// cluster; tag filtering applies only to per-cluster rows.
+			if f.Cluster == "" || f.Cluster == "fleet" || tagAllows(f.Cluster) {
+				filtered = append(filtered, f)
+			}
+		}
+		rpt.Findings = filtered
+	}
+
 	writeJSON(w, http.StatusOK, rpt)
 }
 
@@ -143,6 +210,13 @@ func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actor := actorFromContext(r.Context())
+	contexts = actor.FilterClusters(contexts, s.groupLookup(r.Context()))
+	if len(contexts) == 0 {
+		writeError(w, http.StatusForbidden, "no contexts in actor scope")
+		return
+	}
+
 	if !s.scanBusy.CompareAndSwap(false, true) {
 		writeError(w, http.StatusTooManyRequests, "scan in progress; retry later")
 		return
@@ -155,6 +229,7 @@ func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 
 		ctx := s.ctx
 		s.log.Info("triggered scan starting", zap.Int("contexts", len(contexts)))
+		started := time.Now()
 
 		clients := kube.ConnectAll(ctx, s.kubeconfigPath, contexts, s.workers)
 		if len(clients) == 0 {
@@ -172,11 +247,25 @@ func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 		scanID, err := s.store.SaveScan(ctx, clusterNames, results)
 		if err != nil {
 			s.scansErr.Add(1)
+			s.recordScanCompletion(false)
 			s.log.Error("triggered scan: save failed", zap.Error(err))
 			return
 		}
 		s.scansOK.Add(1)
+		s.recordScanDuration(time.Since(started))
+		s.recordScanCompletion(true)
 		s.log.Info("triggered scan complete", zap.String("scan_id", scanID))
+		rpt := report.Build(clusterNames, results)
+		s.notifySlackForReport(ctx, rpt)
+		s.writeFleetDriftIfConfigured(rpt, scanID)
+		s.writePolicyReportIfConfigured(rpt, scanID)
+		s.dispatchWebhooksIfConfigured(ctx, rpt)
+		s.PublishEvent(EventScanComplete, map[string]any{
+			"scan_id":  scanID,
+			"clusters": len(clusterNames),
+			"score":    rpt.FleetScore.Score,
+			"grade":    rpt.FleetScore.Grade,
+		})
 	}(contexts)
 
 	writeJSON(w, http.StatusAccepted, triggerScanResponse{Status: "running"})
@@ -197,13 +286,34 @@ func (s *Server) resolveContexts(ctx context.Context, req triggerScanRequest) ([
 	return req.Contexts, nil
 }
 
-// handleListClusters returns all known clusters.
+// handleListClusters returns all known clusters with their tag maps
+// inlined so the dashboard can render tag chips without a follow-up
+// /api/tags fetch.
 func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 	clusters, err := s.store.ListClusters(r.Context())
 	if err != nil {
 		s.log.Error("list clusters", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "list clusters failed")
 		return
+	}
+	if len(clusters) == 0 && s.demo {
+		rec := demoScanRecord()
+		out := make([]store.ClusterRecord, 0, len(rec.Clusters))
+		for _, c := range rec.Clusters {
+			out = append(out, store.ClusterRecord{Name: c, FirstSeen: rec.Timestamp, LastSeen: rec.Timestamp})
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	tags, err := s.store.ListClusterTags(r.Context())
+	if err != nil {
+		s.log.Warn("list cluster tags", zap.Error(err))
+	} else {
+		for i := range clusters {
+			if t, ok := tags[clusters[i].Name]; ok {
+				clusters[i].Tags = t
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, clusters)
 }
@@ -216,6 +326,10 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 
 	scans, err := s.store.ListScans(ctx, 1)
 	if err != nil || len(scans) == 0 {
+		if s.demo {
+			s.writeDemoClusterDetail(w, cluster)
+			return
+		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -330,6 +444,14 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(scans) < 2 {
+		if s.demo {
+			trends := demoFleetTrends()
+			writeJSON(w, http.StatusOK, map[string]any{
+				"fleet_trends": trends,
+				"findings":     report.GenerateTrendFindings(nil, trends),
+			})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"message": "need at least 2 scans for trends"})
 		return
 	}
@@ -428,6 +550,15 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 	scans, err := s.store.ListScans(r.Context(), 1)
 	if err != nil || len(scans) == 0 {
+		if s.demo {
+			rpt := demoReport()
+			writeJSON(w, http.StatusOK, map[string]any{
+				"scan_id":  demoScanID,
+				"outliers": demoOutliers(),
+				"findings": rpt.Findings,
+			})
+			return
+		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -459,6 +590,13 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
 	scans, err := s.store.ListScans(r.Context(), 1)
 	if err != nil || len(scans) == 0 {
+		if s.demo {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"scan_id":  demoScanID,
+				"capacity": demoReport().Capacity,
+			})
+			return
+		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -481,6 +619,52 @@ func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
 		"scan_id":  scans[0].ID,
 		"capacity": rpt.Capacity,
 	})
+}
+
+// contextInfo describes a kubeconfig context the UI can offer to scan.
+type contextInfo struct {
+	// Name is the kubeconfig context name.
+	Name string `json:"name"`
+	// Scanned is true when this context already appears in stored scans.
+	Scanned bool `json:"scanned"`
+}
+
+// handleListContexts returns the kubeconfig contexts available to the server,
+// each annotated with whether the cluster has already been scanned. The UI
+// uses this to power the "Add cluster" page so operators can grow the fleet
+// without leaving the dashboard. In demo mode the synthetic fleet's contexts
+// are returned so the page is not empty on first paint.
+func (s *Server) handleListContexts(w http.ResponseWriter, r *http.Request) {
+	if s.demo {
+		seen := make(map[string]bool, len(demoPoints()))
+		out := make([]contextInfo, 0, len(demoPoints()))
+		for _, p := range demoPoints() {
+			if seen[p.Cluster] {
+				continue
+			}
+			seen[p.Cluster] = true
+			out = append(out, contextInfo{Name: p.Cluster, Scanned: true})
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	contexts, err := kube.AvailableContexts(s.kubeconfigPath)
+	if err != nil {
+		s.log.Warn("list contexts", zap.Error(err))
+		writeJSON(w, http.StatusOK, []contextInfo{})
+		return
+	}
+	known, _ := s.store.ListClusters(r.Context())
+	knownSet := make(map[string]struct{}, len(known))
+	for _, c := range known {
+		knownSet[c.Name] = struct{}{}
+	}
+	out := make([]contextInfo, 0, len(contexts))
+	for _, c := range contexts {
+		_, scanned := knownSet[c]
+		out = append(out, contextInfo{Name: c, Scanned: scanned})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // fault is a sentinel error returned by handlers that have already logged the

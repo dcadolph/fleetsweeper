@@ -1,5 +1,16 @@
 package server
 
+import (
+	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/store"
+)
+
+// demoScanID is the synthetic scan identifier returned in demo mode.
+// Stable across calls so the dashboard and globe can deep-link into it.
+const demoScanID = "demo-scan-0001"
+
 // demoPoints returns a synthetic fleet of clusters scattered around the
 // globe in a mix of health states, so the /globe UI can be demoed without
 // any real Kubernetes clusters or scans. The composition is intentional:
@@ -44,4 +55,521 @@ func demoPoints() []geoPoint {
 		{Cluster: "store-vancouver", Status: "healthy", Site: "Vancouver waterfront", City: "Vancouver waterfront", Lat: 49.2827, Lng: -123.1207, Source: "manual"},
 		{Cluster: "store-honolulu", Status: "healthy", Site: "Honolulu beachfront", City: "Honolulu beachfront", Lat: 21.3069, Lng: -157.8583, Source: "manual"},
 	}
+}
+
+// demoTimestamp returns a stable timestamp for the synthetic scan so the UI
+// shows "Last scan: a few minutes ago" rather than a moving target every poll.
+func demoTimestamp() time.Time {
+	return time.Now().Add(-5 * time.Minute).UTC().Truncate(time.Minute)
+}
+
+// demoScanRecord returns the synthetic ScanRecord exposed by handleListScans
+// and handleGetScan when the server is in demo mode and the underlying store
+// has no real scans.
+func demoScanRecord() store.ScanRecord {
+	pts := demoPoints()
+	clusters := make([]string, len(pts))
+	for i, p := range pts {
+		clusters[i] = p.Cluster
+	}
+	return store.ScanRecord{
+		ID:        demoScanID,
+		Timestamp: demoTimestamp(),
+		Clusters:  clusters,
+		Scanners:  []string{"version", "node-health", "metrics", "events", "workload-security", "rbac-audit", "image-audit", "network-policies", "security", "certs", "deprecated-apis", "workload-coverage", "admission", "geo"},
+	}
+}
+
+// demoReport returns a fully synthesized *report.Report aligned with the
+// demoPoints fleet. Every page that consumes the report — Dashboard,
+// Findings, Heatmap, Cluster detail, Capacity — gets coherent data so the
+// demo experience is end-to-end, not just a globe.
+func demoReport() *report.Report {
+	pts := demoPoints()
+	clusters := make([]string, len(pts))
+	statusByCluster := make(map[string]string, len(pts))
+	for i, p := range pts {
+		clusters[i] = p.Cluster
+		statusByCluster[p.Cluster] = normalizeStatus(p.status())
+	}
+
+	r := &report.Report{
+		Timestamp:  demoTimestamp().Format(time.RFC3339),
+		Clusters:   clusters,
+		Sections:   map[string]*report.SectionReport{},
+		Categories: toCategoryReports(report.Categories()),
+	}
+
+	for _, p := range pts {
+		r.ClusterHealths = append(r.ClusterHealths, report.ClusterHealth{
+			Name:              p.Cluster,
+			Status:            normalizeStatus(p.status()),
+			FindingCounts:     map[string]int{report.SeverityCritical: p.CriticalFindings, report.SeverityWarning: p.WarningFindings, report.SeverityInfo: 0},
+			KubernetesVersion: demoVersion(p.Cluster),
+			NodeCount:         demoNodeCount(p.Cluster),
+			HealthyNodes:      demoHealthyNodes(p.Cluster, p.status()),
+			AvgCPU:            demoCPU(p.status()),
+			AvgMemory:         demoMem(p.status()),
+			WarningEvents:     demoEventCount(p.status()),
+			NamespaceCount:    demoNSCount(p.Cluster),
+		})
+
+		nodes := demoNodeCount(p.Cluster)
+		healthy := demoHealthyNodes(p.Cluster, p.status())
+		cpu := demoCPU(p.status())
+		mem := demoMem(p.status())
+		r.Capacity = append(r.Capacity, report.CapacityAnalysis{
+			Cluster:           p.Cluster,
+			Status:            demoCapStatus(p.status()),
+			CPUUtilization:    cpu,
+			MemoryUtilization: mem,
+			NodeCount:         nodes,
+			HealthyNodes:      healthy,
+			HeadroomCPU:       100 - cpu,
+			HeadroomMemory:    100 - mem,
+			HasMemoryPressure: p.status() == "critical",
+			Recommendation:    demoRecommendation(p.status()),
+		})
+	}
+
+	r.Findings = demoFindings(pts)
+	r.Summary = report.Summary{
+		ClusterCount:     len(clusters),
+		ScannerCount:     14,
+		UniformCount:     8,
+		DivergentCount:   6,
+		TotalDivergences: 23,
+		CriticalCount:    countSeverity(r.Findings, report.SeverityCritical),
+		WarningCount:     countSeverity(r.Findings, report.SeverityWarning),
+	}
+	r.FleetScore = report.ComputeFleetScore(r)
+
+	return r
+}
+
+// status normalizes the legacy "strained" label so consumers can match the
+// four-tier vocabulary the rest of the codebase uses.
+func (g geoPoint) status() string {
+	if g.Status == "strained" {
+		return "degraded"
+	}
+	return g.Status
+}
+
+// normalizeStatus collapses strained onto degraded for output paths.
+func normalizeStatus(s string) string {
+	if s == "strained" {
+		return "degraded"
+	}
+	return s
+}
+
+// toCategoryReports converts the report.Categories list into the wire format.
+func toCategoryReports(cats []report.Category) []report.CategoryReport {
+	out := make([]report.CategoryReport, len(cats))
+	for i, c := range cats {
+		out[i] = report.CategoryReport{Name: c.Name, Scanners: c.Scanners}
+	}
+	return out
+}
+
+// demoFindings builds the per-cluster findings for the synthetic fleet.
+// Critical clusters get multi-finding stories that read like real incidents;
+// degraded clusters get a single warning each; busy and healthy clusters are
+// silent so the UI lights up where it matters.
+func demoFindings(pts []geoPoint) []report.Finding {
+	var out []report.Finding
+	for _, p := range pts {
+		switch p.status() {
+		case "critical":
+			out = append(out, criticalFindingsFor(p)...)
+		case "degraded":
+			out = append(out, degradedFindingsFor(p)...)
+		case "busy":
+			out = append(out, report.Finding{
+				Title: p.Cluster + " is busy but healthy (CPU 72%, memory 68%)",
+				Description: "Utilization is elevated but no pressure conditions or restart spikes. Watch headroom; no action required yet.",
+				Severity: report.SeverityInfo, Cluster: p.Cluster, Scanner: "metrics",
+			})
+		}
+	}
+	return out
+}
+
+// criticalFindingsFor returns a small bundle of believable critical findings
+// for one cluster. The wording is intentionally specific so the demo doesn't
+// read like lorem ipsum.
+func criticalFindingsFor(p geoPoint) []report.Finding {
+	cluster := p.Cluster
+	switch cluster {
+	case "prod-us-east-1":
+		return []report.Finding{
+			{
+				Title: cluster + " has 2 node(s) under memory pressure",
+				Description: "2 of 18 nodes report MemoryPressure=True. Pods on these nodes risk OOM kills and the scheduler will avoid them.",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "node-health",
+				Affected: []string{"ip-10-0-12-44.ec2.internal", "ip-10-0-19-188.ec2.internal"},
+				Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " describe node ip-10-0-12-44.ec2.internal ip-10-0-19-188.ec2.internal"},
+			},
+			{
+				Title: cluster + " has 3 privileged container(s)",
+				Description: "Privileged containers have full host access. Review whether these workloads genuinely require it.",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "workload-security",
+				Affected: []string{"observability/node-agent/agent", "security/falco/falco", "kube-system/csi-driver/driver"},
+			},
+			{
+				Title: cluster + " has 7 warning event(s) per node in the last hour",
+				Description: "126 warning events in the last hour across 18 nodes. Top reasons: BackOff (52), FailedScheduling (31), Killing (18).",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "events",
+				Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " get events --field-selector type=Warning --sort-by=.lastTimestamp -A | tail -50"},
+			},
+		}
+	case "store-nyc-42":
+		return []report.Finding{
+			{
+				Title: cluster + " shows bad-deploy signals in 1 namespace(s)",
+				Description: "Image risks (no digest), failure-related warning events, and workload-security risks all overlap on the same namespace. Likely a recently rolled-out workload that is failing.",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "image-audit",
+				Affected: []string{"pos-system"},
+				Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " -n pos-system get pods,events --sort-by=.lastTimestamp"},
+			},
+			{
+				Title: cluster + " has 1 certificate(s) expiring in fewer than 7 days",
+				Description: "TLS certificate for the in-store payment webhook will expire imminently.",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "certs",
+				Affected: []string{"Secret pos-system/payments-tls (4 days)"},
+			},
+		}
+	case "factory-osaka":
+		return []report.Finding{
+			{
+				Title: cluster + " has 1 admission webhook(s) with no healthy endpoints",
+				Description: "ValidatingWebhookConfiguration policy-engine/scc has zero ready endpoints. With failurePolicy=Fail, admission is broken cluster-wide.",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "admission",
+				Affected: []string{"policy-engine/scc (service policy-engine/webhook, failurePolicy=Fail)"},
+			},
+		}
+	case "edge-johannesburg":
+		return []report.Finding{
+			{
+				Title: cluster + " has 1 node(s) not ready",
+				Description: "1 of 3 nodes is not reporting Ready=True. Workloads cannot be scheduled to it.",
+				Severity: report.SeverityCritical, Cluster: cluster, Scanner: "node-health",
+				Affected: []string{"node-az-c-3"},
+				Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " describe node node-az-c-3"},
+			},
+		}
+	}
+	return nil
+}
+
+// degradedFindingsFor returns a single warning-level finding per degraded
+// cluster, enough to populate the Findings page without overwhelming it.
+func degradedFindingsFor(p geoPoint) []report.Finding {
+	cluster := p.Cluster
+	switch cluster {
+	case "prod-eu-central-1":
+		return []report.Finding{{
+			Title: cluster + " uses 2 deprecated API version(s)",
+			Description: "Migrate before the next Kubernetes minor upgrade or workloads will fail to admission.",
+			Severity: report.SeverityWarning, Cluster: cluster, Scanner: "deprecated-apis",
+			Affected: []string{"policy/v1beta1 PodDisruptionBudget (12 instances, removed in 1.25)", "autoscaling/v2beta2 HorizontalPodAutoscaler (8 instances, removed in 1.26)"},
+		}}
+	case "staging-ap-southeast-1":
+		return []report.Finding{{
+			Title: cluster + " has 4 replicated workload(s) without a PodDisruptionBudget",
+			Description: "Voluntary disruptions can take all replicas of these workloads down simultaneously.",
+			Severity: report.SeverityWarning, Cluster: cluster, Scanner: "workload-coverage",
+			Affected: []string{"Deployment payments/api", "Deployment cart/api", "Deployment search/web", "StatefulSet cache/redis"},
+		}}
+	case "store-london-soho":
+		return []report.Finding{{
+			Title: cluster + " has 5 namespace(s) without Pod Security enforcement",
+			Description: "5 of 14 namespaces (36%) have no Pod Security Standards enforce label.",
+			Severity: report.SeverityWarning, Cluster: cluster, Scanner: "security",
+			Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+		}}
+	case "warehouse-sao-paulo":
+		return []report.Finding{{
+			Title: cluster + " has 3 admission webhook(s) with CA bundles expiring soon",
+			Description: "Renew or rotate the listed CA bundles before the deadlines.",
+			Severity: report.SeverityWarning, Cluster: cluster, Scanner: "admission",
+			Affected: []string{"policy-engine/policy (CA expires in 17 days)", "policy-engine/mutate (CA expires in 17 days)", "ingress-nginx/admission (CA expires in 23 days)"},
+		}}
+	}
+	return nil
+}
+
+// countSeverity tallies findings of a given severity.
+func countSeverity(fs []report.Finding, sev string) int {
+	n := 0
+	for _, f := range fs {
+		if f.Severity == sev {
+			n++
+		}
+	}
+	return n
+}
+
+// demoVersion returns a plausible Kubernetes version per cluster so the
+// "version skew" story across clusters lines up with one minor lagging.
+func demoVersion(cluster string) string {
+	switch cluster {
+	case "prod-us-east-1", "prod-us-west-2", "prod-eu-central-1", "prod-europe-west2", "prod-japaneast", "prod-ap-south-1":
+		return "v1.31.3"
+	case "store-nyc-42", "store-london-soho", "store-sydney-cbd", "factory-osaka", "warehouse-sao-paulo":
+		return "v1.30.6"
+	case "edge-johannesburg", "edge-buenos-aires", "edge-lagos":
+		return "v1.29.10"
+	default:
+		return "v1.31.2"
+	}
+}
+
+// demoNodeCount returns a believable node count per cluster shape.
+func demoNodeCount(cluster string) int {
+	switch {
+	case startsWith(cluster, "prod-"):
+		return 18
+	case startsWith(cluster, "staging-"):
+		return 8
+	case startsWith(cluster, "store-"), startsWith(cluster, "factory-"), startsWith(cluster, "warehouse-"):
+		return 3
+	case startsWith(cluster, "edge-"):
+		return 3
+	default:
+		return 5
+	}
+}
+
+// demoHealthyNodes derives a "ready" count from the cluster's status.
+func demoHealthyNodes(cluster, status string) int {
+	total := demoNodeCount(cluster)
+	switch status {
+	case "critical":
+		return total - 2
+	case "degraded":
+		return total - 1
+	default:
+		return total
+	}
+}
+
+// demoCPU / demoMem produce plausible utilization figures per status tier
+// so the gauges show meaningful color spread on the dashboard.
+func demoCPU(status string) float64 {
+	switch status {
+	case "critical":
+		return 91
+	case "degraded":
+		return 78
+	case "busy":
+		return 72
+	default:
+		return 42
+	}
+}
+
+func demoMem(status string) float64 {
+	switch status {
+	case "critical":
+		return 88
+	case "degraded":
+		return 75
+	case "busy":
+		return 68
+	default:
+		return 51
+	}
+}
+
+// demoEventCount produces a warning-event count per cluster status.
+func demoEventCount(status string) int {
+	switch status {
+	case "critical":
+		return 126
+	case "degraded":
+		return 41
+	case "busy":
+		return 12
+	default:
+		return 2
+	}
+}
+
+// demoNSCount makes namespace counts vary realistically.
+func demoNSCount(cluster string) int {
+	switch {
+	case startsWith(cluster, "prod-"):
+		return 34
+	case startsWith(cluster, "staging-"):
+		return 18
+	default:
+		return 12
+	}
+}
+
+// demoCapStatus maps fleet status onto capacity-analysis status labels.
+func demoCapStatus(status string) string {
+	switch status {
+	case "critical":
+		return "critical"
+	case "degraded":
+		return "degraded"
+	case "busy":
+		return "busy"
+	default:
+		return "healthy"
+	}
+}
+
+// demoRecommendation provides a one-line suggestion per cluster state.
+func demoRecommendation(status string) string {
+	switch status {
+	case "critical":
+		return "Memory pressure plus elevated event rate. Investigate top consumers; add 2 nodes if condition persists."
+	case "degraded":
+		return "Elevated utilization. Monitor; no immediate action required."
+	case "busy":
+		return "Busy but stable. Plan capacity if the trend continues."
+	default:
+		return "Healthy headroom on both CPU and memory."
+	}
+}
+
+// startsWith is a small helper so we don't pull in strings for one use.
+func startsWith(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// demoFleetTrends returns synthetic fleet-wide trends with twelve historical
+// points each, so the trend page lights up without any real scan history.
+// The shape mixes worsening, improving, and stable directions so reviewers
+// see the full UI vocabulary on the first paint.
+func demoFleetTrends() []report.FleetTrend {
+	now := demoTimestamp()
+	step := 6 * time.Hour
+	scanID := func(i int) string {
+		return demoScanID + "-h" + itoa(i)
+	}
+	makePoints := func(values []float64) []report.TrendPoint {
+		pts := make([]report.TrendPoint, len(values))
+		for i, v := range values {
+			pts[i] = report.TrendPoint{
+				Timestamp: now.Add(-time.Duration(len(values)-1-i) * step),
+				ScanID:    scanID(i),
+				Value:     v,
+			}
+		}
+		return pts
+	}
+	return []report.FleetTrend{
+		{
+			Scanner:    "events",
+			Field:      "warning_events",
+			Direction:  report.TrendWorsening,
+			Confidence: "high",
+			RSquared:   0.82,
+			Points:     makePoints([]float64{38, 41, 44, 47, 52, 59, 67, 74, 83, 91, 102, 118}),
+		},
+		{
+			Scanner:    "metrics",
+			Field:      "avg_memory_percent",
+			Direction:  report.TrendWorsening,
+			Confidence: "high",
+			RSquared:   0.74,
+			Points:     makePoints([]float64{58, 59, 61, 62, 63, 65, 67, 69, 71, 73, 75, 77}),
+		},
+		{
+			Scanner:    "node-health",
+			Field:      "memory_pressure_nodes",
+			Direction:  report.TrendWorsening,
+			Confidence: "low",
+			RSquared:   0.41,
+			Points:     makePoints([]float64{0, 0, 1, 0, 1, 1, 2, 1, 2, 2, 3, 2}),
+		},
+		{
+			Scanner:    "security",
+			Field:      "unenforced_count",
+			Direction:  report.TrendImproving,
+			Confidence: "high",
+			RSquared:   0.88,
+			Points:     makePoints([]float64{19, 19, 18, 17, 17, 15, 14, 12, 11, 9, 8, 7}),
+		},
+		{
+			Scanner:    "metrics",
+			Field:      "avg_cpu_percent",
+			Direction:  report.TrendStable,
+			Confidence: "high",
+			RSquared:   0.06,
+			Points:     makePoints([]float64{61, 64, 60, 63, 62, 65, 61, 63, 64, 62, 63, 64}),
+		},
+	}
+}
+
+// demoOutliers returns synthetic outliers consistent with the fleet shape:
+// edge clusters lagging on Kubernetes version, prod-us-east-1 well above the
+// fleet warning-event median, store-nyc-42 with an anomalous restart count.
+func demoOutliers() []report.OutlierResult {
+	return []report.OutlierResult{
+		{
+			Cluster:   "edge-johannesburg",
+			Field:     "version",
+			Value:     "v1.29.10",
+			FleetNorm: "v1.31.3",
+			Scanner:   "version",
+			Severity:  report.SeverityWarning,
+		},
+		{
+			Cluster:   "edge-buenos-aires",
+			Field:     "version",
+			Value:     "v1.29.10",
+			FleetNorm: "v1.31.3",
+			Scanner:   "version",
+			Severity:  report.SeverityWarning,
+		},
+		{
+			Cluster:   "prod-us-east-1",
+			Field:     "warning_events",
+			Value:     "126",
+			FleetNorm: "12",
+			Deviation: 4.7,
+			Scanner:   "events",
+			Severity:  report.SeverityCritical,
+		},
+		{
+			Cluster:   "factory-osaka",
+			Field:     "ready_webhooks",
+			Value:     "3",
+			FleetNorm: "4",
+			Deviation: 3.4,
+			Scanner:   "admission",
+			Severity:  report.SeverityCritical,
+		},
+		{
+			Cluster:   "store-nyc-42",
+			Field:     "restart_count",
+			Value:     "47",
+			FleetNorm: "2",
+			Deviation: 5.1,
+			Scanner:   "events",
+			Severity:  report.SeverityCritical,
+		},
+	}
+}
+
+// itoa is a tiny base-10 formatter so demoFleetTrends does not need to pull
+// in strconv just to suffix a scan-id index.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }

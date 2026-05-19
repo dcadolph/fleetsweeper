@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fleetsweeper</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="tour.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0d1117;--c1:#161b22;--c2:#1c2128;--c3:#21262d;--tx:#e6edf3;--t2:#8b949e;--t3:#6e7681;--bd:#30363d;--ac:#58a6ff;--ok:#3fb950;--wn:#d29922;--cr:#f85149;--mono:"SF Mono","Fira Code","Cascadia Code",monospace}
@@ -14,7 +15,11 @@ a{color:var(--ac);text-decoration:none;cursor:pointer}a:hover{text-decoration:un
 
 /* Sidebar */
 .sb{width:220px;min-width:220px;background:var(--c1);border-right:1px solid var(--bd);padding:14px 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;font-size:13px}
-.sb h1{font-size:15px;font-weight:600;padding:0 14px 10px;border-bottom:1px solid var(--bd);margin-bottom:6px}
+.sb h1{font-size:15px;font-weight:600;color:var(--tx);margin:0}
+.sb-brand{display:flex;align-items:center;gap:10px;padding:0 14px 10px;border-bottom:1px solid var(--bd);margin-bottom:6px}
+.sb-logo{width:28px;height:28px;border-radius:6px;object-fit:cover;flex-shrink:0;box-shadow:0 0 0 1px rgba(88,166,255,.25)}
+.sb a.sb-show-welcome{margin-top:auto;color:var(--t3);font-size:11px;border-top:1px solid var(--bd);padding-top:10px}
+.sb a.sb-show-welcome:hover{color:var(--ac)}
 .sb a{display:block;padding:4px 14px;color:var(--t2);border-left:2px solid transparent;transition:all .1s}
 .sb a:hover{color:var(--tx);background:rgba(88,166,255,.04);text-decoration:none}
 .sb a.on{color:var(--ac);border-color:var(--ac);background:rgba(88,166,255,.06)}
@@ -59,6 +64,8 @@ h3{font-size:12px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;ma
 .cc .row{display:flex;justify-content:space-between;font-size:11px;color:var(--t2);padding:1px 0 1px 6px}
 .cc .row .val{color:var(--tx);font-weight:500;font-family:var(--mono);font-size:11px}
 .cc canvas{margin-top:6px}
+.tag-chips{display:flex;flex-wrap:wrap;gap:3px;justify-content:flex-end;max-width:60%}
+.tag-chip{display:inline-block;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:var(--ac);font-family:var(--mono);font-size:10px;font-weight:500;padding:1px 6px;border-radius:10px}
 
 /* Findings */
 .fi{padding:10px 14px;border:1px solid var(--bd);border-radius:6px;background:var(--c1);margin-bottom:5px}
@@ -124,6 +131,7 @@ pre.json{background:var(--bg);border:1px solid var(--bd);border-radius:6px;paddi
 </div>
 <script>
 var P={page:'dash',cluster:null,scanId:null};
+window.P=P;
 var COLORS=['#58a6ff','#f85149','#3fb950','#d29922','#bc8cff','#39d353','#f78166','#79c0ff'];
 var chartInstances=[];
 
@@ -364,9 +372,10 @@ function nav(pg,opts){P.page=pg;P.cluster=opts&&opts.cluster||null;P.scanId=opts
 
 // === SIDEBAR ===
 function renderSb(){
-  var h='<h1>Fleetsweeper</h1>';
+  var h='<div class="sb-brand"><img class="sb-logo" src="logo.jpg" alt=""><h1>Fleetsweeper</h1></div>';
   h+='<a class="'+(P.page==='dash'?'on':'')+'" onclick="nav(\'dash\')">Dashboard</a>';
   h+='<a class="'+(P.page==='findings'?'on':'')+'" onclick="nav(\'findings\')">Findings</a>';
+  h+='<a class="'+(P.page==='alerts'?'on':'')+'" onclick="nav(\'alerts\')">Alerts</a>';
   h+='<a class="'+(P.page==='scans'?'on':'')+'" onclick="nav(\'scans\')">Scan history</a>';
   h+='<a class="'+(P.page==='capacity'?'on':'')+'" onclick="nav(\'capacity\')">Capacity</a>';
   h+='<a class="'+(P.page==='trends'?'on':'')+'" onclick="nav(\'trends\')">Trends</a>';
@@ -376,7 +385,11 @@ function renderSb(){
   h+='<a class="'+(P.page==='diff'?'on':'')+'" onclick="nav(\'diff\')">Scan diff</a>';
   h+='<div class="hd">Manage</div>';
   h+='<a class="'+(P.page==='clusters'?'on':'')+'" onclick="nav(\'clusters\')">Clusters</a>';
+  h+='<a class="'+(P.page==='manage'?'on':'')+'" onclick="nav(\'manage\')">Add cluster</a>';
   h+='<a class="'+(P.page==='groups'?'on':'')+'" onclick="nav(\'groups\')">Groups</a>';
+  h+='<a class="sb-show-welcome" onclick="window.Help&&window.Help.openMenu()">How it works</a>';
+  h+='<a class="sb-show-welcome" href="/cinematic" target="_blank">Watch the cinematic</a>';
+  h+='<a class="sb-show-welcome" onclick="window.Welcome&&window.Welcome.show()">Show welcome</a>';
   h+='<div class="foot">fleetsweeper server</div>';
   document.getElementById('sb').innerHTML=h;
 }
@@ -388,7 +401,11 @@ function renderBar(extra){
   if(P.page==='findings')h+='<select id="fSev"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>';
   h+='<span class="sp"></span>';
   h+=(extra||'');
+  h+='<button id="live-toggle" class="live-toggle" onclick="window.LiveMode&&window.LiveMode.toggle()"><span class="live-dot"></span><span>Live · paused</span></button>';
+  h+='<span class="tour-launcher" onclick="window.Tour&&window.Tour.start()">Take a tour</span>';
+  h+='<span class="btn" title="Keyboard shortcuts (?)" style="margin-left:4px;padding:4px 8px;font-size:11px" onclick="window.Shortcuts&&window.Shortcuts.toggle()">?</span>';
   document.getElementById('bar').innerHTML=h;
+  if(window.LiveMode)window.LiveMode.paint();
 }
 
 // === FINDINGS ===
@@ -397,7 +414,8 @@ function renderFinding(f){
   var sevTip=TIPS['sev_'+f.severity]||'';
   var scanTip=TIPS[f.scanner]||'';
   var scanLabel=_scannerLabels[f.scanner]||f.scanner;
-  var h='<div class="fi '+f.severity+'" data-sev="'+f.severity+'" data-cluster="'+esc(f.cluster)+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
+  var fpKey=(f.cluster||'')+'\0'+(f.scanner||'')+'\0'+(f.title||'');
+  var h='<div class="fi '+f.severity+'" data-sev="'+f.severity+'" data-cluster="'+esc(f.cluster)+'" data-fpkey="'+esc(fpKey)+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
   // Header row: severity + scanner + cluster.
   h+='<div style="width:100%">';
   h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">';
@@ -405,6 +423,7 @@ function renderFinding(f){
   h+='<span class="tag" style="background:rgba(139,148,158,.06);color:var(--t3)" data-tip="'+esc(scanTip)+'">'+esc(scanLabel)+'</span>';
   if(f.cluster&&f.cluster!=='fleet')h+='<span class="tag" style="background:rgba(88,166,255,.08);color:var(--ac);cursor:pointer" data-tip="Click to view cluster detail" onclick="event.stopPropagation();nav(\'detail\',{cluster:\''+esc(f.cluster)+'\'})">'+esc(f.cluster)+'</span>';
   else h+='<span class="tag" style="background:rgba(139,148,158,.08);color:var(--t2)" data-tip="Affects the entire fleet, not a single cluster">fleet</span>';
+  h+='<span class="tag finding-ack-btn" style="background:rgba(139,148,158,.08);color:var(--t3);cursor:pointer;margin-left:auto" data-tip="Acknowledge this finding; it will dim and stop firing Slack notifications" onclick="event.stopPropagation();ackFinding(this.closest(\'.fi\'))">ack</span>';
   h+='</div>';
   // Title and description.
   h+='<div style="font-size:13px;font-weight:500;color:var(--tx);line-height:1.3">'+esc(f.title)+'</div>';
@@ -467,16 +486,39 @@ function bindFindingFilters(){
 // === DASHBOARD ===
 async function renderDash(){
   renderBar('<span class="btn btn-ok" onclick="triggerScan()">Trigger scan</span>');
-  var scans=await api('/scans?limit=1');
+  // Pull the latest two scans so we can compute a scan-over-scan delta on
+  // the Fleet Score. The second fetch is best-effort: if it fails or the
+  // previous report has no score, the hero just omits the delta.
+  var scans=await api('/scans?limit=2');
   if(!scans||!scans.length)return '<div class="empty">No scans yet. Run a scan first.</div>';
   var rpt=await api('/scans/'+scans[0].id+'/report');
+  var prevScore=null,prevTs=null;
+  if(scans.length>=2){
+    try{
+      var prevRpt=await api('/scans/'+scans[1].id+'/report');
+      if(prevRpt&&prevRpt.fleet_score&&typeof prevRpt.fleet_score.score==='number'){
+        prevScore=prevRpt.fleet_score.score;
+        prevTs=scans[1].timestamp;
+      }
+    }catch(_){}
+  }
+  // Forecast fetch is best-effort and non-blocking. Hidden when the API
+  // marks it as insufficient.
+  var forecast=null;
+  try{
+    var fr=await api('/forecast/fleet-score');
+    if(fr&&fr.forecast)forecast=fr.forecast;
+  }catch(_){}
   var S=rpt.summary;
   var h='<h2>Fleet overview</h2><p class="sub">Latest scan: '+esc(rpt.timestamp)+' &middot; '+S.cluster_count+' clusters &middot; '+(rpt.findings?rpt.findings.length:0)+' findings</p>';
 
   // Store report for drilldown.
   window._dashReport=rpt;
 
-  h+='<div class="g g6">';
+  // Fleet Score hero. Single big number for a status-TV view.
+  h+=renderFleetScoreHero(rpt.fleet_score,prevScore,prevTs,forecast);
+
+  h+='<div class="g g6" data-tour="summary">';
   h+='<div class="cd st click" data-tip="'+esc(TIPS.clusters)+' Click to view all clusters." onclick="nav(\'clusters\')"><div class="v" style="color:var(--ac)">'+S.cluster_count+'</div><div class="l">Clusters</div></div>';
   h+='<div class="cd st click" data-tip="'+esc(TIPS.uniform)+' Click to view." onclick="showDashDrilldown(\'uniform\')"><div class="v" style="color:var(--ok)">'+S.uniform_count+'</div><div class="l">Uniform</div></div>';
   h+='<div class="cd st click" data-tip="'+esc(TIPS.divergent)+' Click to view." onclick="showDashDrilldown(\'divergent\')"><div class="v" style="color:var(--cr)">'+S.divergent_count+'</div><div class="l">Divergent</div></div>';
@@ -516,7 +558,7 @@ async function renderDash(){
     var statusLabels={'critical':'Critical','degraded':'Degraded','busy':'Busy','healthy':'Healthy'};
     var statusColors={'critical':'var(--cr)','degraded':'var(--wn)','busy':'var(--ac)','healthy':'var(--ok)'};
 
-    h+='<h3>Cluster health</h3>';
+    h+='<h3 data-tour="health-cards">Cluster health</h3>';
     statusOrder.forEach(function(st){
       var group=statusGroups[st];
       if(!group||!group.length)return;
@@ -561,6 +603,13 @@ async function renderDash(){
     }
   }
 
+  // Three async panels populated after the main render. Placeholders go in
+  // now so layout doesn't shift; the panels fetch their data lazily and
+  // populate when ready. Each handles its own empty/error state.
+  h+='<div id="dashForecastPanel"></div>';
+  h+='<div id="dashCostPanel"></div>';
+  h+='<div id="dashIntegrationsPanel"></div>';
+
   return {html:h,post:function(){
     // Mini gauges.
     if(typeof Chart!=='undefined'&&rpt.cluster_healths){
@@ -581,7 +630,273 @@ async function renderDash(){
       barChart('dashCpu',labels,cpuAvg,cpuColors,cpuBg,'%',100);
       barChart('dashMem',labels,memAvg,memColors,memBg,'%',100);
     }
+    // Kick off async panel loaders; failures are silent.
+    loadForecastPanel();
+    loadCostPanel();
+    loadIntegrationsPanel();
   }};
+}
+
+// renderFleetScoreHero builds the single-number hero card at the top of the
+// dashboard. Accepts the current FleetScore object, the previous scan's
+// numeric score (or null), the previous scan's timestamp string (or null)
+// for the delta caption, and an optional forecast object from
+// /api/forecast/fleet-score.
+function renderFleetScoreHero(fs,prevScore,prevTs,forecast){
+  if(!fs||typeof fs.score!=='number')return '';
+  var gradeColors={A:'var(--ok)',B:'var(--ok)',C:'var(--wn)',D:'var(--cr)',F:'var(--cr)'};
+  var gc=gradeColors[fs.grade]||'var(--t2)';
+  var scoreColor=fs.score>=80?'var(--ok)':fs.score>=60?'var(--wn)':'var(--cr)';
+
+  // Delta chip: up/down vs previous scan when we have it.
+  var deltaHTML='';
+  if(prevScore!=null){
+    var d=fs.score-prevScore;
+    var arrow=d>0?'&#9650;':d<0?'&#9660;':'&#8211;';
+    var dc=d>0?'var(--ok)':d<0?'var(--cr)':'var(--t2)';
+    var sign=d>0?'+':'';
+    var since=prevTs?' since '+humanAgo(prevTs):'';
+    deltaHTML='<div style="margin-top:6px;font-size:11px;color:'+dc+';display:inline-flex;align-items:center;gap:4px"'+
+      ' data-tip="Compared to the previous scan'+(prevTs?' at '+esc(prevTs):'')+'">'+
+      '<span style="font-size:13px;line-height:1">'+arrow+'</span>'+
+      '<span>'+sign+d+' pts'+esc(since)+'</span></div>';
+  }
+
+  // Driver chips.
+  var driversHTML='';
+  if(fs.drivers&&fs.drivers.length){
+    driversHTML='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'+
+      fs.drivers.map(function(d){
+        return '<span class="tag" style="background:rgba(248,81,73,.06);color:var(--t2);'+
+          'padding:3px 8px;border-radius:10px;font-size:10px" data-tip="Pulled the score down by '+
+          d.impact+' points">'+esc(d.reason)+' &middot; -'+d.impact+'</span>';
+      }).join('')+'</div>';
+  }
+
+  // Forecast block: projected next score with a ± band. Hidden when the API
+  // returned forecast.sufficient=false.
+  var forecastHTML='';
+  if(forecast&&forecast.sufficient&&typeof forecast.predicted==='number'){
+    var pdelta=forecast.predicted-fs.score;
+    var pdc=pdelta>0?'var(--ok)':pdelta<0?'var(--cr)':'var(--t2)';
+    var pdsign=pdelta>0?'+':'';
+    var bandWidth=Math.max(0,forecast.upper-forecast.lower);
+    var bandStr=bandWidth>0?(' ± '+Math.round(bandWidth/2)):'';
+    forecastHTML='<div style="margin-top:10px;padding:10px 12px;background:rgba(88,166,255,.04);'+
+      'border:1px solid var(--bd);border-radius:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"'+
+      ' data-tip="Linear regression forecast from the last '+forecast.basis+' scans. '+
+      'R² = '+(forecast.r_squared||0).toFixed(2)+'. Slope = '+
+      (forecast.slope_per_hour||0).toFixed(3)+' pts/hr.">'+
+      '<span style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3);font-weight:600">Projected next scan</span>'+
+      '<span style="font-size:18px;font-weight:700;color:'+pdc+';font-variant-numeric:tabular-nums">'+
+        forecast.predicted+bandStr+'</span>'+
+      '<span style="font-size:11px;color:'+pdc+'">('+pdsign+pdelta+' pts)</span>'+
+      '<span style="font-size:11px;color:var(--t2);margin-left:auto">'+esc(forecast.headline||'')+'</span>'+
+      '</div>';
+  }
+
+  return '<div class="cd" style="margin-bottom:14px;background:linear-gradient(135deg,var(--c1),var(--c2));'+
+    'border:1px solid var(--bd);padding:18px 22px" data-tour="fleet-score">'+
+    '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">'+
+      '<div style="flex:0 0 auto">'+
+        '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--t3);'+
+          'font-weight:600;margin-bottom:2px" data-tip="Single 0-100 health score for the fleet. '+
+          'Lower is worse. Computed from finding severities, cluster health distribution, version '+
+          'skew, and worst-cluster node health.">Fleet Score</div>'+
+        '<div style="display:flex;align-items:baseline;gap:10px">'+
+          '<div style="font-size:54px;line-height:1;font-weight:700;color:'+scoreColor+
+            ';font-variant-numeric:tabular-nums" data-tip="Out of 100">'+fs.score+'</div>'+
+          '<div style="font-size:13px;color:var(--t3)">/ 100</div>'+
+          '<div style="font-size:28px;line-height:1;font-weight:700;color:'+gc+
+            ';padding:3px 12px;border-radius:8px;background:rgba(255,255,255,.03);'+
+            'border:1px solid '+gc+'" data-tip="Letter grade: A 90+, B 80+, C 70+, D 60+, F under 60">'+esc(fs.grade)+'</div>'+
+        '</div>'+
+        deltaHTML+
+      '</div>'+
+      '<div style="flex:1 1 auto;min-width:240px">'+
+        '<div style="font-size:14px;color:var(--tx);line-height:1.45">'+esc(fs.headline||'')+'</div>'+
+        driversHTML+
+      '</div>'+
+    '</div>'+
+    forecastHTML+
+  '</div>';
+}
+
+// ackFinding posts an acknowledgement for the finding represented by the
+// .fi container element, then dims the finding in place. The fingerprint is
+// computed client-side from cluster + scanner + title using SubtleCrypto so
+// the server does not have to echo it on every finding payload.
+async function ackFinding(el){
+  if(!el)return;
+  var fpKey=el.getAttribute('data-fpkey')||'';
+  var reason=prompt('Reason (optional):','')||'';
+  try{
+    var fp=await sha256Hex(fpKey);
+    var cluster=el.getAttribute('data-cluster')||'';
+    var title=(el.querySelector('div[style*="font-size:13px"]')||{}).textContent||'';
+    var titleNode=el.querySelector('div[style*="font-size:13px"]');
+    var titleText=titleNode?titleNode.textContent.trim():'';
+    var scannerLabelNode=el.querySelectorAll('.tag')[1];
+    var scannerLabel=scannerLabelNode?scannerLabelNode.textContent.trim():'';
+    var headers={'Content-Type':'application/json'};
+    if(window._authToken)headers['Authorization']='Bearer '+window._authToken;
+    var resp=await fetch('/api/findings/'+fp+'/ack',{
+      method:'POST',
+      headers:headers,
+      body:JSON.stringify({cluster:cluster,scanner:scannerLabel,title:titleText,reason:reason}),
+    });
+    if(resp.ok||resp.status===201){
+      el.style.opacity='0.45';
+      var ackTag=el.querySelector('.finding-ack-btn');
+      if(ackTag){ackTag.textContent='acked';ackTag.style.color='var(--ok)';}
+    }else if(resp.status===403){
+      alert('Server requires --auth-token; ack endpoints are mutating.');
+    }else{
+      alert('Ack failed: '+resp.status);
+    }
+  }catch(e){
+    alert('Ack error: '+e.message);
+  }
+}
+
+// sha256Hex returns the lowercase hex SHA-256 of s. Used to compute the
+// finding fingerprint client-side so the API URL matches the server's.
+async function sha256Hex(s){
+  var enc=new TextEncoder();
+  var buf=await crypto.subtle.digest('SHA-256',enc.encode(s));
+  return Array.from(new Uint8Array(buf)).map(function(b){
+    return b.toString(16).padStart(2,'0');
+  }).join('');
+}
+
+// loadForecastPanel populates #dashForecastPanel with the per-cluster forecast
+// list, sorted worst-trending first. Hidden when no clusters or none are
+// sufficient. Best-effort: a fetch failure leaves the panel empty.
+function loadForecastPanel(){
+  var el=document.getElementById('dashForecastPanel');
+  if(!el)return;
+  api('/forecast/clusters').then(function(d){
+    if(!d||!d.forecasts||!d.forecasts.length)return;
+    var rows=d.forecasts.filter(function(f){return f.forecast&&f.forecast.sufficient});
+    if(!rows.length)return;
+    // Show only worsening (negative delta) or near-flat with a low score.
+    rows=rows.filter(function(r){
+      var delta=r.forecast.predicted-r.current_score;
+      return delta<0||(r.current_score<80&&Math.abs(delta)<3);
+    }).slice(0,6);
+    if(!rows.length)return;
+    var h='<h3>Most likely to degrade <span style="font-size:10px;color:var(--t3);text-transform:none;letter-spacing:0">(linear projection, last '+(rows[0].forecast.basis||'?')+' scans)</span></h3>';
+    h+='<div class="tw"><table>';
+    h+='<thead><tr><th>Cluster</th><th>Now</th><th>Projected</th><th>Delta</th><th>R²</th><th>Headline</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      var delta=r.forecast.predicted-r.current_score;
+      var dc=delta<0?'var(--cr)':delta>0?'var(--ok)':'var(--t2)';
+      var sign=delta>0?'+':'';
+      h+='<tr style="cursor:pointer" onclick="nav(\'detail\',{cluster:\''+esc(r.cluster)+'\'})">';
+      h+='<td style="font-weight:500">'+esc(r.cluster)+'</td>';
+      h+='<td class="mono">'+r.current_score+'</td>';
+      h+='<td class="mono">'+r.forecast.predicted+' ± '+Math.round((r.forecast.upper-r.forecast.lower)/2)+'</td>';
+      h+='<td class="mono" style="color:'+dc+'">'+sign+delta+'</td>';
+      h+='<td class="mono">'+(r.forecast.r_squared||0).toFixed(2)+'</td>';
+      h+='<td style="font-size:11px;color:var(--t2)">'+esc(r.forecast.headline||'')+'</td>';
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+    el.innerHTML=h;
+  }).catch(function(){});
+}
+
+// loadCostPanel populates #dashCostPanel with the cost-correlation analysis.
+// Hidden when --cost-csv is not configured (the API returns an empty
+// analysis in that case).
+function loadCostPanel(){
+  var el=document.getElementById('dashCostPanel');
+  if(!el)return;
+  api('/cost').then(function(d){
+    if(!d||d.total_fleet_usd<=0)return;
+    var pct=d.total_fleet_usd>0?Math.round(100*d.total_drift_usd/d.total_fleet_usd):0;
+    var dc=pct>=15?'var(--cr)':pct>=5?'var(--wn)':'var(--ok)';
+    var h='<h3>Cost correlation <span style="font-size:10px;color:var(--t3);text-transform:none;letter-spacing:0">('+esc(d.period||'')+')</span></h3>';
+    h+='<div class="cd" style="padding:14px;margin-bottom:10px;background:linear-gradient(135deg,var(--c1),var(--c2))">';
+    h+='<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">';
+    h+='<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">Drift cost</div>'+
+       '<div style="font-size:28px;font-weight:700;color:'+dc+';font-variant-numeric:tabular-nums">$'+fmtUSD(d.total_drift_usd)+'</div></div>';
+    h+='<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">Fleet spend</div>'+
+       '<div style="font-size:18px;font-weight:600;color:var(--tx);font-variant-numeric:tabular-nums">$'+fmtUSD(d.total_fleet_usd)+'</div></div>';
+    h+='<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">% drift</div>'+
+       '<div style="font-size:18px;font-weight:600;color:'+dc+';font-variant-numeric:tabular-nums">'+pct+'%</div></div>';
+    h+='</div>';
+    if(d.missing_cost&&d.missing_cost.length){
+      h+='<div style="font-size:11px;color:var(--t3);margin-top:8px">No cost row for: '+
+         d.missing_cost.slice(0,6).map(esc).join(', ')+(d.missing_cost.length>6?' (+'+(d.missing_cost.length-6)+' more)':'')+'</div>';
+    }
+    h+='</div>';
+    if(d.by_cluster&&d.by_cluster.length){
+      h+='<div class="tw"><table>';
+      h+='<thead><tr><th>Cluster</th><th>Score</th><th>Cost</th><th>Drift cost</th></tr></thead><tbody>';
+      d.by_cluster.slice(0,10).forEach(function(c){
+        h+='<tr style="cursor:pointer" onclick="nav(\'detail\',{cluster:\''+esc(c.cluster)+'\'})">';
+        h+='<td style="font-weight:500">'+esc(c.cluster)+'</td>';
+        h+='<td class="mono">'+c.score+'</td>';
+        h+='<td class="mono">$'+fmtUSD(c.cost_usd)+'</td>';
+        h+='<td class="mono" style="color:'+(c.drift_usd>0?'var(--cr)':'var(--t2)')+'">$'+fmtUSD(c.drift_usd)+'</td>';
+        h+='</tr>';
+      });
+      h+='</tbody></table></div>';
+    }
+    el.innerHTML=h;
+  }).catch(function(){});
+}
+
+// loadIntegrationsPanel populates #dashIntegrationsPanel with a compact list
+// of configured integrations.
+function loadIntegrationsPanel(){
+  var el=document.getElementById('dashIntegrationsPanel');
+  if(!el)return;
+  api('/integrations').then(function(d){
+    if(!d||!d.items)return;
+    var h='<h3>Integrations <span style="font-size:10px;color:var(--t3);text-transform:none;letter-spacing:0">(configured vs available)</span></h3>';
+    h+='<div class="g g3">';
+    d.items.forEach(function(it){
+      var on=it.status==='configured'||it.status==='demo';
+      var color=on?'var(--ok)':'var(--t3)';
+      var bg=on?'rgba(63,185,80,.06)':'transparent';
+      h+='<div class="cd" style="padding:10px 12px;background:'+bg+'">';
+      h+='<div style="display:flex;justify-content:space-between;align-items:baseline">';
+      h+='<div style="font-size:12px;font-weight:500;color:var(--tx)">'+esc(it.name)+'</div>';
+      h+='<span style="font-size:10px;text-transform:uppercase;color:'+color+';font-weight:600">'+esc(it.status)+'</span>';
+      h+='</div>';
+      if(it.hint)h+='<div style="font-size:10px;color:var(--t3);margin-top:4px">'+esc(it.hint)+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+    el.innerHTML=h;
+  }).catch(function(){});
+}
+
+// fmtUSD formats a number as a US-style currency string with thousands
+// separators and exactly two decimals.
+function fmtUSD(n){
+  if(typeof n!=='number'||isNaN(n))return '0.00';
+  var s=Math.abs(n).toFixed(2);
+  var parts=s.split('.');
+  parts[0]=parts[0].replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  return (n<0?'-':'')+parts.join('.');
+}
+
+// humanAgo formats an ISO-8601 timestamp as a short "Nm ago" / "Nh ago" string
+// suitable for inline use in chips. Falls back to the raw string on parse.
+function humanAgo(iso){
+  var t=Date.parse(iso);
+  if(isNaN(t))return iso;
+  var s=Math.max(0,Math.round((Date.now()-t)/1000));
+  if(s<60)return s+'s ago';
+  var m=Math.round(s/60);
+  if(m<60)return m+'m ago';
+  var hr=Math.round(m/60);
+  if(hr<48)return hr+'h ago';
+  var d=Math.round(hr/24);
+  return d+'d ago';
 }
 
 // Drilldown from summary cards on dashboard.
@@ -712,7 +1027,7 @@ async function renderDetail(){
 
   // Findings.
   if(data.findings&&data.findings.length){
-    h+='<h3>Findings ('+data.findings.length+')</h3>';
+    h+='<h3 data-tour="findings-list">Findings ('+data.findings.length+')</h3>';
     data.findings.forEach(function(f){h+=renderFinding(f)});
   }
 
@@ -1120,6 +1435,46 @@ window.exportFindings=function(){
   csvExport('fleetsweeper-findings.csv',['Severity','Cluster','Scanner','Title','Description'],ff.map(function(f){return[f.severity,f.cluster,f.scanner,f.title,f.description]}));
 };
 
+// === ALERTS ===
+async function renderAlerts(){
+  renderBar('<select id="aSrc" onchange="filterAlerts()"><option value="">All sources</option><option value="alertmanager">AlertManager</option><option value="falco">Falco</option></select> <select id="aSev" onchange="filterAlerts()"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>');
+  var resp;
+  try{resp=await api('/alerts?limit=200')}catch(e){return '<div class="loading">Alerts unavailable: '+e.message+'</div>'}
+  window._alerts=(resp&&resp.alerts)||[];
+  var h='<h2 style="margin:14px 20px 6px;font-size:16px">Inbound alerts</h2>';
+  h+='<div style="margin:0 20px 12px;color:var(--t2);font-size:12px">Live runtime alerts ingested from AlertManager and Falco. Filter, then double-click a row to see the full label set.</div>';
+  h+='<div class="tw" style="margin:0 20px"><table id="alertsTable"><thead><tr><th>When</th><th>Severity</th><th>Source</th><th>Cluster</th><th>Alert</th><th>Summary</th><th></th></tr></thead><tbody id="alertsBody"></tbody></table></div>';
+  setTimeout(filterAlerts,0);
+  return h;
+}
+function filterAlerts(){
+  var rows=window._alerts||[];
+  var src=document.getElementById('aSrc'); src=src?src.value:'';
+  var sev=document.getElementById('aSev'); sev=sev?sev.value:'';
+  var tb=document.getElementById('alertsBody');
+  if(!tb)return;
+  var b='';
+  rows.forEach(function(a){
+    var labelSource=(a.labels&&a.labels.source)||(a.labels&&a.labels.k8s_cluster_name?'falco':'alertmanager');
+    if(src&&labelSource!==src)return;
+    if(sev&&a.severity!==sev)return;
+    var ts=a.received_at?new Date(a.received_at).toLocaleString():'';
+    var sevCls=a.severity==='critical'?'cr':(a.severity==='warning'?'wn':'ok');
+    b+='<tr ondblclick=\'window.alert(JSON.stringify('+JSON.stringify(a.labels||{}).replace(/\'/g,"&#39;")+',null,2))\'><td>'+ts+'</td><td class="s-'+sevCls+'">'+(a.severity||'')+'</td><td>'+labelSource+'</td><td>'+(a.cluster||'')+'</td><td>'+(a.alertname||'')+'</td><td>'+escapeHTML(a.summary||'')+'</td><td><button class="btn" onclick="ackAlert(\''+a.fingerprint+'\')">Ack</button></td></tr>';
+  });
+  if(!b)b='<tr><td colspan="7" style="text-align:center;color:var(--t3);padding:30px">No alerts match the current filters.</td></tr>';
+  tb.innerHTML=b;
+}
+function escapeHTML(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+async function ackAlert(fp){
+  var reason=window.prompt('Reason (optional):','')||'';
+  try{
+    var r=await fetch('/api/alerts/'+encodeURIComponent(fp)+'/ack',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:reason,ack_by:'dashboard'})});
+    if(!r.ok){window.alert('Ack failed: '+r.status+' '+r.statusText);return}
+    if(typeof window.render==='function')window.render();
+  }catch(e){window.alert('Ack error: '+e.message)}
+}
+
 // === SCANS ===
 async function renderScans(){
   renderBar();
@@ -1280,6 +1635,14 @@ async function renderClusters(){
       h+='<div class="row"><span>Findings</span><span class="val">'+(ch.finding_counts.critical||0)+' critical, '+(ch.finding_counts.warning||0)+' warn</span></div>';
     }
     h+='<div class="row"><span>Groups</span><span class="val">'+(c.groups&&c.groups.length?c.groups.join(', '):'none')+'</span></div>';
+    var tagKeys=c.tags?Object.keys(c.tags).sort():[];
+    if(tagKeys.length){
+      var chips='';
+      tagKeys.forEach(function(k){
+        chips+='<span class="tag-chip">'+esc(k)+'='+esc(c.tags[k])+'</span>';
+      });
+      h+='<div class="row"><span>Tags</span><span class="val tag-chips">'+chips+'</span></div>';
+    }
     h+='<div class="row"><span>First seen</span><span class="val mono">'+new Date(c.first_seen).toLocaleDateString()+'</span></div>';
     h+='<div class="row"><span>Last seen</span><span class="val mono">'+new Date(c.last_seen).toLocaleDateString()+'</span></div>';
     h+='</div>';
@@ -1397,6 +1760,7 @@ async function triggerScan(){
 async function render(){
   destroyCharts();
   renderSb();
+  window.render=render;
   var el=document.getElementById('ct');
   el.innerHTML='<div class="loading">Loading...</div>';
   try{
@@ -1404,6 +1768,7 @@ async function render(){
     if(P.page==='dash')result=await renderDash();
     else if(P.page==='detail')result=await renderDetail();
     else if(P.page==='findings')result=await renderFindings();
+    else if(P.page==='alerts')result=await renderAlerts();
     else if(P.page==='scans')result=await renderScans();
     else if(P.page==='scanReport')result=await renderScanReport();
     else if(P.page==='trends')result=await renderTrends();
@@ -1413,6 +1778,7 @@ async function render(){
     else if(P.page==='globe')result=await renderGlobe();
     else if(P.page==='diff')result=await renderDiff();
     else if(P.page==='clusters')result=await renderClusters();
+    else if(P.page==='manage')result=await (window.renderManage?window.renderManage():Promise.resolve());
     else if(P.page==='groups')result=await renderGroups();
 
     if(typeof result==='string'){el.innerHTML=result}
@@ -1610,8 +1976,8 @@ function selectGlobeCluster(cluster){
     (p.critical_findings?'<div style="font-size:11px;color:#f85149;margin-bottom:2px">'+p.critical_findings+' critical findings</div>':'')+
     (p.warning_findings?'<div style="font-size:11px;color:#d29922;margin-bottom:6px">'+p.warning_findings+' warning findings</div>':'')+
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+
-    '<button class="btn btn-ac" data-action="globe-drill" data-cluster="'+esc(p.cluster)+'">Drill into details</button>'+
-    '<button class="btn" data-action="globe-findings" data-cluster="'+esc(p.cluster)+'">View findings</button>'+
+    '<button class="btn btn-ac" data-action="globe-drill" data-cluster="'+esc(p.cluster)+'">Open cluster page</button>'+
+    '<button class="btn" data-action="globe-findings" data-cluster="'+esc(p.cluster)+'">Filter findings by this cluster</button>'+
     '<button class="btn copy-btn" data-copy="kubectl --context '+esc(p.cluster)+' get nodes">Copy kubectl</button>'+
     '</div>';
   act.querySelectorAll('button[data-action]').forEach(function(b){
@@ -2065,5 +2431,12 @@ function exportCriticalsMarkdown(){
   });
 })();
 </script>
+<script src="tour.js"></script>
+<script src="manage.js"></script>
+<script src="live.js"></script>
+<script src="demo_enrich.js"></script>
+<script src="help.js"></script>
+<script src="welcome.js"></script>
+<script src="shortcuts.js"></script>
 </body>
 </html>

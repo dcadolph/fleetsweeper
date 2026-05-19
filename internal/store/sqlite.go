@@ -66,6 +66,20 @@ func (s *SQLite) Vacuum(ctx context.Context) error {
 	return nil
 }
 
+// VacuumInto writes a consistent snapshot of the database to the given file
+// path. Wraps the SQLite `VACUUM INTO` statement which captures the entire
+// database state atomically without blocking concurrent reads. The target
+// path must not already exist.
+func (s *SQLite) VacuumInto(ctx context.Context, path string) error {
+	if path == "" {
+		return fmt.Errorf("%w: vacuum into: empty path", ErrStore)
+	}
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("%w: vacuum into: %w", ErrStore, err)
+	}
+	return nil
+}
+
 // SetLocation upserts a manual geographic override for a cluster.
 func (s *SQLite) SetLocation(ctx context.Context, loc LocationRecord) error {
 	now := time.Now().UTC().Format(time.RFC3339)

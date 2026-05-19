@@ -1,0 +1,121 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: fleetdriftreports.fleetsweeper.io
+  labels:
+    app.kubernetes.io/managed-by: fleetsweeper
+spec:
+  group: fleetsweeper.io
+  scope: Namespaced
+  names:
+    plural: fleetdriftreports
+    singular: fleetdriftreport
+    kind: FleetDriftReport
+    shortNames:
+      - fdr
+    listKind: FleetDriftReportList
+    categories:
+      - fleetsweeper
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [cluster, scanId, scanTime, fleetScore]
+              properties:
+                cluster:
+                  type: string
+                  description: Kubeconfig context name of the cluster this report describes.
+                scanId:
+                  type: string
+                  description: Fleetsweeper-assigned scan identifier.
+                scanTime:
+                  type: string
+                  format: date-time
+                  description: When the scan executed.
+                fleetScore:
+                  type: object
+                  required: [score, grade]
+                  properties:
+                    score:
+                      type: integer
+                      minimum: 0
+                      maximum: 100
+                      description: Fleet-wide health score from this scan.
+                    grade:
+                      type: string
+                      enum: [A, B, C, D, F]
+            status:
+              type: object
+              properties:
+                observedAt:
+                  type: string
+                  format: date-time
+                summary:
+                  type: object
+                  properties:
+                    critical:
+                      type: integer
+                      minimum: 0
+                    warning:
+                      type: integer
+                      minimum: 0
+                    info:
+                      type: integer
+                      minimum: 0
+                findings:
+                  type: array
+                  items:
+                    type: object
+                    required: [severity, scanner, title]
+                    properties:
+                      severity:
+                        type: string
+                        enum: [critical, warning, info]
+                      scanner:
+                        type: string
+                      title:
+                        type: string
+                      description:
+                        type: string
+                      affected:
+                        type: array
+                        items:
+                          type: string
+                      remediation:
+                        type: object
+                        properties:
+                          command:
+                            type: string
+                          yaml:
+                            type: string
+                          runbookURL:
+                            type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Cluster
+          type: string
+          jsonPath: .spec.cluster
+        - name: Score
+          type: integer
+          jsonPath: .spec.fleetScore.score
+        - name: Grade
+          type: string
+          jsonPath: .spec.fleetScore.grade
+        - name: Critical
+          type: integer
+          jsonPath: .status.summary.critical
+        - name: Warning
+          type: integer
+          jsonPath: .status.summary.warning
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -1,0 +1,635 @@
+openapi: 3.0.3
+info:
+  title: Fleetsweeper API
+  version: 0.1.0
+  description: |
+    HTTP API for the Fleetsweeper server. Read endpoints are unauthenticated
+    when --insecure is set; mutating endpoints require a bearer token unless
+    --insecure is in effect.
+  license:
+    name: MIT
+    url: https://github.com/dcadolph/fleetsweeper/blob/main/LICENSE
+  contact:
+    name: Fleetsweeper project
+    url: https://github.com/dcadolph/fleetsweeper
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://{host}
+    description: Operator-deployed server
+    variables:
+      host:
+        default: fleet.internal
+
+security:
+  - bearerAuth: []
+  - {}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Token configured via --auth-token. Required for POST/DELETE.
+
+  schemas:
+    Severity:
+      type: string
+      enum: [critical, warning, info]
+
+    ScanRecord:
+      type: object
+      required: [id, timestamp, clusters]
+      properties:
+        id: {type: string, example: "01HF8Z..."}
+        timestamp: {type: string, format: date-time}
+        clusters:
+          type: array
+          items: {type: string}
+        scanners:
+          type: array
+          items: {type: string}
+
+    FleetScore:
+      type: object
+      required: [score, grade, headline]
+      properties:
+        score: {type: integer, minimum: 0, maximum: 100}
+        grade: {type: string, enum: [A, B, C, D, F]}
+        headline: {type: string}
+        drivers:
+          type: array
+          items:
+            type: object
+            required: [reason, impact]
+            properties:
+              reason: {type: string}
+              impact: {type: integer}
+
+    FleetScoreForecast:
+      type: object
+      required: [predicted, lower, upper, predicted_for, sufficient]
+      properties:
+        predicted: {type: integer, minimum: 0, maximum: 100}
+        lower: {type: integer, minimum: 0, maximum: 100}
+        upper: {type: integer, minimum: 0, maximum: 100}
+        predicted_for: {type: string, format: date-time}
+        slope_per_hour: {type: number}
+        r_squared: {type: number, minimum: 0, maximum: 1}
+        basis: {type: integer, minimum: 0}
+        sufficient: {type: boolean}
+        headline: {type: string}
+
+    Remediation:
+      type: object
+      properties:
+        command: {type: string}
+        yaml: {type: string}
+        runbook_url: {type: string, format: uri}
+
+    Finding:
+      type: object
+      required: [title, severity, cluster, scanner]
+      properties:
+        title: {type: string}
+        description: {type: string}
+        severity: {$ref: "#/components/schemas/Severity"}
+        cluster: {type: string, example: prod-us-east-1}
+        scanner: {type: string, example: node-health}
+        affected:
+          type: array
+          items: {type: string}
+        remediation: {$ref: "#/components/schemas/Remediation"}
+
+    ClusterHealth:
+      type: object
+      required: [name, status]
+      properties:
+        name: {type: string}
+        status: {type: string, enum: [healthy, busy, degraded, critical]}
+        kubernetes_version: {type: string}
+        node_count: {type: integer}
+        healthy_nodes: {type: integer}
+        avg_cpu: {type: number}
+        avg_memory: {type: number}
+        warning_events: {type: integer}
+        namespace_count: {type: integer}
+        finding_counts:
+          type: object
+          additionalProperties: {type: integer}
+
+    OutlierResult:
+      type: object
+      required: [cluster, field, value, fleet_norm, scanner, severity]
+      properties:
+        cluster: {type: string}
+        field: {type: string}
+        value: {type: string}
+        fleet_norm: {type: string}
+        deviation: {type: number}
+        scanner: {type: string}
+        severity: {$ref: "#/components/schemas/Severity"}
+
+    CapacityAnalysis:
+      type: object
+      properties:
+        cluster: {type: string}
+        status: {type: string}
+        cpu_utilization: {type: number}
+        memory_utilization: {type: number}
+        node_count: {type: integer}
+        healthy_nodes: {type: integer}
+        headroom_cpu: {type: number}
+        headroom_memory: {type: number}
+        has_memory_pressure: {type: boolean}
+        recommendation: {type: string}
+
+    Report:
+      type: object
+      required: [timestamp, clusters, summary, fleet_score]
+      properties:
+        timestamp: {type: string, format: date-time}
+        clusters:
+          type: array
+          items: {type: string}
+        summary:
+          type: object
+          properties:
+            cluster_count: {type: integer}
+            scanner_count: {type: integer}
+            uniform_count: {type: integer}
+            divergent_count: {type: integer}
+            total_divergences: {type: integer}
+            critical_count: {type: integer}
+            warning_count: {type: integer}
+        fleet_score: {$ref: "#/components/schemas/FleetScore"}
+        findings:
+          type: array
+          items: {$ref: "#/components/schemas/Finding"}
+        cluster_healths:
+          type: array
+          items: {$ref: "#/components/schemas/ClusterHealth"}
+        outliers:
+          type: array
+          items: {$ref: "#/components/schemas/OutlierResult"}
+        capacity:
+          type: array
+          items: {$ref: "#/components/schemas/CapacityAnalysis"}
+
+    CostAnalysis:
+      type: object
+      required: [currency, total_fleet_usd, total_drift_usd]
+      properties:
+        currency: {type: string, example: USD}
+        period: {type: string, example: "2026-05"}
+        total_fleet_usd: {type: number}
+        total_drift_usd: {type: number}
+        missing_cost:
+          type: array
+          items: {type: string}
+        by_cluster:
+          type: array
+          items:
+            type: object
+            required: [cluster, score, cost_usd, drift_usd]
+            properties:
+              cluster: {type: string}
+              score: {type: integer}
+              cost_usd: {type: number}
+              drift_usd: {type: number}
+              period: {type: string}
+
+    IntegrationStatus:
+      type: object
+      required: [name, status]
+      properties:
+        name: {type: string}
+        status: {type: string, enum: [configured, off, demo]}
+        hint: {type: string}
+
+    AckRequest:
+      type: object
+      properties:
+        cluster: {type: string}
+        scanner: {type: string}
+        title: {type: string}
+        ack_by: {type: string}
+        reason: {type: string}
+        snooze_until: {type: string, format: date-time}
+
+    AckRecord:
+      type: object
+      required: [fingerprint, created_at]
+      properties:
+        fingerprint: {type: string}
+        cluster: {type: string}
+        scanner: {type: string}
+        title: {type: string}
+        ack_by: {type: string}
+        reason: {type: string}
+        snooze_until: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error: {type: string}
+        code: {type: integer}
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200": {description: Process is alive}
+
+  /readyz:
+    get:
+      summary: Readiness probe (pings the store)
+      security: []
+      responses:
+        "200": {description: Store reachable}
+        "503": {description: Store unavailable}
+
+  /api/scans:
+    get:
+      summary: List recent scans
+      parameters:
+        - in: query
+          name: limit
+          schema: {type: integer, default: 50}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/ScanRecord"}
+    post:
+      summary: Trigger a new scan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contexts:
+                  type: array
+                  items: {type: string}
+                all_contexts: {type: boolean}
+                group: {type: string}
+      responses:
+        "202":
+          description: Scan accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan_id: {type: string}
+                  status: {type: string}
+        "429":
+          description: A scan is already in progress
+
+  /api/scans/{id}:
+    get:
+      summary: Get a scan record by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ScanRecord"}
+        "404": {description: Scan not found}
+
+  /api/scans/{id}/report:
+    get:
+      summary: Get the full computed report for a scan
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Report"}
+
+  /api/clusters:
+    get:
+      summary: List all known clusters
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: {type: string}
+                    first_seen: {type: string, format: date-time}
+                    last_seen: {type: string, format: date-time}
+
+  /api/clusters/{name}/detail:
+    get:
+      summary: Full scanner data, health, and findings for a cluster
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cluster: {type: string}
+                  scan_id: {type: string}
+                  scan_time: {type: string, format: date-time}
+                  health: {$ref: "#/components/schemas/ClusterHealth"}
+                  findings:
+                    type: array
+                    items: {$ref: "#/components/schemas/Finding"}
+                  scanner_data:
+                    type: object
+                    additionalProperties: true
+
+  /api/groups:
+    get:
+      summary: List groups
+      responses:
+        "200": {description: OK}
+    post:
+      summary: Create a group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                clusters:
+                  type: array
+                  items: {type: string}
+      responses:
+        "201": {description: Created}
+
+  /api/groups/{name}:
+    delete:
+      summary: Delete a group
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: {type: string}
+      responses:
+        "204": {description: Deleted}
+
+  /api/trends:
+    get:
+      summary: Fleet-wide trend analysis
+      parameters:
+        - in: query
+          name: scans
+          schema: {type: integer, default: 10}
+      responses:
+        "200": {description: OK}
+
+  /api/trends/{cluster}:
+    get:
+      summary: Per-cluster trend analysis
+      parameters:
+        - in: path
+          name: cluster
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: OK}
+
+  /api/outliers:
+    get:
+      summary: Outlier detection on the latest scan
+      parameters:
+        - in: query
+          name: threshold
+          schema: {type: number, default: 3.5}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan_id: {type: string}
+                  outliers:
+                    type: array
+                    items: {$ref: "#/components/schemas/OutlierResult"}
+                  findings:
+                    type: array
+                    items: {$ref: "#/components/schemas/Finding"}
+
+  /api/capacity:
+    get:
+      summary: Capacity correlator output
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan_id: {type: string}
+                  capacity:
+                    type: array
+                    items: {$ref: "#/components/schemas/CapacityAnalysis"}
+
+  /api/forecast/fleet-score:
+    get:
+      summary: Forecast the next Fleet Score from history
+      parameters:
+        - in: query
+          name: scans
+          schema: {type: integer, default: 10}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scan_id: {type: string}
+                        timestamp: {type: string, format: date-time}
+                        score: {type: integer}
+                  forecast: {$ref: "#/components/schemas/FleetScoreForecast"}
+
+  /api/forecast/clusters:
+    get:
+      summary: Per-cluster Fleet Score forecasts ranked by projected delta
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forecasts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        cluster: {type: string}
+                        current_score: {type: integer}
+                        forecast: {$ref: "#/components/schemas/FleetScoreForecast"}
+
+  /api/cost:
+    get:
+      summary: Cost correlation (requires --cost-csv)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CostAnalysis"}
+
+  /api/integrations:
+    get:
+      summary: Which integrations are configured
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: "#/components/schemas/IntegrationStatus"}
+
+  /api/acks:
+    get:
+      summary: List active finding acknowledgements
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/AckRecord"}
+
+  /api/findings/{fingerprint}/ack:
+    post:
+      summary: Record a finding acknowledgement
+      parameters:
+        - in: path
+          name: fingerprint
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AckRequest"}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/AckRecord"}
+    delete:
+      summary: Remove a finding acknowledgement
+      parameters:
+        - in: path
+          name: fingerprint
+          required: true
+          schema: {type: string}
+      responses:
+        "204": {description: Deleted}
+
+  /api/geo:
+    get:
+      summary: Cluster placements and health for the latest scan
+      responses:
+        "200": {description: OK}
+
+  /api/locations:
+    get:
+      summary: List manual location overrides
+      responses:
+        "200": {description: OK}
+
+  /api/locations/{cluster}:
+    put:
+      summary: Upsert a manual location override
+      parameters:
+        - in: path
+          name: cluster
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lat: {type: number}
+                lng: {type: number}
+                site: {type: string}
+                notes: {type: string}
+      responses:
+        "200": {description: OK}
+    delete:
+      summary: Remove a manual location override
+      parameters:
+        - in: path
+          name: cluster
+          required: true
+          schema: {type: string}
+      responses:
+        "204": {description: Deleted}
+
+  /api/contexts:
+    get:
+      summary: Kubeconfig contexts available to the server
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: {type: string}
+                    scanned: {type: boolean}

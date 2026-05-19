@@ -1,0 +1,128 @@
+name: Fleetsweeper recommend
+description: |
+  Produce a prioritised action list from the latest scan, ranked by
+  leverage * severity. Optionally post the top items as a PR comment
+  so deploy reviewers see exactly which fixes earn the most coverage.
+author: dcadolph
+branding:
+  icon: list
+  color: blue
+
+inputs:
+  db:
+    description: Database DSN. SQLite path or postgres:// URL.
+    required: true
+  severity:
+    description: Only consider findings at or above this severity. Empty includes all.
+    required: false
+    default: ""
+  limit:
+    description: Maximum recommendations to emit.
+    required: false
+    default: "10"
+  pr-comment:
+    description: |
+      Post the top recommendations as a comment on the triggering PR.
+      Requires GITHUB_TOKEN with pull-requests:write.
+    required: false
+    default: "false"
+  fail-on-critical:
+    description: Fail the job when at least one critical recommendation exists.
+    required: false
+    default: "false"
+  fleetsweeper-version:
+    description: Fleetsweeper release tag to install. "latest" pulls the most recent release.
+    required: false
+    default: "latest"
+
+outputs:
+  count:
+    description: Number of recommendations produced.
+    value: ${{ steps.rec.outputs.count }}
+  report-path:
+    description: Path to the JSON recommendation list.
+    value: ${{ steps.rec.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Fleetsweeper
+      shell: bash
+      env:
+        VERSION: ${{ inputs.fleetsweeper-version }}
+      run: |
+        set -euo pipefail
+        if command -v fleetsweeper >/dev/null 2>&1; then exit 0; fi
+        bin_dir="${HOME}/.fleetsweeper/bin"
+        mkdir -p "${bin_dir}"
+        if [[ "${VERSION}" == "latest" ]]; then
+          api_url="https://api.github.com/repos/dcadolph/fleetsweeper/releases/latest"
+        else
+          api_url="https://api.github.com/repos/dcadolph/fleetsweeper/releases/tags/${VERSION}"
+        fi
+        download_url=$(curl -sSL -H "Accept: application/vnd.github+json" "${api_url}" |
+          grep -oE "https://[^\"]+fleetsweeper_.*_linux_x86_64.tar.gz" | head -n1)
+        if [[ -z "${download_url}" ]]; then
+          echo "::error::Could not find Fleetsweeper release asset"
+          exit 1
+        fi
+        curl -sSL "${download_url}" | tar -xz -C "${bin_dir}" fleetsweeper
+        chmod +x "${bin_dir}/fleetsweeper"
+        echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+    - name: Run Fleetsweeper recommend
+      id: rec
+      shell: bash
+      env:
+        DB: ${{ inputs.db }}
+        SEVERITY: ${{ inputs.severity }}
+        LIMIT: ${{ inputs.limit }}
+        FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
+      run: |
+        set -euo pipefail
+        report_path="$(mktemp -t fleetsweeper-recommend.XXXXXX).json"
+        args=("recommend" "--db" "${DB}" "--json" "--limit" "${LIMIT}")
+        if [[ -n "${SEVERITY}" ]]; then args+=("--severity" "${SEVERITY}"); fi
+        fleetsweeper "${args[@]}" > "${report_path}"
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "::error::jq is required for recommend action"
+          exit 2
+        fi
+        count=$(jq -r 'length' "${report_path}")
+        crit_count=$(jq -r '[.[] | select(.severity=="critical")] | length' "${report_path}")
+        echo "count=${count}" >> "${GITHUB_OUTPUT}"
+        echo "report-path=${report_path}" >> "${GITHUB_OUTPUT}"
+        {
+          echo "## Fleetsweeper recommendations"
+          echo ""
+          if [[ "${count}" -eq 0 ]]; then
+            echo "No actionable remediations in the latest scan."
+          else
+            jq -r '.[] | "**[\(.severity | ascii_upcase)] \(.title)** — leverage \(.leverage) cluster(s)\n\(if .command then "\n```\n" + .command + "\n```" else "" end)\n"' "${report_path}"
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"
+        if [[ "${FAIL_ON_CRITICAL}" == "true" && "${crit_count}" -gt 0 ]]; then
+          echo "::error::${crit_count} critical recommendation(s) outstanding. Failing job."
+          exit 1
+        fi
+
+    - name: Post PR comment
+      if: ${{ inputs.pr-comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPORT: ${{ steps.rec.outputs.report-path }}
+      run: |
+        set -euo pipefail
+        if [[ ! -s "${REPORT}" ]]; then
+          echo "no report to post"; exit 0
+        fi
+        body=$(jq -r '
+          if length == 0 then
+            "### Fleetsweeper recommendations\n\nNo actionable remediations in the latest scan."
+          else
+            "### Fleetsweeper recommendations\n\nTop fixes ranked by leverage:\n\n" +
+              ([.[:5] | .[] | "1. **[\(.severity | ascii_upcase)] \(.title)** — leverage \(.leverage) cluster(s)" + (if .command then "\n   `" + .command + "`" else "" end)] | join("\n"))
+          end' "${REPORT}")
+        gh pr comment "${PR_NUMBER}" --body "${body}"

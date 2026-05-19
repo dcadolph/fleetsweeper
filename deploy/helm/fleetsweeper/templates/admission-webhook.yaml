@@ -1,0 +1,70 @@
+{{- if .Values.admission.enabled }}
+{{- /*
+  ValidatingAdmissionWebhook + companion Service for the fleet-norm webhook.
+  When .Values.admission.caBundle is empty the chart leaves it unset, which
+  is correct for installs that rely on a sidecar (e.g., cert-manager's
+  CA Injector) to populate caBundle on the fly. When operators have a
+  static caBundle in hand they can paste it via admission.caBundle.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-admission
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: fleetsweeper
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.admission.serviceAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    app.kubernetes.io/name: fleetsweeper
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: webhook
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ .Release.Name }}-admission
+  labels:
+    app.kubernetes.io/name: fleetsweeper
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.admission.webhookAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+webhooks:
+  - name: fleet-norm.fleetsweeper.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.admission.failurePolicy | default "Ignore" }}
+    timeoutSeconds: {{ .Values.admission.timeoutSeconds | default 5 }}
+    clientConfig:
+      service:
+        name: {{ .Release.Name }}-admission
+        namespace: {{ .Release.Namespace }}
+        path: /admission/validate
+        port: 443
+      {{- with .Values.admission.caBundle }}
+      caBundle: {{ . }}
+      {{- end }}
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods]
+        operations: [CREATE, UPDATE]
+        scope: Namespaced
+    {{- with .Values.admission.namespaceSelector }}
+    namespaceSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.admission.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: fleetsweeper
+description: Multi-cluster Kubernetes fleet comparison and audit
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/dcadolph/fleetsweeper
+sources:
+  - https://github.com/dcadolph/fleetsweeper
+keywords:
+  - kubernetes
+  - fleet
+  - audit
+  - drift
+  - security

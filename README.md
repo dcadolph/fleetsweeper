@@ -1,12 +1,170 @@
 <p align="center">
-  <img src="internal/logo/sweep.jpg" alt="fleetsweeper" width="280">
+  <img src="internal/logo/sweep.jpg" alt="fleetsweeper" width="220">
 </p>
 
-# fleetsweeper
+<h1 align="center">Fleetsweeper</h1>
 
-A multi-cluster Kubernetes fleet comparison tool. Fleetsweeper connects to your clusters, scans their configuration and state, and produces a structured report highlighting differences, health issues, and drift across the fleet.
+<p align="center">
+  <strong>The fleet is the policy.</strong><br>
+  Every other Kubernetes tool tells you if <em>one</em> cluster is healthy.<br>
+  Fleetsweeper tells you when your <em>fleet</em> has drifted.
+</p>
 
-## What it does
+<p align="center">
+  <a href="https://github.com/dcadolph/fleetsweeper/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dcadolph/fleetsweeper/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/dcadolph/fleetsweeper/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/dcadolph/fleetsweeper?sort=semver"></a>
+  <a href="https://goreportcard.com/report/github.com/dcadolph/fleetsweeper"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/dcadolph/fleetsweeper"></a>
+  <a href="https://pkg.go.dev/github.com/dcadolph/fleetsweeper"><img alt="Go reference" src="https://pkg.go.dev/badge/github.com/dcadolph/fleetsweeper.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://github.com/dcadolph/fleetsweeper/discussions"><img alt="Discussions" src="https://img.shields.io/github/discussions/dcadolph/fleetsweeper"></a>
+</p>
+
+<!--
+Hero animation lives at docs/hero.gif. Re-render with VHS using the bundled
+script:  vhs docs/hero.tape  (https://github.com/charmbracelet/vhs)
+Uncomment the line below once docs/hero.gif is in place.
+
+<p align="center"><img src="docs/hero.gif" alt="Fleetsweeper dashboard demo" width="820"></p>
+-->
+<p align="center"><sub><em>Demo recording: run <code>fleetsweeper serve --demo</code> locally and the dashboard at <code>http://localhost:8080</code> is the screenshot.</em></sub></p>
+
+## Try the demo in one command
+
+```
+fleetsweeper serve --demo --addr :8080
+```
+
+A synthetic 26-cluster fleet across four continents -- globe, findings,
+trends, outliers, capacity, and a guided tour, with no kubeconfig required.
+The pulsing red dots are the cinematic part. The MAD outlier detection under
+them is the real part.
+
+## Or run it the Kubernetes-native way
+
+```
+kubectl apply -f deploy/crds/clusterscan.yaml
+helm install fleetsweeper deploy/helm/fleetsweeper \
+  --set auth.token=$(openssl rand -hex 32) \
+  --set controller.enabled=true
+kubectl apply -f deploy/examples/clusterscan-prod.yaml
+```
+
+The controller reconciles `ClusterScan` resources, triggers scans on their
+declared interval, and writes the outcome back to `.status`. `kubectl get
+clusterscan` shows live phase, score, grade, and finding counts. Mint
+scoped API keys for pipelines with
+`fleetsweeper apikey create --role operator --scope group:prod`. Every
+mutating request is captured in the audit log; admin keys query it at
+`GET /api/admin/audit`. See [`docs/operator/overview.md`](docs/operator/overview.md)
+and [`docs/operator/rbac.md`](docs/operator/rbac.md).
+
+## Production checklist
+
+Fleetsweeper ships ready for production with these boxes pre-checked:
+
+- [x] **HA backend**: SQLite (default) or PostgreSQL via `--db-driver=postgres`
+- [x] **Multi-replica safe**: Kubernetes Lease-based leader election (`coordination.k8s.io/v1`)
+- [x] **Multi-tenant RBAC**: scoped API keys (`admin`/`operator`/`viewer`) with cluster scope (`*`, names, or `group:<n>`)
+- [x] **Audit log**: every mutating request captured; queryable at `GET /api/admin/audit` with retention via `--audit-retention`
+- [x] **Declarative operations**: `ClusterScan` CRD + in-process reconciler
+- [x] **GitOps integrations**: `FleetDriftReport` CR (own) + `PolicyReport` (wgpolicyk8s.io)
+- [x] **Observability**: Prometheus metrics (server + controller), OpenTelemetry traces, ServiceMonitor template
+- [x] **Webhooks**: HMAC-signed inbound trigger + outbound subscriber dispatch
+- [x] **Sealed reports**: HMAC-signed scan archives verifiable with `fleetsweeper verify`
+- [x] **Backup/restore**: `fleetsweeper backup` / `fleetsweeper restore` (SQLite); `pg_dump` for Postgres
+- [x] **Event stream**: SSE at `/api/events` for reactive dashboards and external consumers
+- [x] **Operator hooks**: PDB, NetworkPolicy, ServiceMonitor templates; `--config FILE` YAML config
+- [x] **Versioning**: stability contract in [VERSIONING.md](VERSIONING.md); upgrade guide in [UPGRADING.md](UPGRADING.md)
+- [x] **Onboarding**: `fleetsweeper init` scaffolds a starter folder; Helm post-install `NOTES.txt` walks through next steps
+- [x] **Plugin distribution**: krew plugin manifest at `deploy/krew/plugin.yaml`
+- [x] **Supply chain**: multi-arch images with SBOM + Cosign signatures (goreleaser)
+
+Full feature list in [CHANGELOG.md](CHANGELOG.md). Docs site sources in [`docs/`](docs/index.md).
+
+## How Fleetsweeper differs from what you already have
+
+| You already use         | What it tells you                                      | What Fleetsweeper adds                                                                |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `kubectl` / k9s         | The state of one cluster, right now.                   | A fleet-wide comparison: which cluster is the outlier across 16 dimensions.           |
+| ArgoCD / Flux           | Whether each cluster matches its desired manifest.     | Drift across clusters even when every cluster matches its own GitOps source of truth. |
+| Prometheus / Grafana    | Time series for things you remembered to instrument.   | Statistical baselines derived from the fleet, with no rules to write.                 |
+| Datadog Cluster Insights | Per-cluster alerts, scored by Datadog's rule library. | The norm is your own fleet, not a vendor checklist. Findings name the offender.       |
+| OPA / Kyverno           | Policy violations against rules you authored.          | Detects drift you forgot to write a policy for. Complements; does not replace.        |
+
+## Quick links
+
+- [What it scans](#what-it-scans)
+- [How it fits together](#how-it-fits-together)
+- [Server mode and integrations](#server-mode)
+- [Outlier detection](#outlier-detection) (MAD-based, sample-size gated)
+- [Globe view](#globe-view)
+- [In-cluster deployment](#in-cluster-deployment)
+- [Contributing](CONTRIBUTING.md) -- [Security policy](SECURITY.md) -- [Changelog](CHANGELOG.md)
+- [Versioning policy](VERSIONING.md) -- [Upgrade guide](UPGRADING.md) -- [Operator (ClusterScan CRD)](docs/operator/overview.md) -- [RBAC and API keys](docs/operator/rbac.md)
+
+## How it fits together
+
+Fleetsweeper is a pipeline, not a kitchen-sink. The same data flow runs
+whether you invoke `scan` from a terminal or run `serve` continuously.
+
+```
+                       ┌──────────────────┐
+                       │ kubeconfig       │
+                       │ (N contexts)     │
+                       └────────┬─────────┘
+                                │
+                       ┌────────▼─────────┐
+                       │ scanners (16)    │
+                       │ parallel, read-  │
+                       │ only, per-cluster│
+                       └────────┬─────────┘
+                                │ raw per-cluster data
+                       ┌────────▼─────────┐
+                       │ report.Build     │
+                       │ - compare        │
+                       │ - severity       │
+                       │ - outliers (MAD) │
+                       │ - findings       │
+                       │ - cluster health │
+                       │ - Fleet Score    │
+                       │ - capacity       │
+                       └────────┬─────────┘
+                                │ Report{}
+        ┌───────────────┬───────┴────────┬────────────────┬──────────────┐
+        │               │                │                │              │
+   ┌────▼────┐    ┌─────▼─────┐    ┌─────▼──────┐   ┌─────▼─────┐  ┌─────▼─────┐
+   │  JSON   │    │   HTML    │    │  SQLite    │   │  Web UI   │  │ exports   │
+   │ stdout  │    │  report   │    │  store     │   │ + globe   │  │ tar.gz    │
+   └─────────┘    └───────────┘    └─────┬──────┘   └─────┬─────┘  └───────────┘
+                                          │                │
+                                  ┌───────┴────────┐       │
+                                  │ trends / OLS    │       │
+                                  │ forecasts       │       │
+                                  └─────────────────┘       │
+                                                            │
+        ┌────────────┬──────────────┬───────────────┬───────┴──────┬──────────────┐
+        │            │              │               │              │              │
+   ┌────▼────┐  ┌────▼─────┐  ┌─────▼──────┐  ┌─────▼──────┐ ┌─────▼─────┐  ┌─────▼─────┐
+   │ /metrics│  │ OTel     │  │ Slack      │  │ Policy-    │ │ FleetDrift│  │ Cost CSV  │
+   │ (Prom)  │  │ traces+  │  │ webhook    │  │ Report     │ │ Reports   │  │ correl.   │
+   │         │  │ metrics  │  │ (criticals)│  │ YAMLs      │ │ YAMLs     │  │           │
+   └─────────┘  └──────────┘  └────────────┘  └────────────┘ └───────────┘  └───────────┘
+```
+
+The scanners produce raw data. The report builder turns that data into
+human-readable findings, a per-cluster health summary, an outlier list, a
+capacity analysis, and a single Fleet Score (0-100). Everything downstream
+is just a sink for the same Report: a JSON dump, an HTML page, a row in
+SQLite that enables history and forecasting, an OTel span, a Slack message,
+or a YAML CR your GitOps tool reconciles.
+
+Fleetsweeper never writes to the clusters it scans. The only write paths
+are: the local SQLite database, local YAML files (FleetDrift, PolicyReport),
+the Slack webhook you configured, OTel exporters you pointed it at, and --
+when you explicitly run `fleetsweeper remediate --push` -- pull requests
+against a GitOps repo you control.
+
+## What it scans
 
 Fleetsweeper scans multiple Kubernetes clusters in parallel and compares them across 16 dimensions:
 
@@ -150,6 +308,8 @@ fleetsweeper serve \
 
 The dashboard provides:
 
+- **Fleet Score** -- a single 0-100 hero number, with grade, headline, drivers,
+  and a delta vs the previous scan. Designed for a status TV.
 - Fleet overview with summary cards
 - Cluster health cards with CPU and memory gauges
 - Findings with severity, named affected resources, and suggested kubectl remediation
@@ -158,6 +318,101 @@ The dashboard provides:
 - Outlier detection
 - Cluster grouping
 - CSV export for findings and cluster data
+- Cmd-K command palette and a `?` shortcuts overlay for keyboard-driven use
+
+## Integrations
+
+Fleetsweeper exposes enough surface area to fit into the cloud-native stack
+you already run.
+
+### Prometheus and Grafana
+
+The admin server emits a Prometheus exposition at `/metrics` covering Fleet
+Score, per-cluster health, per-scanner finding counts, outlier z-scores, and
+the last scan duration. Scrape the admin address and import the bundled
+dashboard at [`deploy/grafana/fleet-overview.json`](deploy/grafana/README.md).
+
+### Slack
+
+Pass `--slack-webhook-url` on `serve` to post **new** critical findings to a
+Slack channel after every scan. Notifications are deduplicated by
+cluster + scanner + title for six hours so long-standing criticals do not
+spam the channel after a frequent scan cadence.
+
+```
+fleetsweeper serve \
+  --db fleet.db \
+  --slack-webhook-url "$SLACK_WEBHOOK_URL" \
+  --scan-interval 15m \
+  --all-contexts \
+  --admin-addr 127.0.0.1:9090
+```
+
+### OpenTelemetry traces and metrics
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318` (or the signal-specific
+`_TRACES_` / `_METRICS_` variants) to push traces and metrics to any OTLP-HTTP
+collector. Spans cover the scan fan-out one-per-scanner-per-cluster, with
+status codes and recorded errors. Metrics mirror the Prometheus exposition:
+`fleetsweeper.fleet.score`, `fleetsweeper.findings.total`,
+`fleetsweeper.cluster.health`, and the per-cluster CPU/memory gauges. With
+the endpoint unset, all instrumentation is a no-op.
+
+### Policy reports (OPA / Kyverno / Trivy)
+
+`--policy-report-output <dir>` writes wgpolicyk8s.io v1alpha2 PolicyReport
+YAMLs, one per cluster, into the chosen directory. The format is what
+Kyverno, Trivy Operator, Falco Sidekick, and the Policy Reporter UI already
+consume, so Fleetsweeper findings show up next to your existing policy
+violations without writing an adapter.
+
+### FleetDrift GitOps reports
+
+`--fleetdrift-output <dir>` writes a Fleetsweeper-native `FleetDriftReport`
+CR per cluster. The CRD lives at
+[`deploy/crds/fleetdriftreport.yaml`](deploy/crds/fleetdriftreport.yaml) and
+includes printer columns for Cluster, Score, Grade, and finding counts. Wire
+the output directory into Argo CD or Flux and the fleet's drift state
+reconciles like any other Kubernetes object.
+
+### GitHub Action
+
+Drop the bundled composite action into a workflow to gate releases on fleet
+drift. Example workflow:
+[`.github/workflows/fleetsweeper-scan.example.yml`](.github/workflows/fleetsweeper-scan.example.yml).
+
+```yaml
+- uses: dcadolph/fleetsweeper/.github/actions/scan@main
+  with:
+    all-contexts: "true"
+    fail-on: "critical"
+```
+
+### Cost correlation
+
+Provide a CSV of `cluster,period,cost_usd` rows (the "bring your own billing
+export" pattern -- no cloud SDK dependencies, no credentials in the
+Fleetsweeper process) and the dashboard correlates per-cluster spend with
+per-cluster health. The endpoint at `/api/cost` returns total fleet spend,
+total drift spend, and a ranked by-cluster list. See
+[`deploy/examples/cost.csv`](deploy/examples/cost.csv) for the schema.
+
+### Remediation pull requests
+
+For findings that carry an inline YAML manifest (default-deny NetworkPolicy,
+default ResourceQuota, etc.), `fleetsweeper remediate` opens a pull request
+against a GitOps repo via the GitHub REST API. Default is dry-run; pass
+`--push` and a token to actually create the PR.
+
+```
+fleetsweeper remediate \
+  --db fleet.db --scan-id latest \
+  --cluster prod-us-east-1 \
+  --scanner network-policies \
+  --github-repo myorg/gitops \
+  --github-token "$GITHUB_TOKEN" \
+  --push
+```
 
 <details>
 <summary>API endpoints</summary>
@@ -177,10 +432,18 @@ DELETE /api/groups/{name}        Delete a group (auth required)
 GET    /api/trends               Fleet trend analysis
 GET    /api/trends/{cluster}     Per-cluster trend analysis
 GET    /api/outliers             Outlier detection on latest scan
+GET    /api/forecast/fleet-score Forecast the next Fleet Score from history
+GET    /api/forecast/clusters    Per-cluster score forecasts ranked by trajectory
+GET    /api/cost                 Cost-correlated analysis (requires --cost-csv)
 GET    /api/capacity             Capacity correlator output for latest scan
 ```
 
-The admin server (when `--admin-addr` is set) additionally exposes `/debug/pprof/*`, `/metrics`, `/healthz`, and `/readyz`. Keep this address on an internal interface.
+The admin server (when `--admin-addr` is set) additionally exposes
+`/debug/pprof/*`, `/metrics`, `/healthz`, and `/readyz`. Keep this address on
+an internal interface. The `/metrics` endpoint exposes Fleet Score,
+per-cluster health, per-scanner finding counts, outlier z-scores, and the
+last scan duration -- see [`deploy/grafana/README.md`](deploy/grafana/README.md)
+for the full schema and a starter Grafana dashboard.
 
 </details>
 
@@ -226,10 +489,10 @@ The dashboard ships a 3D fleet globe at `#/globe`. Each cluster is rendered as a
 
 Cluster locations are resolved in this order, highest priority first:
 
-1. **Manual override in the fleetsweeper database** — set via CLI or REST. Best when you don't control the target cluster's manifests.
-2. **In-cluster ConfigMap `kube-system/fleetsweeper`** — best when you do control the cluster. Lives with the cluster, GitOps-friendly, travels with kustomize/Helm/Argo.
-3. **In-cluster namespace annotations** on `kube-system` — same idea as the ConfigMap, useful when your provisioning already patches the namespace.
-4. **Auto-detect from cloud-region node labels** — the default fallback. The `geo` scanner reads `topology.kubernetes.io/region` on every node and maps known AWS, GCP, Azure, DigitalOcean, OCI, IBM, and Alibaba regions to approximate centroids. Zero configuration for managed clusters.
+1. **Manual override in the fleetsweeper database**. Set via CLI or REST. Best when you don't control the target cluster's manifests.
+2. **In-cluster ConfigMap `kube-system/fleetsweeper`**. Best when you do control the cluster. Lives with the cluster, GitOps-friendly, travels with kustomize, Helm, or Argo.
+3. **In-cluster namespace annotations** on `kube-system`. Same idea as the ConfigMap, useful when your provisioning already patches the namespace.
+4. **Auto-detect from cloud-region node labels**. The default fallback. The `geo` scanner reads `topology.kubernetes.io/region` on every node and maps known AWS, GCP, Azure, DigitalOcean, OCI, IBM, and Alibaba regions to approximate centroids. Zero configuration for managed clusters.
 
 ### CLI override
 

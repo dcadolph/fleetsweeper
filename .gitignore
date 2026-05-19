@@ -1,5 +1,34 @@
-fleetsweeper
-.idea
+# Compiled binaries
+/fleetsweeper
+fleetsweeper.exe
+
+# Local databases and SQLite WAL artifacts
+*.db
+*.db-shm
+*.db-wal
+
+# Build and release output
+/dist/
+/bin/
+/build/
+
+# Go test, coverage, and binary outputs
 *.exe
 *.test
 *.out
+coverage.out
+coverage.html
+profile.out
+
+# IDE and editor scratch
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS detritus
+.DS_Store
+Thumbs.db
+
+# Local Claude scratch (not committed in this repo)
+.claude/

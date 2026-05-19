@@ -53,8 +53,8 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 	if err != nil || len(scans) == 0 {
 		if s.demo {
 			writeJSON(w, http.StatusOK, map[string]any{
-				"scan_id":   "demo",
-				"timestamp": "",
+				"scan_id":   demoScanID,
+				"timestamp": demoTimestamp(),
 				"points":    demoPoints(),
 				"unlocated": []string{},
 				"demo":      true,
@@ -235,6 +235,10 @@ func (s *Server) handleSetLocation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "cluster required")
 		return
 	}
+	if !actorFromContext(r.Context()).AllowsCluster(cluster, s.groupLookup(r.Context())) {
+		writeError(w, http.StatusForbidden, "cluster not in actor scope")
+		return
+	}
 	var req setLocationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -268,6 +272,10 @@ func (s *Server) handleSetLocation(w http.ResponseWriter, r *http.Request) {
 // handleDeleteLocation removes a manual location override.
 func (s *Server) handleDeleteLocation(w http.ResponseWriter, r *http.Request) {
 	cluster := r.PathValue("cluster")
+	if !actorFromContext(r.Context()).AllowsCluster(cluster, s.groupLookup(r.Context())) {
+		writeError(w, http.StatusForbidden, "cluster not in actor scope")
+		return
+	}
 	if err := s.store.DeleteLocation(r.Context(), cluster); err != nil {
 		writeError(w, http.StatusInternalServerError, "delete location failed")
 		return

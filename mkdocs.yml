@@ -1,0 +1,89 @@
+site_name: Fleetsweeper
+site_description: Cross-cluster Kubernetes drift detection with fleet-wide statistical baselines
+site_url: https://fleetsweeper.dev/
+repo_url: https://github.com/dcadolph/fleetsweeper
+repo_name: dcadolph/fleetsweeper
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Concepts:
+      - The fleet is the policy: concepts/fleet-is-policy.md
+      - Fleet Score: concepts/fleet-score.md
+      - Statistical outlier detection: concepts/outliers.md
+  - Operator:
+      - Overview: operator/overview.md
+      - ClusterScan CRD: operator/clusterscan.md
+      - Admission webhook: operator/admission-webhook.md
+      - Pinning the baseline: operator/baseline.md
+      - Local drift audit: operator/drift.md
+      - whatchanged scan diff: operator/whatchanged.md
+      - recommend action list: operator/recommend.md
+      - OIDC browser login: operator/oidc.md
+      - Helm chart: operator/helm.md
+      - Database backends: operator/backends.md
+      - Leader election: operator/leader-election.md
+      - RBAC and API keys: operator/rbac.md
+      - Audit log: operator/audit.md
+  - Integrations:
+      - PolicyReport: integrations/policyreport.md
+      - PolicyReport ingest: integrations/policyreport-ingest.md
+      - FleetDriftReport: integrations/fleetdriftreport.md
+      - Slack: integrations/slack.md
+      - Webhooks: integrations/webhooks.md
+      - Prometheus and Grafana: integrations/prometheus.md
+      - AlertManager: integrations/alertmanager.md
+      - Falco runtime alerts: integrations/falco.md
+      - GitHub Actions: integrations/github-actions.md
+      - node_exporter textfile collector: integrations/textfile-collector.md
+      - Registry probing: integrations/registry-probing.md
+      - Trivy Operator: integrations/trivy.md
+  - Reference:
+      - REST API: reference/api.md
+      - CLI: reference/cli.md
+      - fleetsweeper doctor: reference/doctor.md
+      - Events stream (SSE): reference/events.md
+      - Versioning: reference/versioning.md
+      - Upgrading: reference/upgrading.md

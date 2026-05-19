@@ -1,0 +1,181 @@
+name: Fleetsweeper scan
+description: |
+  Run a Fleetsweeper scan against one or more kubeconfig contexts and fail the
+  job when critical findings appear. Designed for periodic CI runs that gate
+  promotion: catch fleet drift before a release reaches production.
+author: dcadolph
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  contexts:
+    description: Comma-separated list of kubeconfig contexts to scan. Mutually exclusive with all-contexts.
+    required: false
+    default: ""
+  all-contexts:
+    description: Scan every context in the kubeconfig. Mutually exclusive with contexts.
+    required: false
+    default: "false"
+  kubeconfig:
+    description: Path to the kubeconfig. Defaults to $KUBECONFIG or ~/.kube/config when empty.
+    required: false
+    default: ""
+  output:
+    description: Output format. One of json, html.
+    required: false
+    default: "json"
+  output-file:
+    description: Optional file to write the report to. Stdout is used when empty.
+    required: false
+    default: ""
+  fail-on:
+    description: Fail the job when at least one finding meets this severity. One of "critical", "warning", "none".
+    required: false
+    default: "critical"
+  outlier-threshold:
+    description: MAD outlier sensitivity. Lower flags more outliers.
+    required: false
+    default: "3.5"
+  fleetsweeper-version:
+    description: Fleetsweeper release tag to install. "latest" pulls the most recent release.
+    required: false
+    default: "latest"
+
+outputs:
+  fleet-score:
+    description: Fleet Score (0-100) from the scan.
+    value: ${{ steps.scan.outputs.fleet-score }}
+  critical-count:
+    description: Number of critical findings.
+    value: ${{ steps.scan.outputs.critical-count }}
+  warning-count:
+    description: Number of warning findings.
+    value: ${{ steps.scan.outputs.warning-count }}
+  report-path:
+    description: Path to the written report. Empty when output-file was not set.
+    value: ${{ steps.scan.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Fleetsweeper
+      shell: bash
+      env:
+        VERSION: ${{ inputs.fleetsweeper-version }}
+      run: |
+        set -euo pipefail
+        if command -v fleetsweeper >/dev/null 2>&1; then
+          echo "Fleetsweeper already on PATH: $(fleetsweeper version 2>/dev/null || true)"
+          exit 0
+        fi
+        bin_dir="${HOME}/.fleetsweeper/bin"
+        mkdir -p "${bin_dir}"
+        if [[ "${VERSION}" == "latest" ]]; then
+          api_url="https://api.github.com/repos/dcadolph/fleetsweeper/releases/latest"
+          asset_pattern="fleetsweeper_.*_linux_x86_64.tar.gz"
+        else
+          api_url="https://api.github.com/repos/dcadolph/fleetsweeper/releases/tags/${VERSION}"
+          asset_pattern="fleetsweeper_.*_linux_x86_64.tar.gz"
+        fi
+        download_url=$(curl -sSL -H "Accept: application/vnd.github+json" "${api_url}" |
+          grep -oE "https://[^\"]+${asset_pattern}" | head -n1)
+        if [[ -z "${download_url}" ]]; then
+          echo "::error::Could not find Fleetsweeper release asset matching ${asset_pattern}"
+          exit 1
+        fi
+        curl -sSL "${download_url}" | tar -xz -C "${bin_dir}" fleetsweeper
+        chmod +x "${bin_dir}/fleetsweeper"
+        echo "${bin_dir}" >> "${GITHUB_PATH}"
+        "${bin_dir}/fleetsweeper" version || true
+
+    - name: Run Fleetsweeper scan
+      id: scan
+      shell: bash
+      env:
+        CONTEXTS: ${{ inputs.contexts }}
+        ALL_CONTEXTS: ${{ inputs.all-contexts }}
+        KUBECONFIG_INPUT: ${{ inputs.kubeconfig }}
+        OUTPUT: ${{ inputs.output }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        OUTLIER_THRESHOLD: ${{ inputs.outlier-threshold }}
+      run: |
+        set -euo pipefail
+        args=("scan" "--outlier-threshold" "${OUTLIER_THRESHOLD}")
+        if [[ -n "${KUBECONFIG_INPUT}" ]]; then
+          args+=("--kubeconfig" "${KUBECONFIG_INPUT}")
+        fi
+        if [[ "${ALL_CONTEXTS}" == "true" ]]; then
+          args+=("--all-contexts")
+        elif [[ -n "${CONTEXTS}" ]]; then
+          args+=("--contexts" "${CONTEXTS}")
+        else
+          echo "::error::Either contexts or all-contexts must be set."
+          exit 2
+        fi
+
+        report_path=""
+        if [[ "${OUTPUT}" == "html" ]]; then
+          target="${OUTPUT_FILE:-fleetsweeper-report.html}"
+          args+=("-o" "html" "--html-file" "${target}")
+          report_path="${target}"
+          "${HOME}/.fleetsweeper/bin/fleetsweeper" "${args[@]}" || command fleetsweeper "${args[@]}"
+          # HTML output is opaque to grep; rerun for JSON so we can extract metrics.
+          json_path=$(mktemp)
+          json_args=("${args[@]:0:${#args[@]}-4}" "--pretty")
+          command fleetsweeper "${json_args[@]}" > "${json_path}"
+        else
+          json_path="${OUTPUT_FILE:-$(mktemp)}"
+          args+=("--pretty")
+          command fleetsweeper "${args[@]}" > "${json_path}"
+          report_path="${json_path}"
+        fi
+
+        # Extract metrics with jq if available, otherwise fall back to grep.
+        if command -v jq >/dev/null 2>&1; then
+          score=$(jq -r '.fleet_score.score // empty' "${json_path}")
+          crit=$(jq -r '[.findings[] | select(.severity=="critical")] | length' "${json_path}")
+          warn=$(jq -r '[.findings[] | select(.severity=="warning")] | length' "${json_path}")
+        else
+          score=$(grep -oE '"score"[[:space:]]*:[[:space:]]*[0-9]+' "${json_path}" | head -n1 | grep -oE '[0-9]+$')
+          crit=$(grep -oE '"severity"[[:space:]]*:[[:space:]]*"critical"' "${json_path}" | wc -l | tr -d ' ')
+          warn=$(grep -oE '"severity"[[:space:]]*:[[:space:]]*"warning"' "${json_path}" | wc -l | tr -d ' ')
+        fi
+
+        echo "fleet-score=${score:-0}" >> "${GITHUB_OUTPUT}"
+        echo "critical-count=${crit:-0}" >> "${GITHUB_OUTPUT}"
+        echo "warning-count=${warn:-0}" >> "${GITHUB_OUTPUT}"
+        echo "report-path=${report_path}" >> "${GITHUB_OUTPUT}"
+
+        # Job summary so the result shows up in the GitHub Actions UI.
+        {
+          echo "## Fleetsweeper"
+          echo ""
+          echo "| Metric | Value |"
+          echo "| ------ | ----- |"
+          echo "| Fleet Score | ${score:-N/A} |"
+          echo "| Critical findings | ${crit:-0} |"
+          echo "| Warning findings | ${warn:-0} |"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        case "${FAIL_ON}" in
+          critical)
+            if [[ "${crit:-0}" -gt 0 ]]; then
+              echo "::error::${crit} critical finding(s) detected. Failing job (fail-on=critical)."
+              exit 1
+            fi
+            ;;
+          warning)
+            if [[ "${crit:-0}" -gt 0 || "${warn:-0}" -gt 0 ]]; then
+              echo "::error::Findings detected. Failing job (fail-on=warning)."
+              exit 1
+            fi
+            ;;
+          none)
+            : # do not fail
+            ;;
+          *)
+            echo "::warning::Unknown fail-on value ${FAIL_ON}; not failing."
+            ;;
+        esac

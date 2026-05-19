@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"slices"
 	"time"
@@ -32,39 +31,6 @@ func corsMiddleware(allowOrigins []string, next http.Handler) http.Handler {
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// bearerAuthMiddleware enforces an Authorization: Bearer <token> header on
-// mutating requests. Read-only requests (GET, HEAD, OPTIONS) pass through.
-// When token is empty and insecure is false, all mutating requests return 403.
-// When insecure is true, no auth is enforced. Comparison is constant-time.
-func bearerAuthMiddleware(token string, insecure bool, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if insecure {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if token == "" {
-			writeError(w, http.StatusForbidden, "mutating endpoints require --auth-token (or --insecure)")
-			return
-		}
-		header := r.Header.Get("Authorization")
-		const prefix = "Bearer "
-		if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
-			writeError(w, http.StatusUnauthorized, "missing bearer token")
-			return
-		}
-		got := header[len(prefix):]
-		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-			writeError(w, http.StatusUnauthorized, "invalid bearer token")
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -41,6 +41,9 @@ type ClusterRecord struct {
 	LastSeen time.Time `json:"last_seen"`
 	// Groups lists the group names this cluster belongs to.
 	Groups []string `json:"groups"`
+	// Tags is the cluster's free-form tag map, omitted from the wire
+	// when no tags are set.
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 // GroupRecord represents a cluster group.
@@ -130,6 +133,80 @@ type Store interface {
 
 	// DeleteLocation removes a manual override.
 	DeleteLocation(ctx context.Context, cluster string) error
+
+	// SaveAck upserts a finding acknowledgement. The fingerprint primary key
+	// allows the same finding to be acked once across many scan cycles.
+	SaveAck(ctx context.Context, rec AckRecord) error
+
+	// DeleteAck removes an acknowledgement. Idempotent.
+	DeleteAck(ctx context.Context, fingerprint string) error
+
+	// ListAcks returns every active acknowledgement (expired snoozes pruned).
+	ListAcks(ctx context.Context) ([]AckRecord, error)
+
+	// IsAcked reports whether a finding is currently acknowledged.
+	IsAcked(ctx context.Context, fingerprint string) (bool, error)
+
+	// SaveAPIKey inserts a new API key. The raw token is never persisted: the
+	// caller must hash it and place the result in rec.TokenHash before calling.
+	SaveAPIKey(ctx context.Context, rec APIKeyRecord) error
+
+	// GetAPIKeyByHash looks up a key by token hash. Returns the wrapped
+	// ErrNotFound when no row matches.
+	GetAPIKeyByHash(ctx context.Context, hash string) (*APIKeyRecord, error)
+
+	// GetAPIKey returns the key with the given ID.
+	GetAPIKey(ctx context.Context, id string) (*APIKeyRecord, error)
+
+	// ListAPIKeys returns every API key including revoked ones, newest first.
+	ListAPIKeys(ctx context.Context) ([]APIKeyRecord, error)
+
+	// RevokeAPIKey marks the key with the given ID as administratively disabled.
+	RevokeAPIKey(ctx context.Context, id string) error
+
+	// TouchAPIKey updates the last-used-at timestamp. Best-effort; callers
+	// should not fail authentication on error.
+	TouchAPIKey(ctx context.Context, id string, at time.Time) error
+
+	// SaveAuditEntry inserts one audit log row.
+	SaveAuditEntry(ctx context.Context, rec AuditEntry) error
+
+	// ListAuditEntries returns audit entries matching opts, newest first.
+	ListAuditEntries(ctx context.Context, opts AuditListOptions) ([]AuditEntry, error)
+
+	// PruneAuditEntries deletes audit log rows older than cutoff and returns
+	// the number of rows removed. Used by the audit-retention ticker.
+	PruneAuditEntries(ctx context.Context, cutoff time.Time) (int, error)
+
+	// UpsertAlert inserts or updates an inbound AlertManager alert keyed by
+	// its fingerprint. Reusing the fingerprint allows the same alert to
+	// transition between firing/resolved without producing duplicate rows.
+	UpsertAlert(ctx context.Context, rec AlertRecord) error
+
+	// GetAlert returns the alert row with the given fingerprint. Returns
+	// ErrNotFound when no row matches.
+	GetAlert(ctx context.Context, fingerprint string) (*AlertRecord, error)
+
+	// ListAlerts returns alerts matching opts, newest received_at first.
+	ListAlerts(ctx context.Context, opts AlertListOptions) ([]AlertRecord, error)
+
+	// PruneAlerts deletes alert rows older than cutoff (received_at). Returns
+	// the number of rows removed.
+	PruneAlerts(ctx context.Context, cutoff time.Time) (int, error)
+
+	// SetClusterTag upserts a single key/value tag on a cluster.
+	SetClusterTag(ctx context.Context, cluster, key, value string) error
+
+	// DeleteClusterTag removes one key from a cluster's tag set. Idempotent.
+	DeleteClusterTag(ctx context.Context, cluster, key string) error
+
+	// GetClusterTags returns every tag pair on a cluster as a key→value
+	// map. Empty map when no tags are set.
+	GetClusterTags(ctx context.Context, cluster string) (map[string]string, error)
+
+	// ListClusterTags returns every tag across the fleet, grouped by
+	// cluster. Convenient for the dashboard's per-cluster render.
+	ListClusterTags(ctx context.Context) (map[string]map[string]string, error)
 
 	// Close releases database resources.
 	Close() error

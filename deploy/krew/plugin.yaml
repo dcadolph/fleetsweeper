@@ -1,0 +1,88 @@
+# krew (kubectl plugin manager) manifest for Fleetsweeper.
+# Submit a PR to https://github.com/kubernetes-sigs/krew-index after each
+# release that updates the version and SHA256 sums to point at the new
+# GitHub release assets.
+#
+# Local install for testing:
+#   kubectl krew install --manifest deploy/krew/plugin.yaml --archive <path>
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: fleetsweeper
+spec:
+  version: v0.1.0  # bump on every release
+  homepage: https://github.com/dcadolph/fleetsweeper
+  shortDescription: Cross-cluster Kubernetes drift detection
+  description: |
+    Fleetsweeper scans multiple Kubernetes clusters and flags drift across
+    them using statistical baselines derived from the fleet itself. No
+    rulebook required.
+
+    After install, run `kubectl fleetsweeper serve --demo` to preview the
+    dashboard, or apply a ClusterScan custom resource to scan continuously
+    from inside a cluster.
+  caveats: |
+    Fleetsweeper writes its data to a SQLite file or PostgreSQL database.
+    For the default --demo mode no persistence is required.
+    For production: pass --db with a writable path or DSN.
+  platforms:
+    - selector:
+        matchLabels:
+          os: linux
+          arch: amd64
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "linux" "amd64"}}
+      sha256: REPLACE_BEFORE_PUBLISHING
+      bin: fleetsweeper
+      files:
+        - from: fleetsweeper
+          to: .
+        - from: LICENSE
+          to: .
+    - selector:
+        matchLabels:
+          os: linux
+          arch: arm64
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "linux" "arm64"}}
+      sha256: REPLACE_BEFORE_PUBLISHING
+      bin: fleetsweeper
+      files:
+        - from: fleetsweeper
+          to: .
+        - from: LICENSE
+          to: .
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: amd64
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "darwin" "amd64"}}
+      sha256: REPLACE_BEFORE_PUBLISHING
+      bin: fleetsweeper
+      files:
+        - from: fleetsweeper
+          to: .
+        - from: LICENSE
+          to: .
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: arm64
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "darwin" "arm64"}}
+      sha256: REPLACE_BEFORE_PUBLISHING
+      bin: fleetsweeper
+      files:
+        - from: fleetsweeper
+          to: .
+        - from: LICENSE
+          to: .
+    - selector:
+        matchLabels:
+          os: windows
+          arch: amd64
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "windows" "amd64"}}
+      sha256: REPLACE_BEFORE_PUBLISHING
+      bin: fleetsweeper.exe
+      files:
+        - from: fleetsweeper.exe
+          to: .
+        - from: LICENSE
+          to: .

@@ -1,0 +1,49 @@
+# Example ClusterScan resource. Apply this once the fleetsweeper-controller is
+# running (`fleetsweeper serve --controller`) and the CRD is installed:
+#
+#   kubectl apply -f deploy/crds/clusterscan.yaml
+#   kubectl apply -f deploy/examples/clusterscan-prod.yaml
+#
+# The controller reconciles every interval (default 15s) and triggers a scan
+# whenever the resource's interval has elapsed since the last scan. Status is
+# written back to the resource so `kubectl get clusterscan` shows live state.
+---
+apiVersion: fleetsweeper.io/v1alpha1
+kind: ClusterScan
+metadata:
+  name: prod-fleet
+  namespace: fleetsweeper
+spec:
+  # Scan every 30 minutes. Use a Go duration string.
+  interval: 30m
+  # Either list contexts directly or reference a group created via
+  # `fleetsweeper group create prod east west`. Group wins when both are set.
+  contexts:
+    - prod-east
+    - prod-west
+    - prod-eu
+  # Emit declarative artefacts after every scan. The output directories are
+  # configured on the server (`--fleetdrift-output`, `--policy-report-output`).
+  emit:
+    fleetDriftReport: true
+    policyReport: true
+    slack: true
+  # Pause without deleting (useful during incident response).
+  paused: false
+---
+apiVersion: fleetsweeper.io/v1alpha1
+kind: ClusterScan
+metadata:
+  name: edge-stores
+  namespace: fleetsweeper
+spec:
+  interval: 6h
+  group: edge
+  # Restrict to a subset of scanners to keep edge-device scan time bounded.
+  scanners:
+    - version
+    - nodehealth
+    - workloadcoverage
+    - certs
+  emit:
+    fleetDriftReport: true

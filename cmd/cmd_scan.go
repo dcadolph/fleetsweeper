@@ -5,15 +5,23 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
+	"github.com/dcadolph/fleetsweeper/internal/fleetdrift"
 	"github.com/dcadolph/fleetsweeper/internal/jsonutil"
+	"github.com/dcadolph/fleetsweeper/internal/policyreport"
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/tracing"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/admission"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/vulnerabilities"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/certs"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/clusterinfo"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/crd"
@@ -26,6 +34,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/namespace"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/networkpolicy"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/nodehealth"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/policyreportingest"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/quota"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/rbac"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/rbacaudit"
@@ -53,6 +62,9 @@ func init() {
 	scanCmd.Flags().String("html-file", "", "Write HTML report to this file path (implies --output html).")
 	scanCmd.Flags().String("group", "", "Scan only clusters in this group (requires --db).")
 	scanCmd.Flags().Float64("outlier-threshold", 3.5, "Outlier detection sensitivity (lower=more sensitive).")
+	scanCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs to (one file per cluster). Empty disables.")
+	scanCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs (one file per cluster). Empty disables.")
+	scanCmd.Flags().String("policy-report-namespace", "fleetsweeper", "Namespace placed on emitted PolicyReports.")
 }
 
 // buildRegistry creates the scanner registry with all available scanners.
@@ -80,6 +92,8 @@ func buildRegistry() *scanner.Registry {
 	r.Register(clusterinfo.Name, clusterinfo.NewScanner())
 	r.Register(admission.Name, admission.NewScanner())
 	r.Register(geo.Name, geo.NewScanner())
+	r.Register(vulnerabilities.Name, vulnerabilities.NewScanner())
+	r.Register(policyreportingest.Name, policyreportingest.NewScanner())
 	return r
 }
 
@@ -95,6 +109,9 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
 	groupName, _ := cmd.Flags().GetString("group")
+	if probe, _ := cmd.Flags().GetBool("probe-registries"); probe {
+		imageaudit.SetProbeRegistries(true)
+	}
 
 	// Resolve contexts from group if specified.
 	if groupName != "" {
@@ -155,6 +172,28 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		OutlierThreshold: outlierThreshold,
 	})
 
+	// Emit FleetDriftReport YAMLs when --fleetdrift-output is set so GitOps
+	// pipelines can pick up the drift state. Best-effort: a write failure logs
+	// and continues so the operator still gets the JSON/HTML output.
+	scanIDForFD := "local-" + time.Now().UTC().Format("20060102T150405Z")
+	if dir, _ := cmd.Flags().GetString("fleetdrift-output"); dir != "" {
+		reports := fleetdrift.ReportsFor(rpt, scanIDForFD, "")
+		if err := fleetdrift.Write(reports, dir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: fleetdrift write failed: %s\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "fleetdrift: wrote %d reports to %s\n", len(reports), dir)
+		}
+	}
+	if dir, _ := cmd.Flags().GetString("policy-report-output"); dir != "" {
+		ns, _ := cmd.Flags().GetString("policy-report-namespace")
+		reports := policyreport.ReportsFor(rpt, scanIDForFD, ns)
+		if err := policyreport.Write(reports, dir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: policyreport write failed: %s\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "policyreport: wrote %d reports to %s\n", len(reports), dir)
+		}
+	}
+
 	outputFormat, _ := cmd.Flags().GetString("output")
 	htmlFile, _ := cmd.Flags().GetString("html-file")
 	if htmlFile != "" {
@@ -213,8 +252,19 @@ func selectScanners(registry *scanner.Registry, names []string) map[string]scann
 }
 
 // runScanners executes all selected scanners against all clients concurrently.
+// A root "fleetsweeper.scan" span wraps the fan-out and one child span per
+// scanner-cluster pair records timing and success. When no OTel exporter is
+// configured the spans drop silently.
 func runScanners(ctx context.Context, clients []*kube.Client, scanners map[string]scanner.Scanner, workers int) map[string]map[string]scanner.Result {
 	log := logutil.UnwrapLogger(ctx)
+
+	ctx, rootSpan := tracing.Tracer().Start(ctx, "fleetsweeper.scan",
+		trace.WithAttributes(
+			attribute.Int("fleetsweeper.cluster_count", len(clients)),
+			attribute.Int("fleetsweeper.scanner_count", len(scanners)),
+		),
+	)
+	defer rootSpan.End()
 
 	var mu sync.Mutex
 	results := make(map[string]map[string]scanner.Result)
@@ -237,14 +287,25 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				res, err := sc.Scan(ctx, c)
+				spanCtx, span := tracing.Tracer().Start(ctx, "fleetsweeper.scanner."+scanName,
+					trace.WithAttributes(
+						attribute.String("fleetsweeper.cluster", c.Context),
+						attribute.String("fleetsweeper.scanner", scanName),
+					),
+				)
+				defer span.End()
+
+				res, err := sc.Scan(spanCtx, c)
 				if err != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, "scanner failed")
 					log.Warn("scanner failed",
 						logutil.ContextField(c.Context),
 						logutil.ErrorField(err),
 					)
 					return
 				}
+				span.SetStatus(codes.Ok, "")
 
 				mu.Lock()
 				results[c.Context][scanName] = res

@@ -1,0 +1,515 @@
+/* Tour overlay and spotlight. Sits above the app, dims the page, cuts
+   a transparent hole around the focused element, and floats an explainer
+   card next to it. */
+
+.tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: auto;
+  background: rgba(5, 8, 14, 0.74);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transition: opacity 240ms ease;
+}
+
+/* The spotlight is a transparent rounded rectangle drawn over the target
+   element. It uses a huge outline color to dim everything outside it, so
+   the actual outline width does the work of the mask. */
+.tour-spotlight {
+  position: fixed;
+  pointer-events: none;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 9999px rgba(5, 8, 14, 0.78),
+    0 0 0 2px rgba(88, 166, 255, 0.55),
+    0 0 30px 4px rgba(88, 166, 255, 0.35);
+  transition: top 380ms cubic-bezier(.4,.0,.2,1),
+              left 380ms cubic-bezier(.4,.0,.2,1),
+              width 380ms cubic-bezier(.4,.0,.2,1),
+              height 380ms cubic-bezier(.4,.0,.2,1);
+}
+
+/* Card variant used for the full-page hero step where there is no target. */
+.tour-overlay.center {
+  background: rgba(5, 8, 14, 0.82);
+}
+
+.tour-card {
+  position: fixed;
+  pointer-events: auto;
+  background: linear-gradient(180deg, #1c2128 0%, #161b22 100%);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  border-radius: 14px;
+  padding: 22px 24px 18px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 24px rgba(88, 166, 255, 0.18);
+  transition: top 380ms cubic-bezier(.4,.0,.2,1),
+              left 380ms cubic-bezier(.4,.0,.2,1),
+              opacity 260ms ease;
+  opacity: 1;
+}
+
+.tour-card.hero {
+  width: 520px;
+  text-align: center;
+  padding: 36px 36px 28px;
+}
+
+.tour-hero-logo {
+  display: block;
+  width: 96px;
+  height: auto;
+  border-radius: 12px;
+  margin: 0 auto 18px;
+  box-shadow: 0 12px 36px rgba(88, 166, 255, 0.22), 0 0 0 1px rgba(88, 166, 255, 0.2);
+}
+
+.tour-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: #e6edf3;
+  line-height: 1.3;
+}
+
+.tour-card.hero h3 {
+  font-size: 26px;
+  margin-bottom: 14px;
+}
+
+.tour-card p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #b8c0c8;
+  margin: 0 0 14px;
+}
+
+.tour-card.hero p {
+  font-size: 16px;
+  color: #c9d1d9;
+}
+
+.tour-card .tour-meta {
+  font-size: 12px;
+  color: #6e7681;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tour-card .tour-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.tour-card .tour-controls-left {
+  display: flex;
+  gap: 6px;
+}
+
+.tour-card .tour-controls-right {
+  display: flex;
+  gap: 6px;
+}
+
+.tour-btn {
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  color: #58a6ff;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 120ms ease;
+}
+
+.tour-btn:hover {
+  background: rgba(88, 166, 255, 0.18);
+  border-color: rgba(88, 166, 255, 0.55);
+}
+
+.tour-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tour-btn.tour-btn-primary {
+  background: #58a6ff;
+  color: #0d1117;
+  border-color: #58a6ff;
+}
+
+.tour-btn.tour-btn-primary:hover {
+  background: #79b8ff;
+  border-color: #79b8ff;
+}
+
+.tour-btn.tour-btn-ghost {
+  background: transparent;
+  border-color: rgba(139, 148, 158, 0.35);
+  color: #8b949e;
+}
+
+.tour-btn.tour-btn-ghost:hover {
+  color: #e6edf3;
+  border-color: rgba(139, 148, 158, 0.6);
+}
+
+/* Progress bar at the bottom of the card. */
+.tour-progress {
+  height: 3px;
+  background: rgba(88, 166, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 14px 0 0;
+}
+
+.tour-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #58a6ff 0%, #79c0ff 100%);
+  width: 0;
+  transition: width 7000ms linear;
+}
+
+.tour-progress-bar.paused {
+  transition: none;
+}
+
+/* Welcome splash, shown only in demo mode on first visit. */
+.welcome-root {
+  position: fixed;
+  inset: 0;
+  z-index: 8500;
+  background: radial-gradient(ellipse at center, #0d1117 0%, #050810 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 40px;
+  text-align: center;
+  animation: welcomeFadeIn 320ms ease;
+}
+
+@keyframes welcomeFadeIn {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+.welcome-logo {
+  width: 140px;
+  height: auto;
+  border-radius: 16px;
+  margin-bottom: 22px;
+  box-shadow: 0 18px 60px rgba(88, 166, 255, 0.18), 0 0 0 1px rgba(88, 166, 255, 0.15);
+  animation: welcomeLogoFloat 6s ease-in-out infinite;
+}
+
+@keyframes welcomeLogoFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+.welcome-badge {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  padding: 6px 14px;
+  border-radius: 999px;
+  margin-bottom: 22px;
+}
+
+.welcome-root h1 {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #e6edf3;
+  margin: 0 0 18px;
+  max-width: 760px;
+}
+
+.welcome-root .welcome-sub {
+  font-size: 18px;
+  color: #b8c0c8;
+  max-width: 640px;
+  line-height: 1.55;
+  margin: 0 0 36px;
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.welcome-btn {
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 13px 24px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 140ms ease;
+  border: 1px solid transparent;
+}
+
+.welcome-btn-primary {
+  background: #58a6ff;
+  color: #0d1117;
+}
+
+.welcome-btn-primary:hover {
+  background: #79b8ff;
+  transform: translateY(-1px);
+}
+
+.welcome-btn-ghost {
+  background: rgba(255, 255, 255, 0.04);
+  color: #e6edf3;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.welcome-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.welcome-stats {
+  display: flex;
+  gap: 28px;
+  margin-top: 44px;
+  color: #6e7681;
+  font-size: 13px;
+}
+
+.welcome-stats strong {
+  color: #e6edf3;
+  font-weight: 600;
+  display: block;
+  font-size: 22px;
+  margin-bottom: 2px;
+}
+
+/* "Take a tour" pill that lives in the top bar after dismissal. */
+.tour-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  color: #58a6ff;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.tour-launcher:hover {
+  background: rgba(88, 166, 255, 0.18);
+}
+
+.tour-launcher::before {
+  content: "▶";
+  font-size: 9px;
+}
+
+/* Live mode toggle. */
+.live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  color: #3fb950;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 120ms ease;
+}
+
+.live-toggle:hover {
+  background: rgba(63, 185, 80, 0.16);
+}
+
+.live-toggle.on {
+  background: rgba(63, 185, 80, 0.18);
+  border-color: rgba(63, 185, 80, 0.55);
+}
+
+.live-toggle .live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3fb950;
+  display: inline-block;
+}
+
+.live-toggle.on .live-dot {
+  animation: livePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+  50%      { box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); }
+}
+
+/* Modal used for "Connect your clusters" instructions and similar. */
+.modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 8800;
+  background: rgba(5, 8, 14, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: welcomeFadeIn 220ms ease;
+}
+
+.modal-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 14px;
+  padding: 28px 30px 24px;
+  width: 640px;
+  max-width: 100%;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  color: #e6edf3;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+.modal-card h3 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.modal-card .modal-sub {
+  color: #8b949e;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.modal-card pre {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12.5px;
+  color: #c9d1d9;
+  overflow-x: auto;
+  margin: 10px 0 18px;
+  line-height: 1.55;
+}
+
+.modal-card .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.modal-card h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+  color: #e6edf3;
+}
+
+/* Add-cluster page. */
+.manage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.manage-card {
+  background: var(--c1);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manage-card .manage-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--tx);
+  word-break: break-all;
+}
+
+.manage-card .manage-status {
+  font-size: 12px;
+  color: var(--t2);
+}
+
+.manage-card .manage-status.scanned {
+  color: var(--ok);
+}
+
+.manage-card .manage-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.manage-card .manage-actions button {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  background: rgba(88, 166, 255, 0.08);
+  color: #58a6ff;
+  transition: all 120ms ease;
+}
+
+.manage-card .manage-actions button:hover {
+  background: rgba(88, 166, 255, 0.18);
+}
+
+.manage-empty {
+  background: var(--c1);
+  border: 1px dashed var(--bd);
+  border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+  color: var(--t2);
+  margin-top: 18px;
+}
+
+.manage-empty button {
+  margin-top: 14px;
+}

@@ -1,0 +1,82 @@
+name: Bug report
+description: A reproducible bug in Fleetsweeper.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please fill in the fields below so a maintainer
+        can reproduce the issue quickly. For security vulnerabilities, do not
+        open a public issue. See SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: Fleetsweeper version
+      description: Output of `fleetsweeper --version`.
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      description: Which part of Fleetsweeper hit the bug.
+      options:
+        - CLI (scan, history, group, location)
+        - Server / dashboard
+        - Helm chart / RBAC
+        - Demo mode
+        - Other (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal command sequence or HTTP request that triggers the bug.
+      placeholder: |
+        1. fleetsweeper scan --all-contexts --db fleet.db
+        2. ...
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include stack traces, error messages, or unexpected output.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: kube-version
+    attributes:
+      label: Kubernetes version(s)
+      description: Output of `kubectl version --short` for the affected cluster(s).
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: linux/amd64, darwin/arm64
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output. `--log-level debug` is especially helpful.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I am using a supported version of Fleetsweeper.
+          required: true

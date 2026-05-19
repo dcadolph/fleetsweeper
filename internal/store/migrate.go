@@ -79,6 +79,93 @@ CREATE TABLE IF NOT EXISTS cluster_locations (
 );
 `,
 	},
+	{
+		Version: 4,
+		SQL: `
+CREATE TABLE IF NOT EXISTS finding_acks (
+    fingerprint   TEXT PRIMARY KEY,
+    cluster       TEXT,
+    scanner       TEXT,
+    title         TEXT,
+    ack_by        TEXT,
+    reason        TEXT,
+    snooze_until  TEXT,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_finding_acks_snooze ON finding_acks(snooze_until);
+`,
+	},
+	{
+		Version: 5,
+		SQL: `
+CREATE TABLE IF NOT EXISTS api_keys (
+    id            TEXT PRIMARY KEY,
+    token_hash    TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL,
+    role          TEXT NOT NULL,
+    cluster_scope TEXT NOT NULL DEFAULT '["*"]',
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT,
+    last_used_at  TEXT,
+    revoked_at    TEXT,
+    created_by    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_token_hash ON api_keys(token_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id           TEXT PRIMARY KEY,
+    timestamp    TEXT NOT NULL,
+    actor_id     TEXT,
+    actor_name   TEXT,
+    actor_role   TEXT,
+    method       TEXT NOT NULL,
+    path         TEXT NOT NULL,
+    status       INTEGER NOT NULL,
+    remote_addr  TEXT,
+    user_agent   TEXT,
+    duration_ms  INTEGER,
+    error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
+`,
+	},
+	{
+		Version: 6,
+		SQL: `
+CREATE TABLE IF NOT EXISTS alerts (
+    fingerprint   TEXT PRIMARY KEY,
+    cluster       TEXT NOT NULL,
+    status        TEXT NOT NULL,
+    alertname     TEXT NOT NULL,
+    severity      TEXT,
+    summary       TEXT,
+    starts_at     TEXT,
+    ends_at       TEXT,
+    received_at   TEXT NOT NULL,
+    labels_json   TEXT NOT NULL,
+    annotations_json TEXT NOT NULL,
+    generator_url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_cluster ON alerts(cluster);
+CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
+CREATE INDEX IF NOT EXISTS idx_alerts_received_at ON alerts(received_at DESC);
+`,
+	},
+	{
+		Version: 7,
+		SQL: `
+CREATE TABLE IF NOT EXISTS cluster_tags (
+    cluster    TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (cluster, key)
+);
+CREATE INDEX IF NOT EXISTS idx_cluster_tags_key_value ON cluster_tags(key, value);
+`,
+	},
 }
 
 // migrate ensures the schema is at the latest version. It is safe to call

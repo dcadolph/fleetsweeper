@@ -8,6 +8,8 @@ on:
 permissions:
   contents: write
   packages: write
+  # Required for keyless cosign signing via Sigstore.
+  id-token: write
 
 jobs:
   goreleaser:
@@ -19,6 +21,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Install syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@v0
+      - name: Install cosign (signer)
+        uses: sigstore/cosign-installer@v3
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -31,3 +37,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COSIGN_EXPERIMENTAL: "1"

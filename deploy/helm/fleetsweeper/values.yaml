@@ -1,0 +1,169 @@
+image:
+  repository: ghcr.io/dcadolph/fleetsweeper
+  tag: ""  # Defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8080
+
+auth:
+  # Required to expose mutating endpoints. Leave empty and set insecure=true
+  # only on private networks where you accept the risk.
+  token: ""
+  insecure: false
+
+cors:
+  # Explicit list of allowed origins. Empty means cross-origin requests are refused.
+  origins: []
+
+scheduler:
+  # Set to a non-zero duration (e.g. 30m, 1h) to run scans automatically.
+  interval: ""
+  allContexts: true
+  contexts: []
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: ""
+
+# Backend selector. Default uses the bundled SQLite file at /data/fleet.db.
+# Set driver=postgres and provide a DSN to run multiple replicas against a
+# shared database. The DSN can be supplied directly or via existingSecret to
+# avoid storing it in plaintext values.
+database:
+  driver: sqlite   # one of sqlite, postgres
+  postgres:
+    # Inline DSN. Leave empty when using existingSecret.
+    dsn: ""
+    existingSecret: ""
+    existingSecretKey: dsn
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1
+    memory: 512Mi
+
+serviceAccount:
+  create: true
+  name: fleetsweeper
+
+rbac:
+  # Set false if you provide RBAC out of band.
+  create: true
+
+crds:
+  # When true the chart installs the ClusterScan and FleetDriftReport CRDs.
+  # Set to false when you manage CRDs separately (the recommended pattern for
+  # multi-tenant or GitOps clusters where CRDs lifecycle independently from
+  # workloads).
+  install: true
+
+controller:
+  # When true the served container runs the ClusterScan controller in addition
+  # to the HTTP API. ClusterScan resources declared in `namespace` are reconciled
+  # and trigger scans on their declared interval.
+  enabled: false
+  # Namespace the controller watches. Empty means all namespaces (requires
+  # cluster-wide RBAC, which is granted by this chart's ClusterRole).
+  namespace: ""
+  # Poll interval; smaller values react faster to ClusterScan edits but list
+  # the CR set more often. The default is fine for fleets up to a few thousand.
+  pollInterval: 15s
+
+leaderElection:
+  # Enables a Kubernetes Lease-based election so only one replica runs the
+  # scheduler, controller, and outbound webhook dispatcher at a time. Required
+  # when replicaCount > 1 against a shared Postgres backend; ignored outside
+  # of in-cluster runs.
+  enabled: true
+  # Lease object name. Defaults to the release name.
+  name: ""
+
+oidc:
+  # Enables OIDC browser login. Bearer-token API auth continues to work
+  # unchanged; OIDC adds a parallel session-cookie path for humans.
+  enabled: false
+  issuerURL: ""
+  clientID: ""
+  redirectURL: ""    # e.g. https://fleetsweeper.example.com/oidc/callback
+  scopes: ["openid", "email", "profile"]
+  adminClaim: ""     # e.g. groups:fleetsweeper-admins
+  operatorClaim: ""
+  defaultRole: viewer
+  sessionLifetime: 8h
+  # Either supply secrets inline (chart creates the Secret) or reference an
+  # existing Secret with keys `client-secret` and `session-secret`.
+  clientSecret: ""
+  sessionSecret: ""
+  existingSecret: ""
+
+admission:
+  # Toggle the ValidatingAdmissionWebhook that compares incoming pods to
+  # the fleet's most recent baseline (digest pinning, runAsNonRoot,
+  # allowPrivilegeEscalation). Defaults to off so an install never starts
+  # rejecting pods without explicit opt-in.
+  enabled: false
+  # advisory: only warn. enforce: deny non-conforming pods.
+  mode: advisory
+  # failurePolicy: Ignore is the safer default; the webhook never causes
+  # admission failures when the fleetsweeper service is unreachable. Set
+  # to Fail in regulated environments where missing the check is worse
+  # than a brief outage.
+  failurePolicy: Ignore
+  timeoutSeconds: 5
+  # CA bundle used by the apiserver to verify the webhook. Leave empty to
+  # rely on cert-manager (or another sidecar) to inject it.
+  caBundle: ""
+  # Selectors restrict which namespaces/pods are evaluated. Empty selects
+  # every namespace except kube-system (set via namespaceSelector to taste).
+  namespaceSelector: {}
+  objectSelector: {}
+  serviceAnnotations: {}
+  webhookAnnotations: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+serviceMonitor:
+  # Requires Prometheus Operator. Off by default so installs without it pass
+  # apiserver validation.
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  honorLabels: false
+  relabelings: []
+  metricRelabelings: []
+
+networkPolicy:
+  # Default-deny ingress/egress with explicit allows for the API port,
+  # cluster DNS, the Kubernetes API server, common HTTPS egress, and
+  # PostgreSQL when database.driver is postgres.
+  enabled: false
+  # Additional namespaces permitted to reach the API (matches by
+  # kubernetes.io/metadata.name on the namespace).
+  allowedFromNamespaces: []
+  # Additional pod selectors permitted to reach the API.
+  allowedFromPods: []

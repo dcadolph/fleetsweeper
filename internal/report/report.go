@@ -55,6 +55,9 @@ type Report struct {
 	// Capacity holds smart capacity analysis per cluster, correlating
 	// utilization, pressure, events, and headroom.
 	Capacity []CapacityAnalysis `json:"capacity,omitempty"`
+	// FleetScore is the single 0-100 indicator of overall fleet health,
+	// suitable as a hero number on a status TV. Populated by Build.
+	FleetScore FleetScore `json:"fleet_score"`
 }
 
 // BuildOptions controls report generation behavior.
@@ -153,6 +156,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Capacity = AnalyzeCapacity(r, opt.Groups)
 	r.Findings = GenerateFindings(r)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
+	r.FleetScore = ComputeFleetScore(r)
 
 	return r
 }

@@ -1,0 +1,49 @@
+# Example fleetsweeper serve config file. Load with:
+#
+#   fleetsweeper serve --config /etc/fleetsweeper/serve.yaml
+#
+# Every key maps to the same-named CLI flag on `fleetsweeper serve --help`.
+# CLI flags supplied on the command line override values in this file, so
+# operators can iterate on flags without editing the file.
+
+# HTTP transport.
+addr: ":8080"
+admin-addr: "127.0.0.1:8081"
+
+# Persistence. Use a postgres:// URL plus db-driver=postgres for HA.
+db: "/data/fleet.db"
+db-driver: "sqlite"
+
+# Authentication. Either a bootstrap token here (treated as admin) or rely
+# on API keys minted via `fleetsweeper apikey create`.
+auth-token: "change-me-to-a-long-random-string"
+insecure: false
+
+# CORS allowlist. Empty refuses cross-origin requests.
+cors-origin:
+  - "https://fleetsweeper.example.com"
+
+# Scheduled scanner.
+scan-interval: "30m"
+all-contexts: true
+workers: 8
+
+# Controller (declarative scans via ClusterScan CRs).
+controller: true
+controller-namespace: ""
+controller-poll: "15s"
+
+# Leader election. Defaults to true in-cluster.
+leader-election: true
+leader-name: "fleetsweeper"
+
+# Integrations.
+slack-webhook-url: ""
+webhook-secret: ""
+webhook-config: ""
+seal-key: ""
+fleetdrift-output: "/data/fleetdrift"
+policy-report-output: "/data/policyreports"
+policy-report-namespace: "fleetsweeper"
+cost-csv: ""
+demo: false

@@ -13,11 +13,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
+	"github.com/dcadolph/fleetsweeper/internal/tracing"
 )
 
 //go:embed static
@@ -68,6 +73,60 @@ type Server struct {
 	scansOK atomic.Int64
 	// scansErr counts failed scan completions since startup.
 	scansErr atomic.Int64
+	// lastScanDuration holds the most recent scan duration in nanoseconds for
+	// the /metrics gauge.
+	lastScanDuration atomic.Int64
+	// alertsReceivedAM is the count of AlertManager alerts persisted since startup.
+	alertsReceivedAM atomic.Int64
+	// alertsReceivedFalco is the count of Falco events persisted since startup.
+	alertsReceivedFalco atomic.Int64
+	// metricsCache memoises the rebuilt report behind /metrics so two scrapes
+	// within a TTL window do not trigger duplicate report builds.
+	metricsCache metricsCache
+	// slackWebhookURL, when non-empty, receives new critical findings as
+	// formatted Slack messages.
+	slackWebhookURL string
+	// slackNotifiedKeys remembers fingerprints of findings already sent to
+	// Slack so a repeated scan does not re-notify on unchanged criticals.
+	slackNotifiedKeys map[string]time.Time
+	// slackMu serializes mutations of slackNotifiedKeys.
+	slackMu sync.Mutex
+	// fleetDriftOutputDir, when non-empty, is the local directory the server
+	// writes FleetDriftReport YAMLs to after every scan.
+	fleetDriftOutputDir string
+	// policyReportOutputDir, when non-empty, is the local directory the server
+	// writes wgpolicyk8s.io PolicyReport YAMLs to after every scan.
+	policyReportOutputDir string
+	// policyReportNamespace places emitted PolicyReports.
+	policyReportNamespace string
+	// costCSVPath is the local CSV file mapping clusters to cost-per-period
+	// figures. Empty disables cost correlation.
+	costCSVPath string
+	// otel holds OTel metric instruments registered against the global meter.
+	otel otelInitField
+	// webhookConfigPath is the operator-supplied path to the outbound
+	// webhook YAML. Empty disables outbound webhook dispatch.
+	webhookConfigPath string
+	// webhookDispatcher is the parsed subscriber list ready to fire.
+	webhookDispatcher *webhookDispatcher
+	// webhookSecret is the HMAC-SHA256 shared secret for inbound scan
+	// triggers. Empty disables the inbound endpoint.
+	webhookSecret string
+	// sealKey is the HMAC-SHA256 secret used to sign saved scan reports.
+	sealKey string
+	// events fans scan-complete and key-revoke events to SSE subscribers.
+	events *eventBus
+	// bg tracks fire-and-forget background goroutines so Close can wait
+	// for them. Tests rely on this to avoid racing temp-dir cleanup
+	// against in-flight database writes.
+	bg sync.WaitGroup
+	// oidc holds the OIDC runtime when --oidc-issuer-url is set. Nil
+	// when OIDC is not configured; the auth middleware falls back to
+	// bearer-only authentication in that case.
+	oidc *oidcRuntime
+	// rateLimiter throttles requests per actor (or per remote address).
+	// Nil disables limiting.
+	rateLimiter *rateLimiter
 }
 
 // Config holds server configuration.
@@ -94,6 +153,44 @@ type Config struct {
 	// globe can be previewed without any real clusters or scans. Other
 	// endpoints behave normally; demo mode is read-only and additive.
 	Demo bool
+	// SlackWebhookURL, when non-empty, is the incoming-webhook URL that
+	// receives new critical findings.
+	SlackWebhookURL string
+	// FleetDriftOutputDir, when non-empty, is a local directory the server
+	// writes FleetDriftReport YAMLs into after every scan. One file per
+	// cluster, overwritten in place so the directory tracks the latest scan.
+	FleetDriftOutputDir string
+	// PolicyReportOutputDir, when non-empty, is a local directory the server
+	// writes wgpolicyk8s.io PolicyReport YAMLs to after every scan.
+	PolicyReportOutputDir string
+	// PolicyReportNamespace is the namespace placed on emitted PolicyReports.
+	// Defaults to "fleetsweeper" when empty.
+	PolicyReportNamespace string
+	// CostCSVPath, when non-empty, points at a CSV mapping clusters to costs.
+	// Loaded once at startup and refreshed on a periodic ticker so dashboard
+	// cost correlation reflects current billing without a restart.
+	CostCSVPath string
+	// WebhookConfigPath, when non-empty, points at a YAML file of outbound
+	// HTTP subscribers. See internal/webhooks for the schema.
+	WebhookConfigPath string
+	// WebhookSecret, when non-empty, is the HMAC-SHA256 shared secret an
+	// inbound webhook caller must use to authenticate scan-trigger calls.
+	WebhookSecret string
+	// SealKey, when non-empty, is the HMAC-SHA256 secret used to sign every
+	// saved scan report. Sealed scans can be verified later with
+	// `fleetsweeper verify`.
+	SealKey string
+	// OIDC configures browser SSO. When zero-valued the server runs in
+	// bearer-only mode.
+	OIDC OIDCConfig
+	// ReadRPM is the per-actor budget for GET/HEAD/OPTIONS requests.
+	// Zero disables read limiting; recommended default is 600 (10 per
+	// second per actor).
+	ReadRPM int
+	// WriteRPM is the per-actor budget for mutating requests. Zero
+	// disables write limiting; recommended default is 60 (one per
+	// second per actor).
+	WriteRPM int
 }
 
 // New creates a Server. Panics if store, registry, or log is nil.
@@ -113,21 +210,43 @@ func New(cfg Config) *Server {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		store:          cfg.Store,
-		registry:       cfg.Registry,
-		log:            cfg.Log,
-		mux:            http.NewServeMux(),
-		kubeconfigPath: cfg.KubeconfigPath,
-		workers:        cfg.Workers,
-		authToken:      cfg.AuthToken,
-		insecure:       cfg.Insecure,
-		corsOrigins:    cfg.CORSOrigins,
-		demo:           cfg.Demo,
-		ctx:            ctx,
-		cancel:         cancel,
+		store:               cfg.Store,
+		registry:            cfg.Registry,
+		log:                 cfg.Log,
+		mux:                 http.NewServeMux(),
+		kubeconfigPath:      cfg.KubeconfigPath,
+		workers:             cfg.Workers,
+		authToken:           cfg.AuthToken,
+		insecure:            cfg.Insecure,
+		corsOrigins:         cfg.CORSOrigins,
+		demo:                cfg.Demo,
+		ctx:                 ctx,
+		cancel:              cancel,
+		slackWebhookURL:       cfg.SlackWebhookURL,
+		slackNotifiedKeys:     map[string]time.Time{},
+		fleetDriftOutputDir:   cfg.FleetDriftOutputDir,
+		policyReportOutputDir: cfg.PolicyReportOutputDir,
+		policyReportNamespace: cfg.PolicyReportNamespace,
+		costCSVPath:           cfg.CostCSVPath,
+	}
+
+	s.setupWebhooks(cfg.WebhookConfigPath)
+	s.webhookSecret = cfg.WebhookSecret
+	s.sealKey = cfg.SealKey
+	s.events = newEventBus()
+
+	if rt, err := initOIDC(s.ctx, cfg.OIDC, s.log); err != nil {
+		s.log.Warn("oidc init failed; continuing with bearer-only auth", zap.Error(err))
+	} else {
+		s.oidc = rt
+	}
+
+	if cfg.ReadRPM > 0 || cfg.WriteRPM > 0 {
+		s.rateLimiter = newRateLimiter(cfg.ReadRPM, cfg.WriteRPM)
 	}
 
 	s.routes()
+	s.initOTelMetricsOrLog()
 	return s
 }
 
@@ -137,9 +256,15 @@ func (s *Server) routes() {
 	api.HandleFunc("GET /scans", s.handleListScans)
 	api.HandleFunc("GET /scans/{id}", s.handleGetScan)
 	api.HandleFunc("GET /scans/{id}/report", s.handleGetScanReport)
+	api.HandleFunc("GET /scans/{id}/seal", s.handleGetScanSeal)
 	api.HandleFunc("POST /scans", s.handleTriggerScan)
 	api.HandleFunc("GET /clusters", s.handleListClusters)
 	api.HandleFunc("GET /clusters/{name}/detail", s.handleGetClusterDetail)
+	api.HandleFunc("GET /clusters/{name}/timeline", s.handleClusterTimeline)
+	api.HandleFunc("GET /clusters/{name}/tags", s.handleListClusterTags)
+	api.HandleFunc("PUT /clusters/{name}/tags/{key}", s.handleSetClusterTag)
+	api.HandleFunc("DELETE /clusters/{name}/tags/{key}", s.handleDeleteClusterTag)
+	api.HandleFunc("GET /tags", s.handleListAllTags)
 	api.HandleFunc("GET /groups", s.handleListGroups)
 	api.HandleFunc("POST /groups", s.handleCreateGroup)
 	api.HandleFunc("DELETE /groups/{name}", s.handleDeleteGroup)
@@ -147,17 +272,46 @@ func (s *Server) routes() {
 	api.HandleFunc("GET /trends/{cluster}", s.handleGetClusterTrends)
 	api.HandleFunc("GET /outliers", s.handleGetOutliers)
 	api.HandleFunc("GET /capacity", s.handleGetCapacity)
+	api.HandleFunc("GET /forecast/fleet-score", s.handleGetFleetScoreForecast)
+	api.HandleFunc("GET /forecast/clusters", s.handleGetClusterForecasts)
+	api.HandleFunc("GET /cost", s.handleGetCost)
+	api.HandleFunc("GET /integrations", s.handleGetIntegrations)
+	api.HandleFunc("GET /acks", s.handleListAcks)
+	api.HandleFunc("POST /findings/{fingerprint}/ack", s.handleCreateAck)
+	api.HandleFunc("DELETE /findings/{fingerprint}/ack", s.handleDeleteAck)
+	api.HandleFunc("POST /alerts/{fingerprint}/ack", s.handleAckAlert)
+	api.HandleFunc("POST /webhooks/scan-trigger", s.handleWebhookScanTrigger)
+	api.HandleFunc("POST /webhooks/alertmanager", s.handleAlertManagerWebhook)
+	api.HandleFunc("POST /webhooks/falco", s.handleFalcoWebhook)
+	api.HandleFunc("GET /alerts", s.handleListAlerts)
 	api.HandleFunc("GET /geo", s.handleGetGeo)
+	api.HandleFunc("GET /contexts", s.handleListContexts)
 	api.HandleFunc("GET /locations", s.handleListLocations)
 	api.HandleFunc("PUT /locations/{cluster}", s.handleSetLocation)
 	api.HandleFunc("DELETE /locations/{cluster}", s.handleDeleteLocation)
+	api.HandleFunc("GET /admin/keys", s.handleAdminListKeys)
+	api.HandleFunc("POST /admin/keys", s.handleAdminCreateKey)
+	api.HandleFunc("DELETE /admin/keys/{id}", s.handleAdminRevokeKey)
+	api.HandleFunc("GET /admin/audit", s.handleAdminListAudit)
+	api.HandleFunc("GET /admin/whoami", s.handleAdminWhoami)
+	api.HandleFunc("GET /admin/system", s.handleAdminSystem)
+	api.HandleFunc("GET /events", s.handleEventsStream)
 
-	authed := bearerAuthMiddleware(s.authToken, s.insecure, api)
+	audited := s.auditMiddleware(api)
+	limited := s.rateLimitMiddleware(audited)
+	authed := s.authMiddleware(limited)
 	withCORS := corsMiddleware(s.corsOrigins, authed)
 	s.mux.Handle("/api/", http.StripPrefix("/api", jsonMiddleware(withCORS)))
 
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
 	s.mux.HandleFunc("/readyz", s.handleReadyz)
+	s.mux.HandleFunc("/openapi.yaml", s.handleOpenAPI)
+	s.mux.HandleFunc("/oidc/login", s.handleOIDCLogin)
+	s.mux.HandleFunc("/oidc/callback", s.handleOIDCCallback)
+	s.mux.HandleFunc("/oidc/logout", s.handleOIDCLogout)
+	s.mux.HandleFunc("/cinematic", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/cinematic.html", http.StatusFound)
+	})
 
 	staticContent, err := fs.Sub(staticFS, "static")
 	if err != nil {
@@ -245,7 +399,8 @@ func (s *Server) ListenAndServeAdmin(addr string) error {
 	return err
 }
 
-// Shutdown gracefully stops both HTTP servers and cancels the server context.
+// Shutdown gracefully stops both HTTP servers, cancels the server context,
+// and waits for fire-and-forget background goroutines to drain.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.cancel()
 	var firstErr error
@@ -259,7 +414,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			firstErr = err
 		}
 	}
+	s.bg.Wait()
 	return firstErr
+}
+
+// Close is a convenience wrapper that cancels the server context and waits
+// for background goroutines to drain. Used by tests and offline tooling.
+func (s *Server) Close() {
+	s.cancel()
+	s.bg.Wait()
 }
 
 // StartScheduler begins periodic scanning at the given interval. It runs until
@@ -298,6 +461,7 @@ func (s *Server) runScheduledScan(ctx context.Context, contexts []string) {
 	defer s.scanMu.Unlock()
 
 	s.log.Info("scheduled scan starting", zap.Int("contexts", len(contexts)))
+	started := time.Now()
 
 	clients := kube.ConnectAll(ctx, s.kubeconfigPath, contexts, s.workers)
 	if len(clients) == 0 {
@@ -315,15 +479,39 @@ func (s *Server) runScheduledScan(ctx context.Context, contexts []string) {
 	scanID, err := s.store.SaveScan(ctx, clusterNames, results)
 	if err != nil {
 		s.scansErr.Add(1)
+		s.recordScanCompletion(false)
 		s.log.Error("scheduled scan: save failed", zap.Error(err))
 		return
 	}
 	s.scansOK.Add(1)
+	s.recordScanDuration(time.Since(started))
+	s.recordScanCompletion(true)
 	s.log.Info("scheduled scan complete", zap.String("scan_id", scanID))
+	rpt := report.Build(clusterNames, results)
+	s.notifySlackForReport(ctx, rpt)
+	s.writeFleetDriftIfConfigured(rpt, scanID)
+	s.writePolicyReportIfConfigured(rpt, scanID)
+	s.dispatchWebhooksIfConfigured(ctx, rpt)
+	s.PublishEvent(EventScanComplete, map[string]any{
+		"scan_id":  scanID,
+		"clusters": len(clusterNames),
+		"score":    rpt.FleetScore.Score,
+		"grade":    rpt.FleetScore.Grade,
+	})
 }
 
-// runScanners executes all scanners against all clients concurrently.
+// runScanners executes all scanners against all clients concurrently. Each
+// scanner-cluster pair gets a child span under the caller's parent so OTel
+// traces show the per-scanner fan-out, including which scanners failed.
 func runScanners(ctx context.Context, clients []*kube.Client, scanners map[string]scanner.Scanner, workers int, log *zap.Logger) map[string]map[string]scanner.Result {
+	ctx, rootSpan := tracing.Tracer().Start(ctx, "fleetsweeper.scan",
+		trace.WithAttributes(
+			attribute.Int("fleetsweeper.cluster_count", len(clients)),
+			attribute.Int("fleetsweeper.scanner_count", len(scanners)),
+		),
+	)
+	defer rootSpan.End()
+
 	var mu sync.Mutex
 	results := make(map[string]map[string]scanner.Result)
 	for _, c := range clients {
@@ -345,11 +533,22 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				res, err := s.Scan(ctx, c)
+				spanCtx, span := tracing.Tracer().Start(ctx, "fleetsweeper.scanner."+scanName,
+					trace.WithAttributes(
+						attribute.String("fleetsweeper.cluster", c.Context),
+						attribute.String("fleetsweeper.scanner", scanName),
+					),
+				)
+				defer span.End()
+
+				res, err := s.Scan(spanCtx, c)
 				if err != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, "scanner failed")
 					log.Warn("scanner failed", zap.String("context", c.Context), zap.Error(err))
 					return
 				}
+				span.SetStatus(codes.Ok, "")
 
 				mu.Lock()
 				results[c.Context][scanName] = res
@@ -362,16 +561,11 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 	return results
 }
 
-// handleMetrics returns a minimal Prometheus exposition with the counters the
-// server maintains internally. A full client_golang integration was deferred
-// to keep distribution lean; this still gives operators something to scrape.
-func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+// handleMetrics emits the full Prometheus exposition. The implementation
+// lives in metrics.go so this file stays focused on transport concerns.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	scansOk, scansErr := s.scanCounts()
-	fmt.Fprintf(w, "# HELP fleetsweeper_scans_total Total scans executed by result.\n")
-	fmt.Fprintf(w, "# TYPE fleetsweeper_scans_total counter\n")
-	fmt.Fprintf(w, "fleetsweeper_scans_total{result=\"success\"} %d\n", scansOk)
-	fmt.Fprintf(w, "fleetsweeper_scans_total{result=\"error\"} %d\n", scansErr)
+	s.writeMetrics(r.Context(), w)
 }
 
 // scanCounts returns the success and error counts since startup.
