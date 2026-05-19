@@ -62,7 +62,7 @@ func TestEventsStreamSendsHello(t *testing.T) {
 	// Wait briefly for the hello to land, then cancel to release the handler.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.body.String(), "stream.hello") {
+		if strings.Contains(rec.Body(), "stream.hello") {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -73,7 +73,7 @@ func TestEventsStreamSendsHello(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("SSE handler did not exit after cancel")
 	}
-	if !strings.Contains(rec.body.String(), "stream.hello") {
-		t.Fatalf("missing hello event in body: %q", rec.body.String())
+	if got := rec.Body(); !strings.Contains(got, "stream.hello") {
+		t.Fatalf("missing hello event in body: %q", got)
 	}
 }

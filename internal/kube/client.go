@@ -1,3 +1,6 @@
+// Package kube wraps client-go and provides Fleetsweeper's connection
+// helpers for multi-cluster scans, including QPS/burst tuning, a user
+// agent for apiserver audit trails, and concurrent ConnectAll fan-out.
 package kube
 
 import (

@@ -17,6 +17,7 @@ import (
 // the scan is still queryable.
 func TestBackupRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
+	defer lockRootCmd(t)()
 	dir := t.TempDir()
 	original := filepath.Join(dir, "fleet.db")
 	snapshot := filepath.Join(dir, "snapshot.db")
@@ -78,6 +79,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 // DSNs with a clear message rather than trying to misbehave. Sequential
 // (no t.Parallel) because rootCmd flag state is shared across tests.
 func TestBackupRejectsPostgresDSN(t *testing.T) {
+	defer lockRootCmd(t)()
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)

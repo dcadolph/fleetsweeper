@@ -3,7 +3,7 @@
 The drift report tells you what's broken; `fleetsweeper recommend`
 tells you what to do about it, ranked by leverage. A remediation that
 would fix the same problem on ten clusters at once outranks the same
-remediation applied to a single cluster — that's where operator
+remediation applied to a single cluster. That's where operator
 effort goes furthest.
 
 ## Usage
@@ -24,12 +24,12 @@ fleetsweeper recommend --json --limit=10 --db=/var/lib/fleetsweeper/data.db
 ```
 1. [WARNING] Pods missing resource limits
    Scanner:  workload-security
-   Leverage: 7 cluster(s) — prod-east, prod-west, staging, dev-1, dev-2 (+2 more)
+   Leverage: 7 cluster(s). Prod-east, prod-west, staging, dev-1, dev-2 (+2 more)
    Run:      kubectl get deploy -A -o json | jq '.items[] | select(.spec.template.spec.containers[] | .resources.limits | not) | .metadata.name'
 
 2. [CRITICAL] Default ServiceAccount in use
    Scanner:  workload-security
-   Leverage: 3 cluster(s) — payments, billing, orders
+   Leverage: 3 cluster(s). Payments, billing, orders
    Apply:
      apiVersion: v1
      kind: ServiceAccount
@@ -39,7 +39,7 @@ fleetsweeper recommend --json --limit=10 --db=/var/lib/fleetsweeper/data.db
 
 3. [WARNING] Container image not digest-pinned
    Scanner:  image-audit
-   Leverage: 2 cluster(s) — prod-east, prod-west
+   Leverage: 2 cluster(s). Prod-east, prod-west
    Runbook:  https://runbooks.example/digest-pinning
 ```
 
@@ -52,7 +52,7 @@ critical = 3, warning = 2, info = 1
 
 Identical remediations across clusters are collapsed by
 `(scanner, title)`. Severity within a group is promoted to the
-highest seen — a remediation that's "warning on staging, critical on
+highest seen. A remediation that's "warning on staging, critical on
 prod" is presented as critical.
 
 ## What gets included
@@ -64,12 +64,12 @@ excluded from `recommend` (they still show up in the dashboard and
 
 A scanner adds a `Remediation` by attaching one or more of:
 
-- `Command` — a kubectl/CLI invocation, parameterised with the actual
+- `Command`. A kubectl/CLI invocation, parameterised with the actual
   offending resource names so the operator doesn't have to
   re-discover them.
-- `YAML` — a baseline manifest snippet (default-deny NetworkPolicy,
+- `YAML`. A baseline manifest snippet (default-deny NetworkPolicy,
   PSS-restricted ResourceQuota, etc.) ready to `kubectl apply -f`.
-- `RunbookURL` — a link to an internal runbook your team has wired up.
+- `RunbookURL`. A link to an internal runbook your team has wired up.
 
 ## CI usage
 

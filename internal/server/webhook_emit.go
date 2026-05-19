@@ -39,13 +39,6 @@ func (s *Server) dispatchWebhooksIfConfigured(ctx context.Context, r *report.Rep
 	s.webhookDispatcher.Dispatch(ctx, findings)
 }
 
-// webhookConfigPathOrEmpty returns the configured webhook config path, used
-// by the integrations handler for status reporting. Indirected through this
-// helper so the field can change name without touching the handler.
-func (s *Server) webhookConfigPathOrEmpty() string {
-	return s.webhookConfigPath
-}
-
 // setupWebhooks loads the webhook config and constructs the dispatcher. A
 // missing path is not an error; a malformed config is logged and ignored so
 // startup never blocks on a subscriber misconfiguration.

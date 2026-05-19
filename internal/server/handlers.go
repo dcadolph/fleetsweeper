@@ -667,9 +667,10 @@ func (s *Server) handleListContexts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// fault is a sentinel error returned by handlers that have already logged the
-// underlying cause. Kept for future use by callers that need to differentiate
-// transport errors from policy errors. Not currently emitted directly.
-var fault = errors.New("internal fault")
+// errFault is a sentinel error returned by handlers that have already
+// logged the underlying cause. Kept for future use by callers that need
+// to differentiate transport errors from policy errors. Not currently
+// emitted directly.
+var errFault = errors.New("internal fault")
 
-var _ = fault
+var _ = errFault

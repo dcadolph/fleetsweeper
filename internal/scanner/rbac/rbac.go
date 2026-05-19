@@ -1,3 +1,4 @@
+// Package rbac scans the cluster's RBAC graph (ClusterRoles, RoleBindings, ServiceAccounts) and flags wildcard permissions and over-broad bindings.
 package rbac
 
 import (

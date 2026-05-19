@@ -1,3 +1,6 @@
+// Package events scans the apiserver's recent Event stream and
+// aggregates per-namespace warning counts, surfacing clusters whose
+// signal-to-noise has degraded.
 package events
 
 import (

@@ -17,7 +17,7 @@ fleetsweeper doctor \
 Output is human-friendly by default:
 
 ```text
-fleetsweeper doctor — 2026-05-17T15:00:00Z
+fleetsweeper doctor. 2026-05-17T15:00:00Z
 
   status   check          detail
   ------   -----          ------
@@ -52,8 +52,8 @@ For monitoring, pass `--json`:
 
 ## Exit codes
 
-- `0` — every check returned `ok` or `skip`.
-- `1` — at least one `fail`. The error message is `doctor reported failures`.
+- `0`. Every check returned `ok` or `skip`.
+- `1`. At least one `fail`. The error message is `doctor reported failures`.
 
 `warn` does not influence the exit code; it surfaces concerns without
 breaking pipelines.

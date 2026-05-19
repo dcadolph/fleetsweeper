@@ -5,7 +5,7 @@ baseline of fractions (digest-pinned, non-root, named-SA, etc.). That
 baseline changes every time a new scan lands. For most teams that
 self-tuning behaviour is the feature: as the fleet improves, the bar
 moves with it. For teams running `mode: enforce`, a sudden drop in any
-fraction is a footgun — every new pod silently passes a stricter check
+fraction is a footgun. Every new pod silently passes a stricter check
 on Monday than it did on Friday, or vice versa.
 
 The `fleetsweeper baseline` subcommand exists so you can pin the
@@ -30,7 +30,7 @@ fleetsweeper baseline export --db=/var/lib/fleetsweeper/data.db \
 
 Commit `baseline/fleet.yaml` to the same repo that owns your Helm
 values. Pair the file with the
-[`admission.mode`](admission-webhook.md) you intend to roll out — a
+[`admission.mode`](admission-webhook.md) you intend to roll out. A
 pinned baseline only matters when the webhook is running in enforce.
 
 ## Diff in CI

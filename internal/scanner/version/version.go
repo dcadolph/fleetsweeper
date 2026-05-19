@@ -1,3 +1,4 @@
+// Package version reports the Kubernetes server version from each cluster and detects fleet-wide skew.
 package version
 
 import (

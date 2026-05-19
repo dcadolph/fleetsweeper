@@ -39,6 +39,15 @@ func (r *flushRecorder) Write(p []byte) (int, error) {
 // Flush is a no-op required to satisfy http.Flusher.
 func (r *flushRecorder) Flush() {}
 
+// Body returns the recorded bytes under a lock. Tests use this rather
+// than reading r.body directly, which races the handler goroutine
+// when -race is on.
+func (r *flushRecorder) Body() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.String()
+}
+
 // requestWithDeadline builds a request whose context auto-cancels after d
 // so SSE handlers do not hang the test.
 func requestWithDeadline(method, target string, d time.Duration) *http.Request {

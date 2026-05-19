@@ -1,3 +1,4 @@
+// Package security audits security-affecting workload configuration: PodSecurityStandards labels, default-deny NetworkPolicy presence, and similar fleet-wide hardening signals.
 package security
 
 import (

@@ -3,7 +3,7 @@
 Most Kubernetes posture tools start from a written rulebook: a YAML of
 checks, or a community ruleset like CIS or NSA hardening. They run that
 rulebook against each cluster and report violations. This works well when
-you know what you want — but it leaves a gap.
+you know what you want. But it leaves a gap.
 
 The gap is *the rule you never wrote*.
 
@@ -30,7 +30,7 @@ the outliers.
 ## What it cannot do
 
 - **Flag the right behaviour when the whole fleet is wrong.** If every
-  cluster uses `:latest` tags, no clusters are outliers — and no findings
+  cluster uses `:latest` tags, no clusters are outliers. And no findings
   fire. For that you still want a rulebook.
 - **Compare a single cluster to itself.** With only one cluster there is no
   fleet baseline; only trends across time are available.
@@ -49,5 +49,5 @@ computes the mode and flags clusters that disagree with the plurality.
 
 For trends across time it fits an ordinary least squares line through the
 recent score history and only surfaces a "regressing" or "improving"
-verdict when the t-statistic exceeds 2.0 — so a noisy two-scan window does
+verdict when the t-statistic exceeds 2.0. So a noisy two-scan window does
 not produce false alarms.

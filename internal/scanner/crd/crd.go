@@ -1,3 +1,5 @@
+// Package crd enumerates the CustomResourceDefinitions installed on a
+// cluster and surfaces per-cluster CRD divergence as a scanner result.
 package crd
 
 import (

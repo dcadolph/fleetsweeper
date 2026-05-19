@@ -1,7 +1,7 @@
 # `fleetsweeper whatchanged`
 
 After a deploy or an incident, the most useful question is rarely
-"what does the fleet look like" — it's "what changed since the last
+"what does the fleet look like". It's "what changed since the last
 scan." `whatchanged` answers exactly that, comparing two scans and
 emitting only the deltas.
 
@@ -28,13 +28,13 @@ Comparing 01J3ABCD... -> 01J3WXYZ...
 Fleet score: 88 -> 73 (-15)
 
 New findings (4):
-  [CRITICAL] prod-east — 5 nodes report NotReady
-  [CRITICAL] prod-east — admission webhook unreachable from 2 contexts
-  [WARNING]  prod-west — kube-apiserver memory >85%
-  [WARNING]  staging — 3 deployments without resource limits
+  [CRITICAL] prod-east. 5 nodes report NotReady
+  [CRITICAL] prod-east. Admission webhook unreachable from 2 contexts
+  [WARNING]  prod-west. Kube-apiserver memory >85%
+  [WARNING]  staging. 3 deployments without resource limits
 
 Cleared findings (1):
-  [WARNING] staging — image audit: 12 containers without digest pin
+  [WARNING] staging. Image audit: 12 containers without digest pin
 
 Cluster score changes:
   prod-east                       91 (A) ->  60 (D)  -31

@@ -54,8 +54,8 @@ not.
 
 Two gates:
 
-- **`fail-on-new-critical`** — any new critical finding fails the job.
-- **`fail-on-score-drop`** — the fleet score regressing by more than
+- **`fail-on-new-critical`**. Any new critical finding fails the job.
+- **`fail-on-score-drop`**. The fleet score regressing by more than
   N points fails the job. Set to 0 to disable.
 
 ## PR comment with top recommendations
@@ -77,8 +77,8 @@ posts them as a PR comment via `GITHUB_TOKEN`. Requires
 
 The repo ships two example workflows under `.github/workflows/`:
 
-- **`fleetsweeper-scan.example.yml`** — periodic fleet sweep on a cron.
-- **`fleetsweeper-pr.example.yml`** — combined drift + whatchanged +
+- **`fleetsweeper-scan.example.yml`**. Periodic fleet sweep on a cron.
+- **`fleetsweeper-pr.example.yml`**. Combined drift + whatchanged +
   recommend on every pull request.
 
 Rename either file (drop the `.example`) into your own repo and

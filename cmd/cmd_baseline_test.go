@@ -55,6 +55,7 @@ func seedBaselineStore(t *testing.T, dbPath string) {
 // against a temp database, returning captured stdout.
 func runBaseline(t *testing.T, dbPath string, args ...string) (string, error) {
 	t.Helper()
+	defer lockRootCmd(t)()
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)

@@ -14,6 +14,7 @@ import (
 // proxy for the cross-backend path. It exercises every copy function
 // without needing a Postgres instance.
 func TestMigrateSQLiteToSQLite(t *testing.T) {
+	defer lockRootCmd(t)()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.db")
 	dst := filepath.Join(dir, "dst.db")

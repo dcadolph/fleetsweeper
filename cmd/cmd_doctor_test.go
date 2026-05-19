@@ -15,6 +15,7 @@ import (
 // Doctor tests share the package-level rootCmd, which cobra parses
 // mutably. They run sequentially to avoid flag-state races.
 func TestDoctorJSONReport(t *testing.T) {
+	defer lockRootCmd(t)()
 	db := filepath.Join(t.TempDir(), "doctor.db")
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
@@ -49,6 +50,7 @@ func TestDoctorJSONReport(t *testing.T) {
 
 // TestDoctorHumanOutput verifies the default text mode renders a table.
 func TestDoctorHumanOutput(t *testing.T) {
+	defer lockRootCmd(t)()
 	db := filepath.Join(t.TempDir(), "doctor.db")
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)

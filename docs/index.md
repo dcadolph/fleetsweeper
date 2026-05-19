@@ -41,9 +41,9 @@ Then visit the dashboard at port 8080 of the fleetsweeper service.
 
 ## Where to go next
 
-- [Getting Started](getting-started.md) — first scan in five minutes.
-- [Operator overview](operator/overview.md) — declarative scans with
+- [Getting Started](getting-started.md). First scan in five minutes.
+- [Operator overview](operator/overview.md). Declarative scans with
   ClusterScan CRs and a reconciler.
-- [RBAC and API keys](operator/rbac.md) — multi-tenant access control.
-- [The fleet is the policy](concepts/fleet-is-policy.md) — why norm-based
+- [RBAC and API keys](operator/rbac.md). Multi-tenant access control.
+- [The fleet is the policy](concepts/fleet-is-policy.md). Why norm-based
   detection beats rule authoring at scale.

@@ -11,17 +11,17 @@ folds them into the Fleetsweeper findings stream.
 A single dashboard can then summarise every policy tool's verdict on
 the fleet:
 
-- **Kyverno** — its `PolicyReport` results land under `source=kyverno`.
-- **Gatekeeper** — when configured with the
+- **Kyverno**. Its `PolicyReport` results land under `source=kyverno`.
+- **Gatekeeper**. When configured with the
   `gatekeeper-policy-manager` PolicyReport publisher, results land
   under `source=gatekeeper`.
-- **Trivy** — `aquasecurity.github.io` and `wgpolicyk8s.io` reports
+- **Trivy**. `aquasecurity.github.io` and `wgpolicyk8s.io` reports
   are both supported (the existing Trivy scanner reads the former,
   this scanner picks up the latter when Trivy is configured to emit
   PolicyReports).
-- **kube-bench** — when run with a PolicyReport publisher,
+- **kube-bench**. When run with a PolicyReport publisher,
   benchmarks roll up under `source=kubebench`.
-- Anything else that publishes wgpolicyk8s.io PolicyReports — the
+- Anything else that publishes wgpolicyk8s.io PolicyReports. The
   scanner is source-agnostic.
 
 ## What's emitted
@@ -61,7 +61,7 @@ Consumers can use that flag to distinguish "no policy tooling in
 this cluster" from "policy tooling installed and clean."
 
 If the CRDs are registered but the service account can't read them,
-the scanner reports `available=true` with zero counts — the missing
+the scanner reports `available=true` with zero counts. The missing
 permission is a configuration issue worth surfacing rather than
 silently failing.
 

@@ -8,15 +8,15 @@ type.
 For continuous metrics (CRD count, certificate days remaining, pod
 restart rate), fleetsweeper computes:
 
-- `median` — the fleet-wide median.
-- `MAD` — the median absolute deviation: the median of `|x_i - median|`.
+- `median`. The fleet-wide median.
+- `MAD`. The median absolute deviation: the median of `|x_i - median|`.
 
 A cluster is an outlier when `|cluster_value - median| > threshold * MAD`.
 The default threshold is 3.5; the `?threshold=` query parameter on
 `/api/outliers` overrides it.
 
 MAD is preferred over standard deviation because it is robust to outliers
-in the input distribution — exactly the situation we are most interested
+in the input distribution. Exactly the situation we are most interested
 in. A fleet with one badly-misconfigured cluster does not have its
 detection sensitivity degraded by that cluster's presence.
 

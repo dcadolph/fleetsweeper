@@ -56,17 +56,17 @@ The chart wires both secrets into the Deployment as env vars and adds
 On every callback the server reads the verified ID token's claims and
 checks them against the configured patterns in this order:
 
-1. `oidc-admin-claim` — sets role to `admin`.
-2. `oidc-operator-claim` — sets role to `operator`.
-3. Otherwise — sets role to `oidc-default-role` (default `viewer`).
+1. `oidc-admin-claim`. Sets role to `admin`.
+2. `oidc-operator-claim`. Sets role to `operator`.
+3. Otherwise. Sets role to `oidc-default-role` (default `viewer`).
 
 Claim patterns are `<claim>:<value>`. The claim value may be a string or a
 JSON array; the server tests membership in both shapes. Examples:
 
-- `email:ops@example.com` — promote a single user.
-- `groups:fleetsweeper-admins` — promote a group via an OIDC groups claim
+- `email:ops@example.com`. Promote a single user.
+- `groups:fleetsweeper-admins`. Promote a group via an OIDC groups claim
   (when your IdP includes one).
-- `hd:example.com` — restrict by Google Workspace hosted domain.
+- `hd:example.com`. Restrict by Google Workspace hosted domain.
 
 ## Cluster scope under OIDC
 
@@ -87,7 +87,7 @@ the meantime, use API keys for pipelines that need narrowed scope.
 ## Logout
 
 `POST /oidc/logout` (or simply visit `/oidc/logout`) clears the session
-cookie. The IdP-side session is unaffected — call your provider's logout
+cookie. The IdP-side session is unaffected. Call your provider's logout
 URL too if you need full sign-out.
 
 ## Troubleshooting

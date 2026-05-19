@@ -1,0 +1,72 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    errcheck:
+      # Print writers and defer-Close patterns are accepted noise.
+      # Their errors are not actionable and adding wrappers clutters
+      # the call sites.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*compress/gzip.Reader).Close
+        - (*compress/gzip.Writer).Close
+        - (*archive/tar.Writer).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (*database/sql.Tx).Rollback
+        - (*net/http.Response).Body.Close
+        - (*github.com/dcadolph/fleetsweeper/internal/store.SQLite).Close
+        - (*github.com/dcadolph/fleetsweeper/internal/store.Postgres).Close
+        - (github.com/dcadolph/fleetsweeper/internal/store.Store).Close
+        - os.RemoveAll
+        - encoding/json.Encoder.Encode
+
+    staticcheck:
+      # SA1019 reports deprecated API usage. KubeProxyVersion is still
+      # present on Node.Status.NodeInfo and useful for older fleets,
+      # so we accept the warning.
+      checks:
+        - all
+        - "-SA1019"
+        # QF* are style preferences for quick-fix suggestions. Keep
+        # the bug-catching staticcheck rules, drop the nit-picks.
+        - "-QF1001"
+        - "-QF1003"
+        - "-QF1008"
+        - "-QF1011"
+        # S1009: nil check before len() is fine and reads clearer.
+        - "-S1009"
+        # S1016: struct conversion suggestion misfires across packages.
+        - "-S1016"
+        # S1017: TrimSuffix simplification is a style choice.
+        - "-S1017"
+        # S1031: nil check around range is defensive and explicit.
+        - "-S1031"
+        # ST1000: package doc comments are nice-to-have. Not every
+        # package warrants one and the gradual rollout is noise.
+        - "-ST1000"
+
+  exclusions:
+    rules:
+      # Test files allowed to skip a few patterns; tests trade
+      # exhaustive error handling for readability.
+      - path: _test\.go
+        linters:
+          - errcheck

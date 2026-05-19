@@ -29,7 +29,7 @@ fleetsweeper drift --db=/var/lib/fleetsweeper/data.db --context=prod-east
 fleetsweeper drift --baseline=./baseline/fleet.yaml --context=prod-east
 ```
 
-Pinning the baseline is the recommended path for CI — it removes the
+Pinning the baseline is the recommended path for CI. It removes the
 "which scan am I comparing against today" variability.
 
 ## Examples

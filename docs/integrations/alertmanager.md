@@ -46,7 +46,7 @@ fingerprint upserts in place; no rows are duplicated.
 
 Fleetsweeper reads the `cluster` label from each alert and stores it as
 the `cluster` column. Make sure your Prometheus relabeling adds a
-stable `cluster` label per workload — without it, alerts land with an
+stable `cluster` label per workload. Without it, alerts land with an
 empty cluster scope and are visible only to admins and operators
 through the API.
 
@@ -105,5 +105,5 @@ Full row details remain queryable through `GET /alerts`.
 ## Retention
 
 Alerts are kept until pruned. Use the same retention policy you use
-for `audit_log` rows — alerts are append-mostly and the table grows
+for `audit_log` rows. Alerts are append-mostly and the table grows
 linearly with notification volume.

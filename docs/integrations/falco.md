@@ -63,7 +63,7 @@ runtime incident, refreshed with each new firing rather than buried
 under duplicates.
 
 If you need every individual firing instead (forensic mode), forward
-the events to an audit pipeline directly — Fleetsweeper's alerts
+the events to an audit pipeline directly. Fleetsweeper's alerts
 table is intended as a "what's broken right now" view.
 
 ## Querying
@@ -83,6 +83,6 @@ survive the round-trip.
 ## SSE events
 
 Falco firings emit the same `alert.received` SSE event as
-AlertManager — the dashboard cannot tell them apart at fan-out time.
+AlertManager. The dashboard cannot tell them apart at fan-out time.
 Consumers that need source-specific routing should fetch the full
 record via `GET /alerts` after receiving the event.

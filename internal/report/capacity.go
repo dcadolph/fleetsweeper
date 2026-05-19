@@ -311,7 +311,9 @@ func hasEventReason(r *Report, cluster, reason string) bool {
 	}
 	b, _ := json.Marshal(data)
 	var m map[string]any
-	json.Unmarshal(b, &m)
+	if err := json.Unmarshal(b, &m); err != nil {
+		return false
+	}
 	reasons, ok := m["top_warning_reasons"].([]any)
 	if !ok {
 		return false

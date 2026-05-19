@@ -34,7 +34,7 @@ Uncomment the line below once docs/hero.gif is in place.
 fleetsweeper serve --demo --addr :8080
 ```
 
-A synthetic 26-cluster fleet across four continents -- globe, findings,
+A synthetic 26-cluster fleet across four continents: globe, findings,
 trends, outliers, capacity, and a guided tour, with no kubeconfig required.
 The pulsing red dots are the cinematic part. The MAD outlier detection under
 them is the real part.
@@ -60,24 +60,26 @@ and [`docs/operator/rbac.md`](docs/operator/rbac.md).
 
 ## Production checklist
 
-Fleetsweeper ships ready for production with these boxes pre-checked:
+What ships ready out of the box.
 
-- [x] **HA backend**: SQLite (default) or PostgreSQL via `--db-driver=postgres`
-- [x] **Multi-replica safe**: Kubernetes Lease-based leader election (`coordination.k8s.io/v1`)
-- [x] **Multi-tenant RBAC**: scoped API keys (`admin`/`operator`/`viewer`) with cluster scope (`*`, names, or `group:<n>`)
-- [x] **Audit log**: every mutating request captured; queryable at `GET /api/admin/audit` with retention via `--audit-retention`
-- [x] **Declarative operations**: `ClusterScan` CRD + in-process reconciler
-- [x] **GitOps integrations**: `FleetDriftReport` CR (own) + `PolicyReport` (wgpolicyk8s.io)
-- [x] **Observability**: Prometheus metrics (server + controller), OpenTelemetry traces, ServiceMonitor template
-- [x] **Webhooks**: HMAC-signed inbound trigger + outbound subscriber dispatch
-- [x] **Sealed reports**: HMAC-signed scan archives verifiable with `fleetsweeper verify`
-- [x] **Backup/restore**: `fleetsweeper backup` / `fleetsweeper restore` (SQLite); `pg_dump` for Postgres
-- [x] **Event stream**: SSE at `/api/events` for reactive dashboards and external consumers
-- [x] **Operator hooks**: PDB, NetworkPolicy, ServiceMonitor templates; `--config FILE` YAML config
-- [x] **Versioning**: stability contract in [VERSIONING.md](VERSIONING.md); upgrade guide in [UPGRADING.md](UPGRADING.md)
-- [x] **Onboarding**: `fleetsweeper init` scaffolds a starter folder; Helm post-install `NOTES.txt` walks through next steps
-- [x] **Plugin distribution**: krew plugin manifest at `deploy/krew/plugin.yaml`
-- [x] **Supply chain**: multi-arch images with SBOM + Cosign signatures (goreleaser)
+| Capability | Implementation |
+| --- | --- |
+| HA backend | SQLite default, PostgreSQL via `--db-driver=postgres` |
+| Multi-replica safe | Kubernetes Lease-based leader election (`coordination.k8s.io/v1`) |
+| Multi-tenant RBAC | Scoped API keys (`admin`, `operator`, `viewer`) with cluster scope (`*`, names, or `group:<n>`) |
+| Audit log | Every mutating request captured. Queryable at `GET /api/admin/audit`. Retention via `--audit-retention` |
+| Declarative ops | `ClusterScan` CRD with an in-process reconciler |
+| GitOps integrations | `FleetDriftReport` CR plus `PolicyReport` (wgpolicyk8s.io) |
+| Observability | Prometheus metrics (server and controller), OpenTelemetry traces, ServiceMonitor template |
+| Webhooks | HMAC-signed inbound trigger plus outbound subscriber dispatch |
+| Sealed reports | HMAC-signed scan archives verifiable with `fleetsweeper verify` |
+| Backup and restore | `fleetsweeper backup` and `fleetsweeper restore` for SQLite, `pg_dump` for Postgres |
+| Event stream | SSE at `/api/events` for reactive dashboards and external consumers |
+| Operator hooks | PDB, NetworkPolicy, and ServiceMonitor templates. `--config FILE` YAML config |
+| Versioning | Stability contract in [VERSIONING.md](VERSIONING.md). Upgrade guide in [UPGRADING.md](UPGRADING.md) |
+| Onboarding | `fleetsweeper init` scaffolds a starter folder. Helm post-install `NOTES.txt` walks through next steps |
+| Plugin distribution | krew manifest at `deploy/krew/plugin.yaml` |
+| Supply chain | Multi-arch images with SBOM and Cosign signatures (goreleaser) |
 
 Full feature list in [CHANGELOG.md](CHANGELOG.md). Docs site sources in [`docs/`](docs/index.md).
 
@@ -99,8 +101,8 @@ Full feature list in [CHANGELOG.md](CHANGELOG.md). Docs site sources in [`docs/`
 - [Outlier detection](#outlier-detection) (MAD-based, sample-size gated)
 - [Globe view](#globe-view)
 - [In-cluster deployment](#in-cluster-deployment)
-- [Contributing](CONTRIBUTING.md) -- [Security policy](SECURITY.md) -- [Changelog](CHANGELOG.md)
-- [Versioning policy](VERSIONING.md) -- [Upgrade guide](UPGRADING.md) -- [Operator (ClusterScan CRD)](docs/operator/overview.md) -- [RBAC and API keys](docs/operator/rbac.md)
+- [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), [Changelog](CHANGELOG.md)
+- [Versioning policy](VERSIONING.md), [Upgrade guide](UPGRADING.md), [Operator (ClusterScan CRD)](docs/operator/overview.md), [RBAC and API keys](docs/operator/rbac.md)
 
 ## How it fits together
 
@@ -160,8 +162,8 @@ or a YAML CR your GitOps tool reconciles.
 
 Fleetsweeper never writes to the clusters it scans. The only write paths
 are: the local SQLite database, local YAML files (FleetDrift, PolicyReport),
-the Slack webhook you configured, OTel exporters you pointed it at, and --
-when you explicitly run `fleetsweeper remediate --push` -- pull requests
+the Slack webhook you configured, OTel exporters you pointed it at, and,
+when you explicitly run `fleetsweeper remediate --push`, pull requests
 against a GitOps repo you control.
 
 ## What it scans
@@ -308,7 +310,7 @@ fleetsweeper serve \
 
 The dashboard provides:
 
-- **Fleet Score** -- a single 0-100 hero number, with grade, headline, drivers,
+- **Fleet Score**: a single 0-100 hero number, with grade, headline, drivers,
   and a delta vs the previous scan. Designed for a status TV.
 - Fleet overview with summary cards
 - Cluster health cards with CPU and memory gauges
@@ -391,7 +393,7 @@ drift. Example workflow:
 ### Cost correlation
 
 Provide a CSV of `cluster,period,cost_usd` rows (the "bring your own billing
-export" pattern -- no cloud SDK dependencies, no credentials in the
+export" pattern, with no cloud SDK dependencies and no credentials in the
 Fleetsweeper process) and the dashboard correlates per-cluster spend with
 per-cluster health. The endpoint at `/api/cost` returns total fleet spend,
 total drift spend, and a ranked by-cluster list. See
@@ -442,7 +444,7 @@ The admin server (when `--admin-addr` is set) additionally exposes
 `/debug/pprof/*`, `/metrics`, `/healthz`, and `/readyz`. Keep this address on
 an internal interface. The `/metrics` endpoint exposes Fleet Score,
 per-cluster health, per-scanner finding counts, outlier z-scores, and the
-last scan duration -- see [`deploy/grafana/README.md`](deploy/grafana/README.md)
+last scan duration. See [`deploy/grafana/README.md`](deploy/grafana/README.md)
 for the full schema and a starter Grafana dashboard.
 
 </details>

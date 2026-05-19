@@ -1,3 +1,4 @@
+// Package logutil ties a structured zap logger to a context.Context so handlers thread the same logger without explicit arguments.
 package logutil
 
 import (

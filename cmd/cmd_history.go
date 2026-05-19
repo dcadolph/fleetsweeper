@@ -357,8 +357,9 @@ func runHistoryTrend(cmd *cobra.Command, _ []string) error {
 				// Re-marshal/unmarshal to get flat map[string]any.
 				b, _ := json.Marshal(result.Data)
 				var m map[string]any
-				json.Unmarshal(b, &m)
-				perCluster[cluster][scannerName] = m
+				if err := json.Unmarshal(b, &m); err == nil {
+					perCluster[cluster][scannerName] = m
+				}
 			}
 		}
 		resultsByScan[scan.ID] = perCluster

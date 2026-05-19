@@ -1,3 +1,6 @@
+// Package imageaudit reports image hygiene across the fleet: digest
+// pinning, latest-tag usage, distinct image counts, and optional
+// registry probes for age and signature checks.
 package imageaudit
 
 import (

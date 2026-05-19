@@ -1,8 +1,8 @@
 # node_exporter textfile collector
 
 For deployments where running a long-lived Fleetsweeper HTTP server is
-overkill — or for clusters whose Prometheus pipeline scrapes
-node_exporter and nothing else — the
+overkill. Or for clusters whose Prometheus pipeline scrapes
+node_exporter and nothing else. The
 `fleetsweeper export-metrics` subcommand writes a Prometheus
 textfile-collector exposition file you can wire into node_exporter's
 `--collector.textfile.directory`.
@@ -31,9 +31,9 @@ in the same directory.
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
 | `fleetsweeper_fleet_score` | gauge | `scan_id` | Overall fleet health, 0-100 |
-| `fleetsweeper_fleet_score_timestamp_seconds` | gauge | — | Unix time the metrics were written |
+| `fleetsweeper_fleet_score_timestamp_seconds` | gauge |. | Unix time the metrics were written |
 | `fleetsweeper_findings_total` | gauge | `severity` | Findings emitted by the latest scan |
-| `fleetsweeper_clusters_total` | gauge | — | Number of clusters analysed |
+| `fleetsweeper_clusters_total` | gauge |. | Number of clusters analysed |
 | `fleetsweeper_cluster_score` | gauge | `cluster`, `grade` | Per-cluster health, 0-100 |
 | `fleetsweeper_cluster_outlier` | gauge | `cluster` | Set to 1 for clusters flagged as outliers |
 

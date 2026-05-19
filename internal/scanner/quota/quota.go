@@ -1,3 +1,4 @@
+// Package quota inspects ResourceQuota and LimitRange coverage across namespaces.
 package quota
 
 import (

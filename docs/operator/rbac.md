@@ -24,12 +24,12 @@ Read-only endpoints (GET) are open to viewers and above (or to anyone when
 
 Each key carries `cluster_scope`, a JSON array. The semantics are:
 
-- `["*"]` — unrestricted (default).
-- `["prod-east", "prod-west"]` — exact match against context name.
-- `["group:prod"]` — any current member of the named group. Membership is
+- `["*"]`. Unrestricted (default).
+- `["prod-east", "prod-west"]`. Exact match against context name.
+- `["group:prod"]`. Any current member of the named group. Membership is
   resolved per request, so adding a cluster to a group immediately broadens
   the key's authority.
-- Combinations: `["prod-east", "group:edge", "*"]` — `*` wins.
+- Combinations: `["prod-east", "group:edge", "*"]`. `*` wins.
 
 Cluster scope is enforced on:
 
@@ -87,10 +87,10 @@ curl -H "Authorization: Bearer $ADMIN" 'https://.../api/admin/audit?limit=50&min
 
 Filters:
 
-- `since=<RFC3339>` — only entries strictly newer than this time.
-- `actor=<keyID>` — restrict to one actor.
-- `min_status=<N>` — only responses with status ≥ N (use 400 to see failures).
-- `limit=<N>` — cap rows returned. Server-enforced maximum is 1000.
+- `since=<RFC3339>`. Only entries strictly newer than this time.
+- `actor=<keyID>`. Restrict to one actor.
+- `min_status=<N>`. Only responses with status ≥ N (use 400 to see failures).
+- `limit=<N>`. Cap rows returned. Server-enforced maximum is 1000.
 
 Audit entries include actor identity, method, path, status, duration, and
 a short error excerpt for failures. Read-only requests are not audited to

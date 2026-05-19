@@ -62,7 +62,7 @@ each resource after every scan.
 
 ## Where to go next
 
-- [The fleet is the policy](concepts/fleet-is-policy.md) — the design idea
+- [The fleet is the policy](concepts/fleet-is-policy.md). The design idea
   behind norm-based detection.
-- [ClusterScan CRD](operator/clusterscan.md) — full spec reference.
-- [RBAC and API keys](operator/rbac.md) — multi-tenant access control.
+- [ClusterScan CRD](operator/clusterscan.md). Full spec reference.
+- [RBAC and API keys](operator/rbac.md). Multi-tenant access control.

@@ -87,7 +87,7 @@ func (s *topState) run(ctx context.Context) error {
 		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 		if err == nil {
 			restore = func() error { return term.Restore(int(os.Stdin.Fd()), oldState) }
-			defer restore()
+			defer func() { _ = restore() }()
 		}
 	}
 

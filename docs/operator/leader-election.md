@@ -58,6 +58,6 @@ and are visible with `kubectl describe lease <release>`.
 ## Tunables
 
 The current implementation uses fixed defaults (30s lease, 20s renew, 5s
-retry). These are well-suited to a fleetsweeper workload — scans run on
-the order of minutes — and not yet exposed as flags. File an issue if your
+retry). These are well-suited to a fleetsweeper workload. Scans run on
+the order of minutes. And not yet exposed as flags. File an issue if your
 deployment needs different values.

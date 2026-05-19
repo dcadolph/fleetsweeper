@@ -11,6 +11,7 @@ import (
 // TestInitScaffolds verifies the init command writes the expected files.
 func TestInitScaffolds(t *testing.T) {
 	t.Parallel()
+	defer lockRootCmd(t)()
 	dir := filepath.Join(t.TempDir(), "starter")
 	buf := &bytes.Buffer{}
 	initCmd.SetErr(buf)
@@ -34,6 +35,7 @@ func TestInitScaffolds(t *testing.T) {
 // errors rather than silently clobbering.
 func TestInitRefusesOverwrite(t *testing.T) {
 	t.Parallel()
+	defer lockRootCmd(t)()
 	dir := filepath.Join(t.TempDir(), "starter")
 	rootCmd.SetArgs([]string{"init", dir})
 	if err := rootCmd.Execute(); err != nil {

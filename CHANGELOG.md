@@ -13,7 +13,7 @@ reaches v1.0.0.
   renders its tag map as small accent-coloured chips
   (`env=prod`, `tier=critical`) right above the first-seen
   timestamp. Reads `ClusterRecord.tags` straight from the
-  `/api/clusters` payload — no extra fetches.
+  `/api/clusters` payload. No extra fetches.
 - **`GET /api/clusters` now inlines tags.** Each `ClusterRecord`
   carries the cluster's tag map as `tags` (omitted when empty) so the
   dashboard's Clusters page can render tag chips without a follow-up
@@ -21,9 +21,9 @@ reaches v1.0.0.
   extra fetch per row.
 - **`fleetsweeper tag`** subcommand with `list`, `set`, and `del`
   variants. `fleetsweeper tag set prod-east env=prod tier=critical`
-  upserts multiple pairs in one call; `fleetsweeper tag list` prints
+  upserts multiple pairs in one call. `fleetsweeper tag list` prints
   every cluster's tags in a deterministic table. Backed by the
-  Phase 37 `cluster_tags` table — pairs cleanly with the `?tag=`
+  Phase 37 `cluster_tags` table. Pairs cleanly with the `?tag=`
   filters from Phase 38 for "tag in CLI, slice in dashboard"
   workflows.
 - **Tag-aware report and alerts filters.** `GET
@@ -31,8 +31,8 @@ reaches v1.0.0.
   `?tag=key=value` query parameters. Repeated tags AND together, so
   `?tag=env=prod&tag=tier=critical` returns only findings (or alerts)
   on clusters carrying both tags. Fleet-wide findings (cluster=""
-  or "fleet") and alerts with no cluster label pass through untouched
-  — tag filtering only narrows the per-cluster rows. Powers "drift
+  or "fleet") and alerts with no cluster label pass through untouched.
+  Tag filtering only narrows the per-cluster rows. Powers "drift
   in production only" dashboards without a parallel groups system.
 - **Cluster tags.** New `cluster_tags` table (migration v7, both
   backends) with `(cluster, key)` primary key and indexes on
@@ -81,7 +81,7 @@ reaches v1.0.0.
 - **Alert acknowledgements.** New `POST /api/alerts/{fingerprint}/ack`
   endpoint records an ack against an inbound alert. The handler
   fetches the alert row (new `Store.GetAlert` method) so the cluster,
-  title, and `alert:<source>` scanner tag are server-derived — the
+  title, and `alert:<source>` scanner tag are server-derived. The
   client only supplies the optional reason, ack-by, and snooze. Same
   `finding_acks` table powers both scan-finding acks and alert acks
   so the dashboard surfaces them uniformly. The Alerts page now
@@ -91,7 +91,7 @@ reaches v1.0.0.
   surfaces the most recent inbound alerts via `/api/alerts`, with
   source (AlertManager / Falco) and severity filters. Double-click a
   row to inspect the full label set. Live mode (existing 30s poll)
-  picks up new alerts without a manual refresh — the SSE bus
+  picks up new alerts without a manual refresh. The SSE bus
   (`alert.received`) already broadcasts ingest events, so the page
   stays current on long-lived sessions.
 - **`fleetsweeper doctor --in-cluster`** mode. Extends the existing
@@ -102,7 +102,7 @@ reaches v1.0.0.
   exists with a CA bundle or Service reference; `scan-freshness`
   reads the latest scan from `--db` and flags it as stale when older
   than `--scan-freshness` (default 24h). The intended usage is
-  immediately after `helm install` — operators get a single
+  immediately after `helm install`. Operators get a single
   pass/fail grid that proves the chart is actually doing work without
   having to poke around the dashboard.
 - **`GET /api/clusters/{name}/timeline`** endpoint. Returns a

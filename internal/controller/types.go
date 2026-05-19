@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// GroupVersionResource for the ClusterScan CRD.
+// ClusterScanGVR is the GroupVersionResource for the ClusterScan CRD.
 var ClusterScanGVR = schema.GroupVersionResource{
 	Group:    "fleetsweeper.io",
 	Version:  "v1alpha1",
