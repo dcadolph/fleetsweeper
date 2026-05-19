@@ -18,7 +18,11 @@ func TestSeedDemoDatabase(t *testing.T) { //nolint:funlen // Test function.
 	if err != nil {
 		t.Fatalf("get home dir: %v", err)
 	}
-	dbPath := filepath.Join(home, "Downloads", "fleetsweeper-demo.db")
+	downloads := filepath.Join(home, "Downloads")
+	if _, err := os.Stat(downloads); err != nil {
+		t.Skipf("skipping: %s not available (set up for local fixture generation)", downloads)
+	}
+	dbPath := filepath.Join(downloads, "fleetsweeper-demo.db")
 	os.Remove(dbPath)
 
 	s, err := NewSQLite(dbPath)

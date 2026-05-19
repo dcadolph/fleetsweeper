@@ -5,41 +5,52 @@
 <h1 align="center">Fleetsweeper</h1>
 
 <p align="center">
-  <strong>The fleet is the policy.</strong><br>
-  Every other Kubernetes tool tells you if <em>one</em> cluster is healthy.<br>
-  Fleetsweeper tells you when your <em>fleet</em> has drifted.
+  Drift detection for everyone running more than one Kubernetes cluster.
 </p>
 
 <p align="center">
   <a href="https://github.com/dcadolph/fleetsweeper/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dcadolph/fleetsweeper/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/dcadolph/fleetsweeper/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/dcadolph/fleetsweeper?sort=semver"></a>
-  <a href="https://goreportcard.com/report/github.com/dcadolph/fleetsweeper"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/dcadolph/fleetsweeper"></a>
   <a href="https://pkg.go.dev/github.com/dcadolph/fleetsweeper"><img alt="Go reference" src="https://pkg.go.dev/badge/github.com/dcadolph/fleetsweeper.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://github.com/dcadolph/fleetsweeper/discussions"><img alt="Discussions" src="https://img.shields.io/github/discussions/dcadolph/fleetsweeper"></a>
 </p>
 
-<!--
-Hero animation lives at docs/hero.gif. Re-render with VHS using the bundled
-script:  vhs docs/hero.tape  (https://github.com/charmbracelet/vhs)
-Uncomment the line below once docs/hero.gif is in place.
+---
 
-<p align="center"><img src="docs/hero.gif" alt="Fleetsweeper dashboard demo" width="820"></p>
--->
-<p align="center"><sub><em>Demo recording: run <code>fleetsweeper serve --demo</code> locally and the dashboard at <code>http://localhost:8080</code> is the screenshot.</em></sub></p>
+You run twelve clusters. Or fifty. Or two hundred. They started identical
+and they did not stay that way. Versions skew. Admission policies drift.
+Service accounts get patched at 3am and nobody writes it down. The next
+outage will start in the cluster that quietly stopped looking like the
+others, and your existing tools will not warn you, because each one of
+those clusters is "healthy" on its own.
 
-## Try the demo in one command
+Fleetsweeper finds the cluster that drifted. It scans the fleet, treats
+the majority as the norm, and surfaces the one that wandered off. No
+rulebook to write. No static thresholds to tune. The fleet itself is
+the baseline.
+
+**What you walk away with after one scan.**
+
+- A Fleet Score from 0 to 100, with a one-line headline you can put on a status TV.
+- The cluster that is most unlike the rest, plus the specific fields where it diverges.
+- Ranked, leverage-weighted recommendations. The fix that takes ten clusters from drifted to clean ranks ahead of the same fix on one cluster.
+- An optional admission webhook that warns or denies pods that deviate from the fleet's actual norm, with the bar derived from your fleet, not from PSS guesswork.
+- One unified stream for inbound signal: scan findings, AlertManager, Falco, Trivy CVEs, Kyverno and Gatekeeper [PolicyReports](https://github.com/kubernetes-sigs/wg-policy-prototypes). One place to triage, one SSE bus, one ack workflow.
+
+## See it running
 
 ```
 fleetsweeper serve --demo --addr :8080
 ```
 
-A synthetic 26-cluster fleet across four continents: globe, findings,
-trends, outliers, capacity, and a guided tour, with no kubeconfig required.
-The pulsing red dots are the cinematic part. The MAD outlier detection under
-them is the real part.
+Open `http://localhost:8080`. A synthetic 26-cluster fleet renders across
+four continents with globe, findings, trends, outliers, capacity, and a
+guided tour. No kubeconfig required. The pulsing red dots are the cinematic
+part. The [modified z-score](https://en.wikipedia.org/wiki/Median_absolute_deviation)
+outlier detection under them is the real part.
 
-## Or run it the Kubernetes-native way
+## Install it for real
 
 ```
 kubectl apply -f deploy/crds/clusterscan.yaml

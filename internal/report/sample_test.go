@@ -184,7 +184,11 @@ func TestGenerateSampleHTML(t *testing.T) { //nolint:funlen // Test function.
 	if err != nil {
 		t.Fatalf("get home dir: %v", err)
 	}
-	outPath := filepath.Join(home, "Downloads", "fleetsweeper-sample-report.html")
+	downloads := filepath.Join(home, "Downloads")
+	if _, err := os.Stat(downloads); err != nil {
+		t.Skipf("skipping: %s not available (set up for local fixture generation)", downloads)
+	}
+	outPath := filepath.Join(downloads, "fleetsweeper-sample-report.html")
 	if err := os.WriteFile(outPath, html, 0o644); err != nil {
 		t.Fatalf("write html: %v", err)
 	}
