@@ -2,10 +2,10 @@
 
 > The fleet is the policy.
 
-Fleetsweeper scans multiple Kubernetes clusters in parallel and flags drift —
-not whether individual clusters violate a rulebook, but whether they have
-diverged from each other. The baseline is derived from your own fleet, so
-you do not write policies up front.
+Fleetsweeper scans multiple Kubernetes clusters in parallel and flags
+drift. Not whether individual clusters violate a rulebook, but whether
+they have diverged from each other. The baseline is derived from your
+own fleet, so you do not write policies up front.
 
 ## What it does
 
