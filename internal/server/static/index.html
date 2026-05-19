@@ -380,6 +380,7 @@ function renderSb(){
   h+='<a class="'+(P.page==='capacity'?'on':'')+'" onclick="nav(\'capacity\')">Capacity</a>';
   h+='<a class="'+(P.page==='trends'?'on':'')+'" onclick="nav(\'trends\')">Trends</a>';
   h+='<a class="'+(P.page==='outliers'?'on':'')+'" onclick="nav(\'outliers\')">Outliers</a>';
+  h+='<a class="'+(P.page==='cohorts'?'on':'')+'" onclick="nav(\'cohorts\')">Cohorts</a>';
   h+='<a class="'+(P.page==='heatmap'?'on':'')+'" onclick="nav(\'heatmap\')">Fleet heatmap</a>';
   h+='<a class="'+(P.page==='globe'?'on':'')+'" onclick="nav(\'globe\')">Globe</a>';
   h+='<a class="'+(P.page==='diff'?'on':'')+'" onclick="nav(\'diff\')">Scan diff</a>';
@@ -1593,6 +1594,47 @@ async function renderOutliers(){
   return h;
 }
 
+async function renderCohorts(){
+  renderBar();
+  var data=await api('/cohorts');
+  var cohorts=data.cohorts||[];
+  var h='<h2>Cohorts</h2><p class="sub">Clusters grouped into similar populations. Outliers are scored against each cohort\'s own baseline, not the whole fleet.</p>';
+  if(!cohorts.length){
+    h+='<div class="empty">Fleet too small to subdivide. Outlier detection runs across all clusters.</div>';
+    return h;
+  }
+  h+='<div class="cohort-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;margin-top:12px">';
+  cohorts.forEach(function(c){
+    var sourceColor=c.source==='tagged'?'#3fb950':c.source==='auto'?'#58a6ff':'#8b949e';
+    h+='<div style="border:1px solid var(--bd);border-radius:8px;padding:14px;background:var(--bg2)">';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+    h+='<div style="font-weight:600;font-size:15px">'+esc(c.name)+'</div>';
+    h+='<span style="font-size:11px;padding:2px 8px;border-radius:12px;background:'+sourceColor+'22;color:'+sourceColor+'">'+esc(c.source)+'</span>';
+    h+='</div>';
+    h+='<div style="font-size:12px;color:var(--t3);margin-bottom:8px">'+(c.clusters?c.clusters.length:0)+' clusters</div>';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
+    (c.clusters||[]).forEach(function(cl){
+      h+='<a onclick="nav(\'detail\',{cluster:\''+esc(cl)+'\'})" style="font-size:12px;padding:2px 8px;border-radius:4px;background:var(--bg);cursor:pointer">'+esc(cl)+'</a>';
+    });
+    h+='</div>';
+    if(c.outliers&&c.outliers.length){
+      h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">';
+      h+='<div style="font-size:12px;color:var(--t3);margin-bottom:6px">Outliers within this cohort</div>';
+      c.outliers.forEach(function(o){
+        h+='<div style="font-size:12px;padding:4px 0">';
+        h+='<span style="color:'+sc(o.severity)+';font-weight:500">'+esc(o.cluster)+'</span> ';
+        h+='<span style="color:var(--t3)">'+esc(o.scanner)+'/'+esc(o.field)+'</span> ';
+        h+='<span class="mono">'+esc(o.value)+' vs '+esc(o.fleet_norm)+'</span>';
+        h+='</div>';
+      });
+      h+='</div>';
+    }
+    h+='</div>';
+  });
+  h+='</div>';
+  return h;
+}
+
 // === CLUSTERS ===
 async function renderClusters(){
   renderBar('<span class="btn btn-ac" onclick="exportClustersCSV()">Export CSV</span>');
@@ -1774,6 +1816,7 @@ async function render(){
     else if(P.page==='trends')result=await renderTrends();
     else if(P.page==='capacity')result=await renderCapacity();
     else if(P.page==='outliers')result=await renderOutliers();
+    else if(P.page==='cohorts')result=await renderCohorts();
     else if(P.page==='heatmap')result=await renderHeatmap();
     else if(P.page==='globe')result=await renderGlobe();
     else if(P.page==='diff')result=await renderDiff();

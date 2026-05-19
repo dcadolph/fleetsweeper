@@ -63,7 +63,8 @@ func (s *Server) ScanOnce(ctx context.Context, opts controller.ScanOptions) (con
 	s.recordScanDuration(time.Since(started))
 	s.recordScanCompletion(true)
 
-	rpt := report.Build(clusterNames, results)
+	tags := projectCohortTags(ctx, s, cohortTagKey)
+	rpt := report.Build(clusterNames, results, report.BuildOptions{ClusterTags: tags})
 	if opts.Emit.Slack {
 		s.notifySlackForReport(ctx, rpt)
 	}

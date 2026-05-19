@@ -58,6 +58,11 @@ type Report struct {
 	// FleetScore is the single 0-100 indicator of overall fleet health,
 	// suitable as a hero number on a status TV. Populated by Build.
 	FleetScore FleetScore `json:"fleet_score"`
+	// Cohorts partitions the fleet into groups of similar clusters and
+	// reports within-cohort outliers. Cohorts come from user-supplied
+	// cluster tags when present, otherwise from agglomerative clustering
+	// on scanner-derived features.
+	Cohorts []CohortSummary `json:"cohorts,omitempty"`
 }
 
 // BuildOptions controls report generation behavior.
@@ -67,6 +72,10 @@ type BuildOptions struct {
 	OutlierThreshold float64
 	// Groups maps group name to cluster names for group-aware analysis.
 	Groups map[string][]string
+	// ClusterTags maps cluster name to a cohort tag value. When non-empty,
+	// tagged clusters land in tagged cohorts instead of being auto-grouped.
+	// Untagged clusters still get auto-cohorted.
+	ClusterTags map[string]string
 }
 
 // CategoryReport holds a category and its scanner names for the report.
@@ -154,7 +163,9 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	}
 
 	r.Capacity = AnalyzeCapacity(r, opt.Groups)
+	r.Cohorts = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
 	r.Findings = GenerateFindings(r)
+	r.Findings = append(r.Findings, misCohortFindings(r, opt.ClusterTags)...)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
 	r.FleetScore = ComputeFleetScore(r)
 

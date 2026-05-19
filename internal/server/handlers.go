@@ -586,6 +586,74 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetCohorts returns the cohort partitioning of the most recent scan.
+// Cohorts are derived from user-supplied cluster tags first, then from
+// agglomerative clustering on scanner-derived features. Each cohort includes
+// the outliers that show up within its own baseline, which is the signal that
+// the fleet-level view washes out.
+func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
+	scans, err := s.store.ListScans(r.Context(), 1)
+	if err != nil || len(scans) == 0 {
+		if s.demo {
+			rpt := demoReport()
+			writeJSON(w, http.StatusOK, map[string]any{
+				"scan_id": demoScanID,
+				"cohorts": rpt.Cohorts,
+			})
+			return
+		}
+		writeError(w, http.StatusNotFound, "no scans available")
+		return
+	}
+
+	latest := scans[0]
+	results, err := s.store.GetScanResults(r.Context(), latest.ID)
+	if err != nil {
+		s.log.Error("cohorts: get results", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "get scan results failed")
+		return
+	}
+
+	tags := projectCohortTags(r.Context(), s, cohortTagKey)
+
+	threshold := 3.5
+	if v := r.URL.Query().Get("threshold"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			threshold = f
+		}
+	}
+
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{
+		OutlierThreshold: threshold,
+		ClusterTags:      tags,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"scan_id": latest.ID,
+		"cohorts": rpt.Cohorts,
+	})
+}
+
+// cohortTagKey is the cluster-tag key used to carry a cohort label.
+const cohortTagKey = "cohort"
+
+// projectCohortTags pulls every cluster's value for the given tag key from the
+// store. Errors degrade to nil so cohort detection falls back to fully
+// automatic assignment instead of failing the request.
+func projectCohortTags(ctx context.Context, s *Server, key string) map[string]string {
+	all, err := s.store.ListClusterTags(ctx)
+	if err != nil {
+		s.log.Warn("cohorts: list tags", zap.Error(err))
+		return nil
+	}
+	out := make(map[string]string, len(all))
+	for cluster, kv := range all {
+		if v, ok := kv[key]; ok && v != "" {
+			out[cluster] = v
+		}
+	}
+	return out
+}
+
 // handleGetCapacity returns capacity analysis with correlated signals.
 func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
 	scans, err := s.store.ListScans(r.Context(), 1)

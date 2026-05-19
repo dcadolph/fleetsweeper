@@ -271,6 +271,7 @@ func (s *Server) routes() {
 	api.HandleFunc("GET /trends", s.handleGetTrends)
 	api.HandleFunc("GET /trends/{cluster}", s.handleGetClusterTrends)
 	api.HandleFunc("GET /outliers", s.handleGetOutliers)
+	api.HandleFunc("GET /cohorts", s.handleGetCohorts)
 	api.HandleFunc("GET /capacity", s.handleGetCapacity)
 	api.HandleFunc("GET /forecast/fleet-score", s.handleGetFleetScoreForecast)
 	api.HandleFunc("GET /forecast/clusters", s.handleGetClusterForecasts)

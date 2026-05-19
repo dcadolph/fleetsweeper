@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="internal/logo/sweep.jpg" alt="fleetsweeper" width="220">
+  <img src="internal/logo/logo.png" alt="fleetsweeper" width="260">
 </p>
 
 <h1 align="center">Fleetsweeper</h1>
