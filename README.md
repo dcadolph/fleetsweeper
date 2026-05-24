@@ -102,7 +102,7 @@ admission webhook, and supply-chain signed images. Full checklist:
 - [Prometheus](docs/integrations/prometheus.md), [Slack](docs/integrations/slack.md), [Webhooks](docs/integrations/webhooks.md)
 - [PolicyReport](docs/integrations/policyreport.md), [FleetDriftReport](docs/integrations/fleetdriftreport.md)
 - [AlertManager](docs/integrations/alertmanager.md), [Falco](docs/integrations/falco.md), [Trivy](docs/integrations/trivy.md)
-- [GitHub Actions](docs/integrations/github-actions.md), [Registry probing](docs/integrations/registry-probing.md)
+- [Registry probing](docs/integrations/registry-probing.md)
 
 **Reference**
 - [CLI](docs/reference/cli.md), [API](docs/reference/api.md), [Events](docs/reference/events.md)
