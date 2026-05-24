@@ -10,7 +10,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dcadolph/fleetsweeper/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dcadolph/fleetsweeper/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/dcadolph/fleetsweeper/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/dcadolph/fleetsweeper?sort=semver"></a>
   <a href="https://pkg.go.dev/github.com/dcadolph/fleetsweeper"><img alt="Go reference" src="https://pkg.go.dev/badge/github.com/dcadolph/fleetsweeper.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
