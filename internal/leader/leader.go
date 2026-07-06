@@ -53,9 +53,25 @@ type Callbacks struct {
 	OnNewLeader func(identity string)
 }
 
-// Run blocks executing leader election until ctx is cancelled. On success
-// the supplied callbacks fire as documented.
+// Run blocks executing leader election until ctx is canceled, building the
+// coordination client from in-cluster config. On success the supplied
+// callbacks fire as documented.
 func Run(ctx context.Context, cfg Config, cb Callbacks) error {
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		return fmt.Errorf("leader: in-cluster config: %w", err)
+	}
+	coordination, err := coordinationv1client.NewForConfig(restCfg)
+	if err != nil {
+		return fmt.Errorf("leader: build client: %w", err)
+	}
+	return RunWithClient(ctx, cfg, cb, coordination)
+}
+
+// RunWithClient blocks executing leader election against the supplied
+// coordination client until ctx is canceled. Split from Run so tests can
+// inject a fake clientset.
+func RunWithClient(ctx context.Context, cfg Config, cb Callbacks, coordination coordinationv1client.CoordinationV1Interface) error {
 	if cfg.Namespace == "" {
 		return fmt.Errorf("leader: Namespace required")
 	}
@@ -79,14 +95,6 @@ func Run(ctx context.Context, cfg Config, cb Callbacks) error {
 		cfg.RetryPeriod = 5 * time.Second
 	}
 
-	restCfg, err := rest.InClusterConfig()
-	if err != nil {
-		return fmt.Errorf("leader: in-cluster config: %w", err)
-	}
-	coordination, err := coordinationv1client.NewForConfig(restCfg)
-	if err != nil {
-		return fmt.Errorf("leader: build client: %w", err)
-	}
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta: metaObject(cfg.Namespace, cfg.Name),
 		Client:    coordination,
