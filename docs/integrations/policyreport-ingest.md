@@ -8,7 +8,7 @@ scanner closes the loop in the other direction: it reads
 resources produced by every other policy tool in the cluster and
 folds them into the Fleetsweeper findings stream.
 
-A single dashboard can then summarise every policy tool's verdict on
+A single dashboard can then summarize every policy tool's verdict on
 the fleet:
 
 - **Kyverno**. Its `PolicyReport` results land under `source=kyverno`.

@@ -90,7 +90,7 @@ fi
 | | `whatchanged` | `recommend` |
 | --- | --- | --- |
 | Input | Two scans | Latest scan |
-| Output | New/cleared findings | Prioritised action list |
+| Output | New/cleared findings | Prioritized action list |
 | Hero metric | Score delta | Leverage |
 | Use | Post-deploy verification | Next-deploy planning |
 

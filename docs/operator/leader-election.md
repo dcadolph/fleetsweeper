@@ -30,7 +30,7 @@ leaderElection:
   balancer can fan out reads and writes across pods. Only periodic / side-
   effect-producing goroutines are gated by leadership.
 
-## Behaviour without leader election
+## Behavior without leader election
 
 When `leaderElection.enabled=false` or the process is running outside a
 cluster, every replica starts the scheduler and controller independently.

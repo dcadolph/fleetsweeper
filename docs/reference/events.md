@@ -15,7 +15,7 @@ consumers can subscribe with one TCP connection per consumer.
 | `key.revoked` | When an admin revokes an API key. | `{ key_id, revoked_by }` |
 
 New types may be added in additive releases. Consumers should ignore types
-they do not recognise.
+they do not recognize.
 
 ## Wire format
 

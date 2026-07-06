@@ -9,8 +9,21 @@ reaches v1.0.0.
 
 ### Added
 
+- **Admission webhook certificate rotation.** Generated serving certs are
+  now issued from an internal ten-year CA and reissued automatically
+  before expiry, so the caBundle patched into the
+  ValidatingWebhookConfiguration is stable and the webhook no longer
+  breaks after 365 days. File-backed certs (`--admission-cert` /
+  `--admission-key`) reload from disk when the files change, so
+  cert-manager secret rotation needs no restart.
+- **Watch-based controller.** The ClusterScan controller now runs a
+  shared informer with a workqueue and a small worker pool. New or
+  edited resources reconcile immediately from watch events instead of
+  waiting for the next poll, the periodic due-scan check reads the
+  informer cache instead of listing the API server, and one slow scan
+  no longer blocks reconciliation of other resources.
 - **Dashboard tag chips on the Clusters page.** Each cluster card now
-  renders its tag map as small accent-coloured chips
+  renders its tag map as small accent-colored chips
   (`env=prod`, `tier=critical`) right above the first-seen
   timestamp. Reads `ClusterRecord.tags` straight from the
   `/api/clusters` payload. No extra fetches.
@@ -121,7 +134,7 @@ reaches v1.0.0.
   ConfigMap recipe for kube-prometheus-stack deployments. A new
   `fleetsweeper_alerts_received_total{source}` counter powers the
   alerts dashboard.
-- **`fleetsweeper recommend`** subcommand. Synthesises a prioritised
+- **`fleetsweeper recommend`** subcommand. Synthesises a prioritized
   action list from the latest scan: collapses identical remediations
   across clusters, scores each by `leverage * severity`, and surfaces
   the actual `kubectl` invocation or YAML snippet to apply. The hero
@@ -203,6 +216,10 @@ reaches v1.0.0.
 
 ### Fixed
 
+- Docs now state the actual scanner count (24, not 16) and list every
+  registered scanner in the concepts table.
+- American spelling throughout code comments, CLI output, and docs.
+
 - Admission baseline now reads the `workload-security` scanner key
   correctly. The previous key (`workload-sec`) silently zeroed the
   non-root, no-privilege-escalation, read-only-root-fs, and named-SA
@@ -230,7 +247,7 @@ reaches v1.0.0.
 - **`fleetsweeper doctor`** preflight subcommand. Runs database
   connectivity, kubeconfig parsing, per-context reachability, CRD
   presence, and (when `--addr` is set) HTTP `/healthz` + `/readyz` probes.
-  Emits a colour-friendly table by default or JSON with `--json` for
+  Emits a color-friendly table by default or JSON with `--json` for
   monitors. Returns non-zero on any failure so it can gate CI/CD pipelines.
 - **Trivy Operator vulnerability integration.** A new `vulnerabilities`
   scanner reads `aquasecurity.github.io/v1alpha1 VulnerabilityReport`
@@ -307,7 +324,7 @@ reaches v1.0.0.
   present. An example lives at `deploy/examples/serve-config.yaml`.
 - **Audit log retention** via `--audit-retention <duration>`. An hourly
   ticker prunes `audit_log` rows older than the configured window. Empty or
-  zero disables retention (preserves existing behaviour).
+  zero disables retention (preserves existing behavior).
 - **Controller metrics** in the Prometheus exposition:
   `fleetsweeper_controller_reconcile_total`,
   `fleetsweeper_controller_reconcile_outcome_total{outcome=...}`,

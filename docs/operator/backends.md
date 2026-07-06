@@ -4,7 +4,7 @@ Fleetsweeper supports two backends through the same `Store` interface.
 
 | Backend | DSN | Suitable for |
 | --- | --- | --- |
-| SQLite (default) | filesystem path (`/data/fleet.db`) or `:memory:` | Single-instance deployments. Concurrent readers; writes serialised by the SQLite engine. Recommended for fleets up to a few thousand clusters. |
+| SQLite (default) | filesystem path (`/data/fleet.db`) or `:memory:` | Single-instance deployments. Concurrent readers; writes serialized by the SQLite engine. Recommended for fleets up to a few thousand clusters. |
 | Postgres | `postgres://user:pass@host:5432/db?sslmode=require` | Multi-replica deployments behind a load balancer; HA via a managed Postgres service. |
 
 Both backends apply the same migrations and store data in compatible shapes,
@@ -70,7 +70,7 @@ the configured Secret.
 Migrations are numerically aligned between backends. A row in
 `schema_migrations` recorded by SQLite version N matches a row Postgres
 version N would have written: both contain the same `version` integer.
-This means an operator who initialises a Postgres cluster against
+This means an operator who initializes a Postgres cluster against
 fleetsweeper version 0.2.0 and one who later upgrades to 0.3.0 both end up
 at exactly the same schema state.
 

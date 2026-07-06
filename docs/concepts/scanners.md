@@ -1,7 +1,7 @@
 # Scanners
 
 Fleetsweeper scans multiple Kubernetes clusters in parallel and compares
-them across 16 dimensions. Each scanner is read-only, runs against a single
+them across 24 dimensions. Each scanner is read-only, runs against a single
 cluster at a time, and produces structured data for the report builder to
 fold into the fleet picture.
 
@@ -23,6 +23,14 @@ fold into the fleet picture.
 | Workload Security    | Privileged containers, host namespaces, capabilities, seccomp, hostPath, runAs |
 | RBAC Audit           | Cluster-admin bindings, wildcard rules, default-SA bindings, RoleBinding audit |
 | Image Audit          | :latest tags, missing digest pins, image pull policies |
+| Certificates         | TLS Secret, Ingress TLS, and webhook caBundle expiry |
+| Deprecated APIs      | In-use API versions deprecated or removed in upcoming Kubernetes releases |
+| Workload Coverage    | PDB and HPA coverage of replicated Deployments and StatefulSets |
+| Cluster Info         | Node OS, kernel, runtime, and kubelet version drift within a cluster |
+| Admission            | Webhook configurations with no healthy endpoints or expiring caBundles |
+| Geo                  | Cluster location from node topology region and zone labels |
+| Vulnerabilities      | Severity counts aggregated from Trivy Operator VulnerabilityReports |
+| PolicyReport Ingest  | Fail and warn results from Kyverno, Gatekeeper, and other PolicyReport writers |
 
 For every scanner, fleetsweeper compares the data across clusters and flags
 divergences with severity levels (critical, warning, info). Findings name

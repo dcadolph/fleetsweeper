@@ -18,7 +18,7 @@ slack:
   webhookURL: https://hooks.slack.com/services/...
 ```
 
-## Behaviour
+## Behavior
 
 - Only **new** critical findings post. A fingerprint of each posted finding
   is remembered so a recurring scan does not re-notify on unchanged

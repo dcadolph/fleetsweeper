@@ -1,6 +1,6 @@
 # Fleet Score
 
-The Fleet Score is a single 0-100 number that summarises fleet health from
+The Fleet Score is a single 0-100 number that summarizes fleet health from
 the most recent scan. A letter grade (A-F) is rendered alongside for quick
 recognition.
 

@@ -2,7 +2,7 @@
 
 The `image-audit` scanner can resolve container image manifests against
 their registries when `--probe-registries` is enabled. Authentication
-honours pod `imagePullSecrets` and the namespace's default ServiceAccount
+honors pod `imagePullSecrets` and the namespace's default ServiceAccount
 secrets, so private registries with `kubernetes.io/dockerconfigjson` Secrets
 work out of the box.
 

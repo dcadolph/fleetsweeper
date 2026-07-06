@@ -33,7 +33,7 @@ in the same directory.
 | `fleetsweeper_fleet_score` | gauge | `scan_id` | Overall fleet health, 0-100 |
 | `fleetsweeper_fleet_score_timestamp_seconds` | gauge |. | Unix time the metrics were written |
 | `fleetsweeper_findings_total` | gauge | `severity` | Findings emitted by the latest scan |
-| `fleetsweeper_clusters_total` | gauge |. | Number of clusters analysed |
+| `fleetsweeper_clusters_total` | gauge |. | Number of clusters analyzed |
 | `fleetsweeper_cluster_score` | gauge | `cluster`, `grade` | Per-cluster health, 0-100 |
 | `fleetsweeper_cluster_outlier` | gauge | `cluster` | Set to 1 for clusters flagged as outliers |
 

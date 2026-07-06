@@ -14,7 +14,7 @@ matters because the rest of your fleet decided otherwise.
 
 Fleetsweeper inverts the question. Instead of "does this cluster violate
 the rulebook?", it asks "does this cluster diverge from the rest of your
-fleet?". The baseline is *your fleet's median behaviour*. The findings are
+fleet?". The baseline is *your fleet's median behavior*. The findings are
 the outliers.
 
 ## Why this works at scale
@@ -29,7 +29,7 @@ the outliers.
 
 ## What it cannot do
 
-- **Flag the right behaviour when the whole fleet is wrong.** If every
+- **Flag the right behavior when the whole fleet is wrong.** If every
   cluster uses `:latest` tags, no clusters are outliers. And no findings
   fire. For that you still want a rulebook.
 - **Compare a single cluster to itself.** With only one cluster there is no

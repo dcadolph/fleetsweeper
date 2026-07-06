@@ -29,7 +29,7 @@ Then scrape `:8081/metrics`. The admin endpoint also exposes pprof at
 
 `deploy/grafana/fleet-overview.json` ships a starter dashboard with:
 
-- Fleet Score gauge with grade-coloured thresholds.
+- Fleet Score gauge with grade-colored thresholds.
 - Cluster health heatmap.
 - Findings by severity over time.
 - Scan duration p95.

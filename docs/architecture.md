@@ -67,6 +67,6 @@ are:
 
 ## Where to go next
 
-- [Scanners](concepts/scanners.md). The 16 dimensions checked per cluster.
+- [Scanners](concepts/scanners.md). The 24 dimensions checked per cluster.
 - [Fleet Score](concepts/fleet-score.md). How the 0-100 number is computed.
 - [Outliers](concepts/outliers.md). MAD-based outlier detection details.

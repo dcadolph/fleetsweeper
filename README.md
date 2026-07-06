@@ -65,7 +65,7 @@ pipelines in [`docs/operator/rbac.md`](docs/operator/rbac.md).
 
 | You already use            | What it tells you                                | What Fleetsweeper adds                                                              |
 | -------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `kubectl`, k9s             | The state of one cluster, right now.             | A fleet-wide comparison across 16 dimensions. Names the outlier.                    |
+| `kubectl`, k9s             | The state of one cluster, right now.             | A fleet-wide comparison across 24 dimensions. Names the outlier.                    |
 | Argo CD, Flux              | Whether each cluster matches its manifest.       | Drift across clusters even when every cluster matches its own source of truth.      |
 | Prometheus, Grafana        | Time series for what you remembered to instrument. | Statistical baselines derived from the fleet, with no rules to write.             |
 | Datadog Cluster Insights   | Per-cluster alerts scored by a vendor rulebook.  | The norm is your own fleet, not a vendor checklist.                                 |
@@ -83,7 +83,7 @@ admission webhook, and supply-chain signed images. Full checklist:
 **Start here**
 - [Getting started](docs/getting-started.md). First scan, persistence, history, groups.
 - [Architecture](docs/architecture.md). How the pipeline fits together.
-- [Scanners](docs/concepts/scanners.md). The 16 dimensions Fleetsweeper checks.
+- [Scanners](docs/concepts/scanners.md). The 24 dimensions Fleetsweeper checks.
 
 **Concepts**
 - [The fleet is the policy](docs/concepts/fleet-is-policy.md). Why norm-based detection scales.

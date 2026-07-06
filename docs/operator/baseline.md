@@ -3,7 +3,7 @@
 The admission webhook compares incoming pods against a fleet-derived
 baseline of fractions (digest-pinned, non-root, named-SA, etc.). That
 baseline changes every time a new scan lands. For most teams that
-self-tuning behaviour is the feature: as the fleet improves, the bar
+self-tuning behavior is the feature: as the fleet improves, the bar
 moves with it. For teams running `mode: enforce`, a sudden drop in any
 fraction is a footgun. Every new pod silently passes a stricter check
 on Monday than it did on Friday, or vice versa.
