@@ -1,0 +1,10 @@
+# Release image built by goreleaser. The build context contains only the
+# prebuilt binary for the target platform; use the root Dockerfile for
+# standalone from-source builds.
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY fleetsweeper /usr/local/bin/fleetsweeper
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/fleetsweeper"]
+CMD ["serve", "--addr", ":8080"]

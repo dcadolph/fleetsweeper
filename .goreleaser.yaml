@@ -41,7 +41,7 @@ archives:
 dockers:
   - image_templates:
       - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-amd64"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -49,7 +49,7 @@ dockers:
       - "--label=org.opencontainers.image.licenses=MIT"
   - image_templates:
       - "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}-arm64"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     use: buildx
     goarch: arm64
     build_flag_templates:
