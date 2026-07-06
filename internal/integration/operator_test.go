@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -101,7 +102,7 @@ func installClusterScanCRD(t *testing.T, kubeconfigPath string) error {
 	}
 	scheme := runtime.NewScheme()
 	utilruntime.Must(apiextv1.AddToScheme(scheme))
-	dec := yaml.NewYAMLOrJSONDecoder(bytesReader(raw), 4096)
+	dec := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(raw), 4096)
 	var crd apiextv1.CustomResourceDefinition
 	if err := dec.Decode(&crd); err != nil {
 		return err
@@ -115,10 +116,20 @@ func installClusterScanCRD(t *testing.T, kubeconfigPath string) error {
 	if err != nil {
 		return err
 	}
-	_, err = cs.ApiextensionsV1().CustomResourceDefinitions().Create(
-		context.Background(), &crd, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return err
+	// Retry the create so a transient connection error against a freshly
+	// started apiserver does not fail the whole test.
+	createDeadline := time.Now().Add(60 * time.Second)
+	for {
+		_, err = cs.ApiextensionsV1().CustomResourceDefinitions().Create(
+			context.Background(), &crd, metav1.CreateOptions{})
+		if err == nil || apierrors.IsAlreadyExists(err) {
+			break
+		}
+		if time.Now().After(createDeadline) {
+			return err
+		}
+		t.Logf("create CRD retry: %v", err)
+		time.Sleep(2 * time.Second)
 	}
 
 	// Wait for the CRD to register with the apiserver discovery.
@@ -192,37 +203,6 @@ func waitForPhase(ctx context.Context, t *testing.T, dyn dynamic.Interface, name
 	}
 	return context.DeadlineExceeded
 }
-
-// bytesReader wraps a byte slice so it satisfies io.Reader without taking
-// a dependency on bytes.NewReader's exact return type in tests.
-func bytesReader(b []byte) *byteSliceReader {
-	return &byteSliceReader{data: b}
-}
-
-// byteSliceReader is a minimal io.Reader over a byte slice.
-type byteSliceReader struct {
-	data []byte
-	pos  int
-}
-
-// Read copies bytes into p and advances the cursor.
-func (r *byteSliceReader) Read(p []byte) (int, error) {
-	if r.pos >= len(r.data) {
-		return 0, errEOF
-	}
-	n := copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}
-
-// errEOF is the EOF sentinel for byteSliceReader.
-var errEOF = errEOFType{}
-
-// errEOFType implements io.EOF semantics without importing io directly.
-type errEOFType struct{}
-
-// Error returns "EOF" so callers that string-match see the expected token.
-func (errEOFType) Error() string { return "EOF" }
 
 // repoRoot returns the absolute path to the repository root. Computed by
 // walking up from the current test file's location.
