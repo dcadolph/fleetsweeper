@@ -82,28 +82,23 @@ sboms:
     documents:
       - "${artifact}.spdx.sbom.json"
 
-# Keyless cosign signatures for binary archives via Sigstore. Operators can
-# verify with:
+# Keyless cosign signature for the checksums file via Sigstore, in the
+# cosign v3 bundle format. Operators can verify with:
 #   cosign verify-blob \
-#     --certificate fleetsweeper_<ver>_<os>_<arch>.tar.gz.pem \
-#     --signature  fleetsweeper_<ver>_<os>_<arch>.tar.gz.sig \
-#     --certificate-identity-regexp "https://github.com/dcadolph/fleetsweeper/.*" \
-#     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-#     fleetsweeper_<ver>_<os>_<arch>.tar.gz
+#     --bundle checksums.txt.sigstore.json \
+#     --certificate-identity <signer identity> \
+#     --certificate-oidc-issuer <signer OIDC issuer> \
+#     checksums.txt
 signs:
   - cmd: cosign
     args:
       - sign-blob
       - "--yes"
-      # cosign v3 defaults to the sigstore bundle format; keep the split
-      # .sig / .pem outputs the verify instructions above rely on.
-      - "--new-bundle-format=false"
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
+      - "--bundle=${signature}"
       - "${artifact}"
+    signature: "${artifact}.sigstore.json"
     artifacts: checksum
     output: true
-    certificate: "${artifact}.pem"
 
 # Keyless cosign signatures for the published images. Operators can verify
 # with:
