@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -14,6 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 )
 
 // mergePatchType is the patch strategy used for status updates. The status
@@ -21,9 +23,19 @@ import (
 // status, which matches the controller's incremental update pattern.
 const mergePatchType = types.MergePatchType
 
+// informerResync is the shared informer's full-resync period. Watch events
+// carry spec changes immediately; the resync is a safety net against missed
+// events.
+const informerResync = 10 * time.Minute
+
+// reconcileWorkers is the number of goroutines draining the workqueue. The
+// queue serializes work per key, so one slow scan never blocks reconciliation
+// of other ClusterScans.
+const reconcileWorkers = 4
+
 // ScanRunner is the abstraction the controller uses to actually execute a
 // scan. The server's Server type satisfies this interface; tests can substitute
-// a fake to assert reconciliation behaviour without spinning up scanners.
+// a fake to assert reconciliation behavior without spinning up scanners.
 type ScanRunner interface {
 	// ScanOnce executes one scan with the given options and returns the summary.
 	// Implementations must be safe to call concurrently from multiple goroutines.
@@ -73,8 +85,8 @@ type Config struct {
 	Runner ScanRunner
 	// Log is the structured logger.
 	Log *zap.Logger
-	// PollInterval is how often the controller lists ClusterScans to check for
-	// due scans. Defaults to 15s when zero.
+	// PollInterval is how often cached ClusterScans are re-enqueued to check
+	// for due scans. Defaults to 15s when zero.
 	PollInterval time.Duration
 }
 
@@ -85,11 +97,6 @@ type Controller struct {
 	runner    ScanRunner
 	log       *zap.Logger
 	poll      time.Duration
-
-	// inFlight tracks resources with a scan currently executing so the next
-	// reconciliation pass does not double-fire on a slow scan.
-	mu       sync.Mutex
-	inFlight map[string]struct{}
 }
 
 // New returns a Controller. Panics when required fields are nil to surface
@@ -113,53 +120,104 @@ func New(cfg Config) *Controller {
 		runner:    cfg.Runner,
 		log:       cfg.Log,
 		poll:      cfg.PollInterval,
-		inFlight:  make(map[string]struct{}),
 	}
 }
 
-// Run reconciles ClusterScan resources until ctx is cancelled. It returns nil
-// on a clean shutdown and a wrapped error on the first unrecoverable failure.
+// Run reconciles ClusterScan resources until ctx is canceled. A shared
+// informer watches for spec changes so new or edited resources reconcile
+// immediately; a ticker re-enqueues cached resources so interval-due scans
+// fire without a watch event. Returns nil on a clean shutdown.
 func (c *Controller) Run(ctx context.Context) error {
 	c.log.Info("controller starting",
 		zap.String("namespace", c.namespace),
 		zap.Duration("poll", c.poll),
 	)
+
+	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(c.dyn, informerResync, c.namespace, nil)
+	informer := factory.ForResource(ClusterScanGVR).Informer()
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+
+	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    func(obj any) { enqueue(queue, obj) },
+		UpdateFunc: func(_, obj any) { enqueue(queue, obj) },
+	})
+	if err != nil {
+		return fmt.Errorf("controller: register event handler: %w", err)
+	}
+
+	factory.Start(ctx.Done())
+	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
+		return errors.New("controller: informer cache sync failed")
+	}
+
+	go c.requeueLoop(ctx, informer.GetStore(), queue)
+
+	done := make(chan struct{}, reconcileWorkers)
+	for range reconcileWorkers {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for c.processNext(ctx, queue, informer.GetStore()) {
+			}
+		}()
+	}
+
+	<-ctx.Done()
+	queue.ShutDown()
+	for range reconcileWorkers {
+		<-done
+	}
+	c.log.Info("controller stopped")
+	return nil
+}
+
+// requeueLoop re-enqueues every cached ClusterScan on the poll interval so
+// interval-due scans fire even when nothing changes on the API server.
+func (c *Controller) requeueLoop(ctx context.Context, store cache.Store, queue workqueue.TypedRateLimitingInterface[string]) {
 	ticker := time.NewTicker(c.poll)
 	defer ticker.Stop()
-
-	c.reconcileAll(ctx)
 	for {
 		select {
 		case <-ctx.Done():
-			c.log.Info("controller stopped")
-			return nil
+			return
 		case <-ticker.C:
-			c.reconcileAll(ctx)
+			for _, obj := range store.List() {
+				enqueue(queue, obj)
+			}
 		}
 	}
 }
 
-// reconcileAll lists every ClusterScan in the configured namespace scope and
-// reconciles each. Errors are logged so a transient API server hiccup does not
-// kill the controller loop.
-func (c *Controller) reconcileAll(ctx context.Context) {
-	list, err := c.list(ctx)
-	if err != nil {
-		c.log.Warn("controller: list failed", zap.Error(err))
-		return
+// processNext reconciles one queue item. The workqueue guarantees a key is
+// never handed to two workers at once, so per-resource work is serialized.
+// Returns false when the queue has shut down.
+func (c *Controller) processNext(ctx context.Context, queue workqueue.TypedRateLimitingInterface[string], store cache.Store) bool {
+	key, shutdown := queue.Get()
+	if shutdown {
+		return false
 	}
-	for i := range list.Items {
-		item := &list.Items[i]
-		c.reconcile(ctx, item)
+	defer queue.Done(key)
+	defer queue.Forget(key)
+
+	obj, exists, err := store.GetByKey(key)
+	if err != nil || !exists {
+		return true
 	}
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return true
+	}
+	c.reconcile(ctx, u.DeepCopy())
+	return true
 }
 
-// list returns every ClusterScan visible in the configured namespace.
-func (c *Controller) list(ctx context.Context) (*unstructured.UnstructuredList, error) {
-	if c.namespace == "" {
-		return c.dyn.Resource(ClusterScanGVR).Namespace("").List(ctx, metav1.ListOptions{})
+// enqueue adds the object's namespace/name key to the queue. Objects without
+// a derivable key are ignored.
+func enqueue(queue workqueue.TypedRateLimitingInterface[string], obj any) {
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		return
 	}
-	return c.dyn.Resource(ClusterScanGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{})
+	queue.Add(key)
 }
 
 // reconcile processes a single ClusterScan resource: decides whether a scan
@@ -223,12 +281,6 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 		}
 		return
 	}
-
-	if !c.tryClaim(key) {
-		recordReconcileOK()
-		return
-	}
-	defer c.release(key)
 
 	running := ClusterScanStatus{
 		Phase:        PhaseRunning,
@@ -301,26 +353,6 @@ func (c *Controller) patchStatus(ctx context.Context, obj *unstructured.Unstruct
 	}
 }
 
-// tryClaim returns true when the caller acquired the inflight slot for key.
-// Returns false when another goroutine is already running a scan for the
-// same key, in which case the caller should skip this reconciliation pass.
-func (c *Controller) tryClaim(key string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, busy := c.inFlight[key]; busy {
-		return false
-	}
-	c.inFlight[key] = struct{}{}
-	return true
-}
-
-// release frees the inflight slot for key.
-func (c *Controller) release(key string) {
-	c.mu.Lock()
-	delete(c.inFlight, key)
-	c.mu.Unlock()
-}
-
 // readSpec decodes the spec section into a typed ClusterScanSpec. Returns an
 // error when the spec is malformed beyond what the CRD schema enforces.
 func readSpec(obj *unstructured.Unstructured) (ClusterScanSpec, error) {
@@ -360,7 +392,7 @@ func readStatus(obj *unstructured.Unstructured) ClusterScanStatus {
 	return out
 }
 
-// buildStatusPatch serialises a strategic-merge style patch body containing
+// buildStatusPatch serializes a strategic-merge style patch body containing
 // only the status fields the controller manages.
 func buildStatusPatch(status ClusterScanStatus) ([]byte, error) {
 	body := map[string]any{"status": statusToMap(status)}

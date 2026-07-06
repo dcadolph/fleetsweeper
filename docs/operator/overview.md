@@ -24,13 +24,15 @@ schedules scans, writes status back, and emits artefacts.
 +-------------------------------------------------+
 ```
 
-One process runs both the HTTP API and the controller. The controller polls
-the API server every `--controller-poll` (default 15s), lists all
-`ClusterScan` resources in the configured namespace scope, and triggers a
-scan for any resource whose `interval` has elapsed since `status.lastScanTime`.
+One process runs both the HTTP API and the controller. The controller
+watches `ClusterScan` resources through a shared informer, so new or edited
+resources reconcile immediately. A ticker re-checks the informer cache every
+`--controller-poll` (default 15s) and triggers a scan for any resource whose
+`interval` has elapsed since `status.lastScanTime`.
 
-Concurrency is bounded by both the per-resource in-flight set and the
-global scan mutex, so a slow scan never causes a stampede.
+Reconciliation runs through a workqueue that serializes work per resource
+and spreads it across a small worker pool, so a slow scan never blocks other
+resources or causes a stampede.
 
 ## Enabling the controller
 

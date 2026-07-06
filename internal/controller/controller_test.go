@@ -52,7 +52,7 @@ func TestControllerMetricsRecord(t *testing.T) {
 	)
 	runner := &fakeRunner{summary: ScanSummary{ScanID: "m1", Score: 75, Grade: "C", Clusters: 1}}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: nopLogger()})
-	c.reconcileAll(context.Background())
+	reconcileOne(t, c, dyn, "default", "metrics-test")
 
 	if reconcileTotal.Load() != 1 {
 		t.Errorf("reconcileTotal: want 1, got %d", reconcileTotal.Load())
@@ -94,7 +94,7 @@ func TestReconcileDueScanFires(t *testing.T) {
 		PollInterval: time.Second,
 	})
 
-	c.reconcileAll(context.Background())
+	reconcileOne(t, c, dyn, "default", "prod")
 
 	if runner.callCount() != 1 {
 		t.Fatalf("want 1 scan invocation, got %d", runner.callCount())
@@ -119,7 +119,7 @@ func TestReconcileDueScanFires(t *testing.T) {
 	}
 }
 
-// TestReconcilePausedSkips verifies spec.paused is honoured.
+// TestReconcilePausedSkips verifies spec.paused is honored.
 func TestReconcilePausedSkips(t *testing.T) {
 	t.Parallel()
 	dyn, gvr := newFakeDynamic(t,
@@ -132,7 +132,7 @@ func TestReconcilePausedSkips(t *testing.T) {
 	runner := &fakeRunner{}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	c.reconcileAll(context.Background())
+	reconcileOne(t, c, dyn, "default", "paused-scan")
 
 	if runner.callCount() != 0 {
 		t.Errorf("paused resource should not trigger a scan, got %d calls", runner.callCount())
@@ -158,7 +158,7 @@ func TestReconcileNotYetDueSkips(t *testing.T) {
 	runner := &fakeRunner{}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	c.reconcileAll(context.Background())
+	reconcileOne(t, c, dyn, "default", "recent")
 
 	if runner.callCount() != 0 {
 		t.Errorf("not-yet-due resource should not scan, got %d calls", runner.callCount())
@@ -177,7 +177,7 @@ func TestReconcileFailedScanRecordsPhase(t *testing.T) {
 	runner := &fakeRunner{err: errors.New("no clusters reachable")}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	c.reconcileAll(context.Background())
+	reconcileOne(t, c, dyn, "default", "doomed")
 
 	obj, _ := dyn.Resource(gvr).Namespace("default").Get(context.Background(), "doomed", metav1.GetOptions{})
 	if readStatus(obj).Phase != PhaseFailed {
@@ -197,7 +197,7 @@ func TestReconcileInvalidIntervalRecordsFailure(t *testing.T) {
 	runner := &fakeRunner{}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	c.reconcileAll(context.Background())
+	reconcileOne(t, c, dyn, "default", "bad")
 
 	if runner.callCount() != 0 {
 		t.Error("bad interval should not trigger a scan")
@@ -205,6 +205,49 @@ func TestReconcileInvalidIntervalRecordsFailure(t *testing.T) {
 	obj, _ := dyn.Resource(gvr).Namespace("default").Get(context.Background(), "bad", metav1.GetOptions{})
 	if readStatus(obj).Phase != PhaseFailed {
 		t.Errorf("phase: want Failed, got %s", readStatus(obj).Phase)
+	}
+}
+
+// TestRunWatchTriggersScan verifies the informer path end to end: a resource
+// created after the controller starts is reconciled from its watch event, well
+// before the first poll tick.
+func TestRunWatchTriggersScan(t *testing.T) {
+	t.Parallel()
+	dyn, gvr := newFakeDynamic(t)
+	runner := &fakeRunner{summary: ScanSummary{ScanID: "w1", Score: 90, Grade: "A", Clusters: 1}}
+	c := New(Config{
+		Dynamic:      dyn,
+		Runner:       runner,
+		Log:          zap.NewNop(),
+		PollInterval: time.Hour,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- c.Run(ctx) }()
+
+	obj := newClusterScan("default", "watched", map[string]any{
+		"interval": "15m",
+		"contexts": []any{"a"},
+	})
+	if _, err := dyn.Resource(gvr).Namespace("default").Create(context.Background(), obj, metav1.CreateOptions{}); err != nil {
+		cancel()
+		t.Fatalf("create cr: %v", err)
+	}
+
+	deadline := time.After(5 * time.Second)
+	for runner.callCount() == 0 {
+		select {
+		case <-deadline:
+			cancel()
+			t.Fatal("scan was not triggered by the watch event")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	cancel()
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run returned error: %v", err)
 	}
 }
 
@@ -220,6 +263,17 @@ func newClusterScan(namespace, name string, spec map[string]any) *unstructured.U
 		},
 		"spec": spec,
 	}}
+}
+
+// reconcileOne fetches the named ClusterScan and reconciles it directly,
+// standing in for the informer-driven path in Run.
+func reconcileOne(t *testing.T, c *Controller, dyn dynamic.Interface, namespace, name string) {
+	t.Helper()
+	obj, err := dyn.Resource(ClusterScanGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get cr: %v", err)
+	}
+	c.reconcile(context.Background(), obj)
 }
 
 // newFakeDynamic returns a dynamic.Interface backed by a fake clientset

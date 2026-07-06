@@ -30,7 +30,7 @@ type ClusterScanSpec struct {
 	// Scanners restricts the scan to the named scanners. Empty runs all.
 	Scanners []string `json:"scanners,omitempty"`
 	// Emit selects which artefacts to emit after each scan.
-	Emit EmitOptions `json:"emit,omitempty"`
+	Emit EmitOptions `json:"emit"`
 	// Paused, when true, makes the controller skip reconciliation.
 	Paused bool `json:"paused,omitempty"`
 }
