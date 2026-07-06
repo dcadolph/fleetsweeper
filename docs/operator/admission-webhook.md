@@ -50,8 +50,13 @@ admission:
     cert-manager.io/inject-ca-from: fleetsweeper/fleetsweeper-admission-cert
 ```
 
-Or run with the self-signed cert fleetsweeper generates at startup and
-inject the CA bundle by other means (kubectl patch, custom Job, etc.).
+Or run with the generated certificate and inject the CA bundle by other
+means (kubectl patch, custom Job, etc.). Fleetsweeper issues the serving
+cert from an internal CA and rotates it automatically before expiry; the
+CA bundle stays valid for ten years, so it is patched once. File-backed
+certificates (`--admission-cert` / `--admission-key`) are reloaded from
+disk when the files change, so cert-manager secret rotation needs no
+restart.
 
 ## What it does not do
 

@@ -33,9 +33,8 @@ type ServerConfig struct {
 // main fleetsweeper server: ListenAndServeTLS until the supplied context
 // cancels, then Shutdown.
 type Server struct {
-	cfg  ServerConfig
-	cert tls.Certificate
-	caPEM []byte
+	cfg        ServerConfig
+	certs      *CertSource
 	httpServer *http.Server
 }
 
@@ -51,7 +50,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Addr == "" {
 		cfg.Addr = ":8443"
 	}
-	cert, caPEM, err := LoadOrGenerateCertificate(cfg.CertPath, cfg.KeyPath, cfg.DNSNames)
+	certs, err := NewCertSource(cfg.CertPath, cfg.KeyPath, cfg.DNSNames)
 	if err != nil {
 		return nil, err
 	}
@@ -60,14 +59,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	return &Server{
 		cfg:   cfg,
-		cert:  cert,
-		caPEM: caPEM,
+		certs: certs,
 		httpServer: &http.Server{
 			Addr:    cfg.Addr,
 			Handler: mux,
 			TLSConfig: &tls.Config{
-				MinVersion:   tls.VersionTLS12,
-				Certificates: []tls.Certificate{cert},
+				MinVersion:     tls.VersionTLS12,
+				GetCertificate: certs.GetCertificate,
 			},
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
@@ -79,10 +77,11 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 
 // CABundle returns the PEM-encoded CA bundle the apiserver should use to
 // verify the webhook. Callers patch this into the
-// ValidatingWebhookConfiguration's webhook.clientConfig.caBundle.
-func (s *Server) CABundle() []byte { return s.caPEM }
+// ValidatingWebhookConfiguration's webhook.clientConfig.caBundle. The bundle
+// stays valid across serving-cert rotations.
+func (s *Server) CABundle() []byte { return s.certs.CABundle() }
 
-// Run serves the admission endpoint until ctx is cancelled. Returns nil on
+// Run serves the admission endpoint until ctx is canceled. Returns nil on
 // a clean shutdown.
 func (s *Server) Run(ctx context.Context) error {
 	s.cfg.Log.Info("admission server listening",
