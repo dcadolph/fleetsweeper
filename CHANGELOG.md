@@ -5,7 +5,12 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
-## [Unreleased]
+## [0.1.0] - 2026-07-06
+
+Initial public preview. Twenty-four scanners, MAD-based outlier detection,
+OLS regression with t-statistic gating for trends, SQLite and Postgres
+history, cluster groups, 3D globe view, demo mode, Helm chart,
+least-privilege RBAC, ClusterScan operator, and admission webhook.
 
 ### Added
 
@@ -57,17 +62,6 @@ reaches v1.0.0.
   enforcement applies on every endpoint so a scoped viewer can't see
   or modify tags on clusters outside its actor scope. Conventional
   keys: `env=prod`, `tier=critical`, `owner=team-a`.
-- **Three new composite GitHub Actions** under `.github/actions/`:
-  `drift` (pre-flight CI gate against a staging context with optional
-  pinned baseline), `whatchanged` (post-deploy verification with
-  `fail-on-new-critical` and `fail-on-score-drop` gates), and
-  `recommend` (renders the leverage-ranked action list with optional
-  `pr-comment: "true"` to post the top-N fixes back to the triggering
-  PR). Each one downloads the released binary on first run, caches
-  it in `~/.fleetsweeper/bin`, emits a job summary, and exposes
-  structured outputs. A new example workflow at
-  `.github/workflows/fleetsweeper-pr.example.yml` wires all three
-  together as a PR-time review pipeline.
 - **Cinematic explainer.** Browser-rendered SVG cinematic at
   `/cinematic` walks the Fleetsweeper story across ten scenes (~95s
   total): fleet of clusters, drift table, statistical outlier
@@ -376,7 +370,6 @@ reaches v1.0.0.
   projected trajectory.
 - Cost correlation: provide a CSV of cluster spend and `/api/cost` returns
   drift cost per cluster, no cloud SDK dependencies.
-- GitHub composite action at `.github/actions/scan/action.yml` for CI gating.
 - Fleet Score: a single 0-100 indicator on the dashboard summarising fleet
   health, with a week-over-week delta. Computed from cluster health,
   finding severities, and version skew.
@@ -406,8 +399,3 @@ reaches v1.0.0.
 - `demo.db` and SQLite WAL files are no longer tracked. They are created on
   demand in `:memory:` when `--demo` is used without `--db`.
 
-## [0.1.0] - TBD
-
-Initial public preview. Sixteen scanners, MAD-based outlier detection, OLS
-regression with t-statistic gating for trends, SQLite history, cluster
-groups, 3D globe view, demo mode, Helm chart, least-privilege RBAC.
