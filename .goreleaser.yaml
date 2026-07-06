@@ -95,6 +95,9 @@ signs:
     args:
       - sign-blob
       - "--yes"
+      # cosign v3 defaults to the sigstore bundle format; keep the split
+      # .sig / .pem outputs the verify instructions above rely on.
+      - "--new-bundle-format=false"
       - "--output-signature=${signature}"
       - "--output-certificate=${certificate}"
       - "${artifact}"
