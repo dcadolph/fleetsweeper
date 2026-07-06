@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,12 +31,7 @@ type Actor struct {
 
 // HasWildcardScope reports whether the actor may act on any cluster.
 func (a *Actor) HasWildcardScope() bool {
-	for _, s := range a.ClusterScope {
-		if s == store.ScopeWildcard {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.ClusterScope, store.ScopeWildcard)
 }
 
 // AllowsCluster reports whether the actor may act on the given cluster.
@@ -51,10 +47,8 @@ func (a *Actor) AllowsCluster(cluster string, groupLookup func(name string) []st
 		}
 		if groupLookup != nil && strings.HasPrefix(entry, "group:") {
 			groupName := strings.TrimPrefix(entry, "group:")
-			for _, member := range groupLookup(groupName) {
-				if member == cluster {
-					return true
-				}
+			if slices.Contains(groupLookup(groupName), cluster) {
+				return true
 			}
 		}
 	}
@@ -85,7 +79,7 @@ func withActor(ctx context.Context, a *Actor) context.Context {
 }
 
 // actorFromContext returns the resolved Actor or a deny-all default when
-// authentication did not run (defence in depth; should not happen in practice).
+// authentication did not run (defense in depth; should not happen in practice).
 func actorFromContext(ctx context.Context) *Actor {
 	if a, ok := ctx.Value(actorCtxKey{}).(*Actor); ok && a != nil {
 		return a

@@ -232,7 +232,7 @@ type sessionPayload struct {
 	ExpiresAt int64 `json:"exp"`
 }
 
-// encodeSession serialises and signs a session payload.
+// encodeSession serializes and signs a session payload.
 func encodeSession(p sessionPayload, secret string) (string, error) {
 	body, err := json.Marshal(p)
 	if err != nil {

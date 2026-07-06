@@ -108,7 +108,7 @@ func TestListScans(t *testing.T) {
 	ctx := context.Background()
 
 	// Save 3 scans.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		clusters := []string{fmt.Sprintf("cluster-%d", i)}
 		results := map[string]map[string]scanner.Result{
 			clusters[0]: {"version": {Scanner: "version", Data: map[string]any{"i": float64(i)}}},
@@ -254,7 +254,7 @@ func TestGetClusterHistory(t *testing.T) {
 	ctx := context.Background()
 
 	// Save 3 scans for the same cluster.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		results := map[string]map[string]scanner.Result{
 			"alpha": {"version": {Scanner: "version", Data: map[string]any{"i": float64(i)}}},
 		}

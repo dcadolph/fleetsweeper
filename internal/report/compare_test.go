@@ -14,10 +14,10 @@ func TestBuild(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		WantUniform bool
+		WantUniform         bool
 		WantDivergenceCount int
-		Clusters    []string
-		Results     map[string]map[string]scanner.Result
+		Clusters            []string
+		Results             map[string]map[string]scanner.Result
 	}{{ // Test 0: Uniform clusters.
 		Clusters: []string{"a", "b"},
 		Results: map[string]map[string]scanner.Result{

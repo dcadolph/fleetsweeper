@@ -19,7 +19,7 @@ import (
 var diagnoseCmd = &cobra.Command{
 	Use:   "diagnose",
 	Short: "Check that every configured integration is wired up correctly",
-	Long: "Run a coloured pass/fail grid of every Fleetsweeper integration. " +
+	Long: "Run a colored pass/fail grid of every Fleetsweeper integration. " +
 		"By default only local validation runs (URL parsing, file writability). " +
 		"Pass --probe to also exercise external systems (Slack webhook, GitHub API).",
 	RunE: runDiagnose,

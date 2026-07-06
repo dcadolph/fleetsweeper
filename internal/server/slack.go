@@ -27,7 +27,7 @@ const slackNotifyTimeout = 8 * time.Second
 const slackDedupTTL = 6 * time.Hour
 
 // slackMaxFindingsPerPost caps how many critical findings appear in a single
-// Slack message body. The remainder is summarised inline so the message stays
+// Slack message body. The remainder is summarized inline so the message stays
 // readable.
 const slackMaxFindingsPerPost = 8
 
@@ -165,7 +165,7 @@ type slackPayload struct {
 }
 
 // slackBlock is a single Slack Block Kit block. Only the fields we use are
-// modelled; Slack tolerates unknown keys gracefully.
+// modeled; Slack tolerates unknown keys gracefully.
 type slackBlock struct {
 	// Type is the block type, for example "header", "section", "divider".
 	Type string `json:"type"`
@@ -206,10 +206,7 @@ func buildSlackPayload(fresh []report.Finding, r *report.Report) slackPayload {
 	}
 	blocks = append(blocks, slackBlock{Type: "divider"})
 
-	limit := len(fresh)
-	if limit > slackMaxFindingsPerPost {
-		limit = slackMaxFindingsPerPost
-	}
+	limit := min(len(fresh), slackMaxFindingsPerPost)
 	for _, f := range fresh[:limit] {
 		blocks = append(blocks, findingBlock(f))
 	}

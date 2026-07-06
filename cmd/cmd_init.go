@@ -40,10 +40,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	files := map[string]string{
-		"values.yaml":        renderStarterValues(starterToken()),
-		"clusterscan.yaml":   starterClusterScan,
-		"serve-config.yaml":  starterServeConfig,
-		"README.md":          starterReadme,
+		"values.yaml":       renderStarterValues(starterToken()),
+		"clusterscan.yaml":  starterClusterScan,
+		"serve-config.yaml": starterServeConfig,
+		"README.md":         starterReadme,
 	}
 
 	for name, body := range files {

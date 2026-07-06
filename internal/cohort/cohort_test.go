@@ -162,9 +162,9 @@ func TestProfiles(t *testing.T) {
 func TestMinorVersionExtractor(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		In      any
-		Want    float64
-		WantOK  bool
+		In     any
+		Want   float64
+		WantOK bool
 	}{
 		{In: "31", Want: 31, WantOK: true},
 		{In: "31+", Want: 31, WantOK: true},

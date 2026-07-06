@@ -74,7 +74,7 @@ func TestDetectNumericOutliers(t *testing.T) {
 	// 50 clusters with node count 5-7, 2 clusters with node count 50.
 	clusters := make([]string, 52)
 	results := make(map[string]map[string]scanner.Result, 52)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		name := fmt.Sprintf("cluster-%d", i)
 		clusters[i] = name
 		nodeCount := float64(5 + i%3)

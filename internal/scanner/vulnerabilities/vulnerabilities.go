@@ -71,7 +71,7 @@ type Data struct {
 	Medium int `json:"medium"`
 	// Low is the count of LOW findings.
 	Low int `json:"low"`
-	// Unknown is the count of findings with an unrecognised severity.
+	// Unknown is the count of findings with an unrecognized severity.
 	Unknown int `json:"unknown"`
 	// TopImages lists the worst offenders by total findings.
 	TopImages []VulnerableImage `json:"top_images"`
@@ -102,7 +102,7 @@ func NewScanner() scanner.Scanner {
 // parseReport extracts severity counts and per-image attribution from one
 // VulnerabilityReport. The CR shape is taken from the Trivy Operator's
 // public schema; both `report.summary` and per-vulnerability arrays are
-// honoured so the scanner works with older and newer operator versions.
+// honored so the scanner works with older and newer operator versions.
 func parseReport(obj *unstructured.Unstructured, data *Data, seen map[string]*VulnerableImage) {
 	ns := obj.GetNamespace()
 	workload := obj.GetLabels()["trivy-operator.resource.name"]

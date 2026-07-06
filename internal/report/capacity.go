@@ -61,7 +61,7 @@ type clusterSignals struct {
 // Groups can be nil when no grouping is available.
 func AnalyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 	signals := extractAllSignals(r)
-	var analyses []CapacityAnalysis
+	var analyzes []CapacityAnalysis
 
 	// Build group membership lookup: cluster -> group names.
 	clusterGroups := make(map[string][]string)
@@ -80,17 +80,17 @@ func AnalyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 		}
 
 		ca := CapacityAnalysis{
-			Cluster:           cluster,
-			CPUUtilization:    sig.cpuPct,
-			MemoryUtilization: sig.memPct,
-			HasMemoryPressure: sig.memPressure > 0,
-			HasDiskPressure:   sig.diskPressure > 0,
-			HasOOMEvents:      sig.oomEvents,
+			Cluster:               cluster,
+			CPUUtilization:        sig.cpuPct,
+			MemoryUtilization:     sig.memPct,
+			HasMemoryPressure:     sig.memPressure > 0,
+			HasDiskPressure:       sig.diskPressure > 0,
+			HasOOMEvents:          sig.oomEvents,
 			HasSchedulingFailures: sig.schedFail,
-			NodeCount:         sig.nodeCount,
-			HealthyNodes:      sig.healthyNodes,
-			HeadroomCPU:       100 - sig.cpuPct,
-			HeadroomMemory:    100 - sig.memPct,
+			NodeCount:             sig.nodeCount,
+			HealthyNodes:          sig.healthyNodes,
+			HeadroomCPU:           100 - sig.cpuPct,
+			HeadroomMemory:        100 - sig.memPct,
 		}
 
 		ca.Status = assessStatus(sig)
@@ -110,15 +110,15 @@ func AnalyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 			break
 		}
 
-		analyses = append(analyses, ca)
+		analyzes = append(analyzes, ca)
 	}
 
-	sort.Slice(analyses, func(i, j int) bool {
+	sort.Slice(analyzes, func(i, j int) bool {
 		order := map[string]int{"critical": 0, "strained": 1, "busy": 2, "healthy": 3}
-		return order[analyses[i].Status] < order[analyses[j].Status]
+		return order[analyzes[i].Status] < order[analyzes[j].Status]
 	})
 
-	return analyses
+	return analyzes
 }
 
 // assessStatus determines cluster state by correlating signals, not just
@@ -221,10 +221,7 @@ func nodesNeeded(sig clusterSignals, targetPct float64) int {
 	// Need: usedUnits / totalNodes <= targetPct/100.
 	// totalNodes >= usedUnits / (targetPct/100).
 	needed := usedUnits / (targetPct / 100)
-	additional := int(math.Ceil(needed)) - sig.nodeCount
-	if additional < 1 {
-		additional = 1
-	}
+	additional := max(int(math.Ceil(needed))-sig.nodeCount, 1)
 	return additional
 }
 

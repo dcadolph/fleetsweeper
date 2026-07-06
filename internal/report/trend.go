@@ -67,9 +67,9 @@ type FleetTrend struct {
 // trendFields defines which (scanner, field) pairs we track trends for and
 // whether "up" is good or bad.
 var trendFields = []struct {
-	Scanner  string
-	Field    string
-	UpIsBad  bool
+	Scanner string
+	Field   string
+	UpIsBad bool
 }{
 	{"metrics", "avg_cpu_percent", true},
 	{"metrics", "avg_memory_percent", true},

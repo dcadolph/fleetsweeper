@@ -13,7 +13,7 @@ import (
 
 // Event is one server-sent event the dashboard or external consumers
 // subscribe to. The Type field is the SSE event name; Data is JSON-
-// serialised on the wire.
+// serialized on the wire.
 type Event struct {
 	// Type categorises the event (for example "scan.complete").
 	Type string `json:"type"`

@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -153,12 +154,8 @@ func buildAlertRecord(a alertManagerAlert, commonLabels, commonAnn map[string]st
 // mergeStringMaps returns a new map with overlay's keys winning over base.
 func mergeStringMaps(base, overlay map[string]string) map[string]string {
 	out := make(map[string]string, len(base)+len(overlay))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range overlay {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, overlay)
 	return out
 }
 

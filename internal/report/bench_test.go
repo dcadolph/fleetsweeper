@@ -9,7 +9,7 @@ import (
 )
 
 // BenchmarkBuild measures the cost of building a Report from a synthetic
-// per-cluster results map. Useful for catching accidental quadratic behaviour
+// per-cluster results map. Useful for catching accidental quadratic behavior
 // in the pipeline (compare → severity → findings → cluster health → outliers).
 func BenchmarkBuild(b *testing.B) {
 	clusters := makeClusterNames(50)

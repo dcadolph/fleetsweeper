@@ -29,7 +29,7 @@ type AckRecord struct {
 	Reason string `json:"reason,omitempty"`
 	// SnoozeUntil, when non-zero, is when the ack expires and the finding
 	// resumes alerting. Zero value means "permanent until removed".
-	SnoozeUntil time.Time `json:"snooze_until,omitempty"`
+	SnoozeUntil time.Time `json:"snooze_until"`
 	// CreatedAt is when the ack was recorded.
 	CreatedAt time.Time `json:"created_at"`
 }

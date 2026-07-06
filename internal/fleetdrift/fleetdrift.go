@@ -164,8 +164,8 @@ func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
 				Name:      sanitizeName(cluster),
 				Namespace: namespace,
 				Labels: map[string]string{
-					"fleetsweeper.io/cluster":     cluster,
-					"fleetsweeper.io/scan-id":     scanID,
+					"fleetsweeper.io/cluster":      cluster,
+					"fleetsweeper.io/scan-id":      scanID,
 					"app.kubernetes.io/managed-by": "fleetsweeper",
 				},
 			},

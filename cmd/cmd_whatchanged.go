@@ -289,7 +289,7 @@ func writeWhatChanged(w io.Writer, diff whatChangedDiff, jsonOut bool) error {
 	return nil
 }
 
-// renderFindingsBlock prints a labelled list of findings, or "(none)".
+// renderFindingsBlock prints a labeled list of findings, or "(none)".
 func renderFindingsBlock(w io.Writer, label string, findings []report.Finding) {
 	fmt.Fprintf(w, "%s (%d):\n", label, len(findings))
 	if len(findings) == 0 {

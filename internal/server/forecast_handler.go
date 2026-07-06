@@ -212,7 +212,7 @@ func demoClusterScoreHistories() (map[string][]report.FleetScoreHistoryPoint, ma
 			delta = 2
 		}
 		hist := make([]report.FleetScoreHistoryPoint, 10)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			offset := (9 - i) * delta
 			jitter := 0
 			if i%3 == 0 {

@@ -6,7 +6,7 @@ import (
 )
 
 // criticalFields maps scanner names to field names whose divergence is critical.
-// Kept narrow on purpose: a finding labelled critical should be page-worthy.
+// Kept narrow on purpose: a finding labeled critical should be page-worthy.
 var criticalFields = map[string]map[string]struct{}{
 	"security":          {"enforced_count": {}, "unenforced_count": {}},
 	"network-policies":  {"namespaces_without_policies": {}},

@@ -134,7 +134,7 @@ func TestScannerHandlesMissingCRD(t *testing.T) {
 	// produces Available=false in the package's main path; this test
 	// stays here to assert the contract for documentation purposes.
 	if !isNotFound(stubError("no matches for kind ConfigMap")) {
-		t.Error("expected no-matches phrasing to be recognised")
+		t.Error("expected no-matches phrasing to be recognized")
 	}
 	_ = unstructured.Unstructured{}
 	_ = metav1.ListOptions{}

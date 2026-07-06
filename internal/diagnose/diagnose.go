@@ -368,7 +368,7 @@ func FormatText(report Report, isatty bool) string {
 	return b.String()
 }
 
-// colorize wraps the given text in an ANSI colour suited to the status when
+// colorize wraps the given text in an ANSI color suited to the status when
 // the output is a TTY; returns plain text otherwise.
 func colorize(text string, status Status, isatty bool) string {
 	if !isatty {
@@ -387,7 +387,7 @@ func colorize(text string, status Status, isatty bool) string {
 	return text
 }
 
-// grey wraps text in a dim ANSI colour for hints; plain text when not a TTY.
+// grey wraps text in a dim ANSI color for hints; plain text when not a TTY.
 func grey(text string, isatty bool) string {
 	if !isatty {
 		return text

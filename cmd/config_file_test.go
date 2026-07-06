@@ -83,7 +83,7 @@ func TestApplyConfigFileSkipsExplicit(t *testing.T) {
 	}
 }
 
-// TestApplyConfigFileRejectsUnknownFlag verifies an unrecognised key is an
+// TestApplyConfigFileRejectsUnknownFlag verifies an unrecognized key is an
 // error rather than silently ignored.
 func TestApplyConfigFileRejectsUnknownFlag(t *testing.T) {
 	t.Parallel()

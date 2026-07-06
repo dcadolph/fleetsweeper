@@ -23,9 +23,9 @@ const (
 // scan that satisfy each property; values close to 1 mean almost every
 // container is doing the safe thing.
 type Baseline struct {
-	// SamplePods is the number of pods analysed.
+	// SamplePods is the number of pods analyzed.
 	SamplePods int `json:"sample_pods" yaml:"sample_pods"`
-	// SampleContainers is the number of containers analysed.
+	// SampleContainers is the number of containers analyzed.
 	SampleContainers int `json:"sample_containers" yaml:"sample_containers"`
 	// DigestPinFraction is the share of containers using @sha256: digest pins.
 	DigestPinFraction float64 `json:"digest_pin_fraction" yaml:"digest_pin_fraction"`

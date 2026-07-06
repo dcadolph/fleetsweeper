@@ -29,9 +29,9 @@ type AlertRecord struct {
 	// Summary is the value of the summary annotation when present.
 	Summary string `json:"summary,omitempty"`
 	// StartsAt is when the alert began firing.
-	StartsAt time.Time `json:"starts_at,omitempty"`
+	StartsAt time.Time `json:"starts_at"`
 	// EndsAt is when the alert resolved (zero while firing).
-	EndsAt time.Time `json:"ends_at,omitempty"`
+	EndsAt time.Time `json:"ends_at"`
 	// ReceivedAt is when Fleetsweeper recorded the alert.
 	ReceivedAt time.Time `json:"received_at"`
 	// Labels carries every label AlertManager attached to the alert.

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -141,10 +142,5 @@ func (s *Server) buildClusterTimeline(ctx context.Context, cluster string, limit
 // containsString reports whether the slice contains s. Local helper so
 // this file does not depend on slices.Contains for an older toolchain.
 func containsString(in []string, s string) bool {
-	for _, v := range in {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(in, s)
 }

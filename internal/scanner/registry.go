@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 )
 
@@ -42,8 +43,6 @@ func (r *Registry) Names() []string {
 // All returns a copy of the internal scanner map.
 func (r *Registry) All() map[string]Scanner {
 	out := make(map[string]Scanner, len(r.scanners))
-	for k, v := range r.scanners {
-		out[k] = v
-	}
+	maps.Copy(out, r.scanners)
 	return out
 }

@@ -171,7 +171,7 @@ func imputeMissing(raw [][]float64, present [][]bool) {
 		return
 	}
 	cols := len(raw[0])
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		var observed []float64
 		for row := range raw {
 			if present[row][col] {
@@ -198,7 +198,7 @@ func normalize(raw [][]float64) {
 		return
 	}
 	cols := len(raw[0])
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		minV := math.Inf(1)
 		maxV := math.Inf(-1)
 		for row := range raw {

@@ -15,8 +15,8 @@ import (
 func TestReportsFor_Basic(t *testing.T) {
 	t.Parallel()
 	r := &report.Report{
-		Timestamp: time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
-		Clusters:  []string{"prod-us-east-1", "Prod_EU-west-1"},
+		Timestamp:  time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Clusters:   []string{"prod-us-east-1", "Prod_EU-west-1"},
 		FleetScore: report.FleetScore{Score: 73, Grade: "C"},
 		Findings: []report.Finding{
 			{Severity: report.SeverityCritical, Cluster: "prod-us-east-1", Scanner: "node-health", Title: "node down"},

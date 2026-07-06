@@ -210,18 +210,18 @@ func New(cfg Config) *Server {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		store:               cfg.Store,
-		registry:            cfg.Registry,
-		log:                 cfg.Log,
-		mux:                 http.NewServeMux(),
-		kubeconfigPath:      cfg.KubeconfigPath,
-		workers:             cfg.Workers,
-		authToken:           cfg.AuthToken,
-		insecure:            cfg.Insecure,
-		corsOrigins:         cfg.CORSOrigins,
-		demo:                cfg.Demo,
-		ctx:                 ctx,
-		cancel:              cancel,
+		store:                 cfg.Store,
+		registry:              cfg.Registry,
+		log:                   cfg.Log,
+		mux:                   http.NewServeMux(),
+		kubeconfigPath:        cfg.KubeconfigPath,
+		workers:               cfg.Workers,
+		authToken:             cfg.AuthToken,
+		insecure:              cfg.Insecure,
+		corsOrigins:           cfg.CORSOrigins,
+		demo:                  cfg.Demo,
+		ctx:                   ctx,
+		cancel:                cancel,
 		slackWebhookURL:       cfg.SlackWebhookURL,
 		slackNotifiedKeys:     map[string]time.Time{},
 		fleetDriftOutputDir:   cfg.FleetDriftOutputDir,
@@ -427,8 +427,8 @@ func (s *Server) Close() {
 }
 
 // StartScheduler begins periodic scanning at the given interval. It runs until
-// the server context is cancelled. The supplied ctx is used only for the
-// initial scan; subsequent ticks use the server context so a cancelled parent
+// the server context is canceled. The supplied ctx is used only for the
+// initial scan; subsequent ticks use the server context so a canceled parent
 // does not silently kill the scheduler.
 func (s *Server) StartScheduler(_ context.Context, interval time.Duration, contexts []string) {
 	if interval <= 0 || len(contexts) == 0 {

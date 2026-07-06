@@ -74,10 +74,7 @@ func (w *auditWriter) WriteHeader(code int) {
 // blow out memory.
 func (w *auditWriter) Write(p []byte) (int, error) {
 	if w.body.Len() < auditBodyCap {
-		remaining := auditBodyCap - w.body.Len()
-		if remaining > len(p) {
-			remaining = len(p)
-		}
+		remaining := min(auditBodyCap-w.body.Len(), len(p))
 		w.body.Write(p[:remaining])
 	}
 	return w.ResponseWriter.Write(p)
@@ -89,11 +86,11 @@ func (w *auditWriter) Write(p []byte) (int, error) {
 // full detail.
 func extractErrorMessage(body []byte) string {
 	const needle = `"error":"`
-	idx := bytes.Index(body, []byte(needle))
-	if idx < 0 {
+	_, after, ok := bytes.Cut(body, []byte(needle))
+	if !ok {
 		return ""
 	}
-	rest := body[idx+len(needle):]
+	rest := after
 	end := bytes.IndexByte(rest, '"')
 	if end < 0 {
 		if len(rest) > 200 {

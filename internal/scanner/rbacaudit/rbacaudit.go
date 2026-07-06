@@ -3,6 +3,7 @@ package rbacaudit
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -223,10 +224,5 @@ func isSystemBinding(bindingName, roleName string, systemRoles map[string]bool) 
 
 // ruleHasWildcard reports whether any element of the slice equals "*".
 func ruleHasWildcard(items []string) bool {
-	for _, v := range items {
-		if v == "*" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(items, "*")
 }

@@ -68,6 +68,6 @@ Container images are pushed to `ghcr.io/dcadolph/fleetsweeper:vX.Y.Z` and
 
 ## Reporting a breaking change
 
-If you find behaviour that changed between releases and is not documented in
+If you find behavior that changed between releases and is not documented in
 `UPGRADING.md`, open an issue with the label `breaking-change`. The
 maintainers either document the change or revert it in the next patch.

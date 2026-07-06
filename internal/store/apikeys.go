@@ -32,17 +32,17 @@ type APIKeyRecord struct {
 	// CreatedAt is when the key was minted.
 	CreatedAt time.Time `json:"created_at"`
 	// ExpiresAt, when non-zero, is when the key automatically becomes invalid.
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
 	// LastUsedAt is the most recent successful authentication.
-	LastUsedAt time.Time `json:"last_used_at,omitempty"`
+	LastUsedAt time.Time `json:"last_used_at"`
 	// RevokedAt, when non-zero, marks the key as administratively disabled.
-	RevokedAt time.Time `json:"revoked_at,omitempty"`
+	RevokedAt time.Time `json:"revoked_at"`
 	// CreatedBy identifies the actor that created this key (admin key id, or
 	// "bootstrap" for the legacy --auth-token, or "cli" for offline creation).
 	CreatedBy string `json:"created_by,omitempty"`
 }
 
-// Role enumerates the authorisation levels Fleetsweeper recognises.
+// Role enumerates the authorisation levels Fleetsweeper recognizes.
 const (
 	// RoleAdmin grants unrestricted access including key management and audit log.
 	RoleAdmin = "admin"
@@ -55,7 +55,7 @@ const (
 // ScopeWildcard is the cluster scope entry that grants access to every cluster.
 const ScopeWildcard = "*"
 
-// ValidRole reports whether the provided string is one of the recognised roles.
+// ValidRole reports whether the provided string is one of the recognized roles.
 func ValidRole(r string) bool {
 	switch r {
 	case RoleAdmin, RoleOperator, RoleViewer:

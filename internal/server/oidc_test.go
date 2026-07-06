@@ -86,7 +86,7 @@ func TestClaimMatch(t *testing.T) {
 }
 
 // TestActorFromSessionCookie verifies a valid cookie populates the actor in
-// the request context, and that GET admin endpoints honour the cookie role.
+// the request context, and that GET admin endpoints honor the cookie role.
 func TestActorFromSessionCookie(t *testing.T) {
 	t.Parallel()
 	srv := newOIDCTestServer(t)

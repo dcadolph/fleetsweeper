@@ -78,7 +78,7 @@ const (
 	sortByStatus
 )
 
-// run drives the main loop until the context is cancelled, the user presses
+// run drives the main loop until the context is canceled, the user presses
 // q, or Stdin closes.
 func (s *topState) run(ctx context.Context) error {
 	isTTY := term.IsTerminal(int(os.Stdin.Fd()))
@@ -145,7 +145,7 @@ func (s *topState) run(ctx context.Context) error {
 	}
 }
 
-// readKeys forwards single bytes from stdin to ch until ctx is cancelled.
+// readKeys forwards single bytes from stdin to ch until ctx is canceled.
 func readKeys(ctx context.Context, ch chan<- byte) {
 	buf := make([]byte, 1)
 	for {
@@ -448,7 +448,7 @@ func (s *topState) sortLabel() string {
 	}
 }
 
-// fleetColor maps a fleet score to a colour code.
+// fleetColor maps a fleet score to a color code.
 func (s *topState) fleetColor(score int) string {
 	switch {
 	case score >= 80:
@@ -460,7 +460,7 @@ func (s *topState) fleetColor(score int) string {
 	}
 }
 
-// color3 returns the ANSI escape for the colour code, or empty when colour is off.
+// color3 returns the ANSI escape for the color code, or empty when color is off.
 func (s *topState) color3(code string) string {
 	if !s.color {
 		return ""
@@ -468,7 +468,7 @@ func (s *topState) color3(code string) string {
 	return "\033[" + code + "m"
 }
 
-// resetCode returns the ANSI reset sequence when colour is enabled.
+// resetCode returns the ANSI reset sequence when color is enabled.
 func (s *topState) resetCode() string {
 	if !s.color {
 		return ""
@@ -476,7 +476,7 @@ func (s *topState) resetCode() string {
 	return "\033[0m"
 }
 
-// dim returns the ANSI dim sequence when colour is enabled.
+// dim returns the ANSI dim sequence when color is enabled.
 func (s *topState) dim() string {
 	if !s.color {
 		return ""
@@ -484,7 +484,7 @@ func (s *topState) dim() string {
 	return "\033[90m"
 }
 
-// statusColor returns an ANSI colour code for the cluster status string.
+// statusColor returns an ANSI color code for the cluster status string.
 func statusColor(status string) string {
 	switch status {
 	case "critical":

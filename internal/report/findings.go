@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -328,11 +329,8 @@ type nodeSet []nodeView
 func (ns nodeSet) byCondition(condition string) []string {
 	var out []string
 	for _, n := range ns {
-		for _, c := range n.Conditions {
-			if c == condition {
-				out = append(out, n.Name)
-				break
-			}
+		if slices.Contains(n.Conditions, condition) {
+			out = append(out, n.Name)
 		}
 	}
 	sort.Strings(out)
@@ -577,10 +575,7 @@ func eventFindings(r *Report) []Finding {
 		if warningCount == 0 {
 			continue
 		}
-		nodes := getIntField(r, "node-health", cluster, "node_count")
-		if nodes < 1 {
-			nodes = 1
-		}
+		nodes := max(getIntField(r, "node-health", cluster, "node_count"), 1)
 		perNode := float64(warningCount) / float64(nodes)
 		topReasons := topEventReasons(r, cluster, 3)
 
@@ -1022,14 +1017,11 @@ func filterBindingsByRisk(bs []riskBinding, risk string) []string {
 	var out []string
 	extra := 0
 	for _, b := range bs {
-		for _, r := range b.Risks {
-			if r == risk {
-				if len(out) < 10 {
-					out = append(out, b.Name)
-				} else {
-					extra++
-				}
-				break
+		if slices.Contains(b.Risks, risk) {
+			if len(out) < 10 {
+				out = append(out, b.Name)
+			} else {
+				extra++
 			}
 		}
 	}
@@ -1140,14 +1132,11 @@ func filterImagesByRisk(images []imageRisk, risk string) []string {
 	var out []string
 	extra := 0
 	for _, ir := range images {
-		for _, r := range ir.Risks {
-			if r == risk {
-				if len(out) < 10 {
-					out = append(out, fmt.Sprintf("%s @ %s", ir.Image, ir.Where))
-				} else {
-					extra++
-				}
-				break
+		if slices.Contains(ir.Risks, risk) {
+			if len(out) < 10 {
+				out = append(out, fmt.Sprintf("%s @ %s", ir.Image, ir.Where))
+			} else {
+				extra++
 			}
 		}
 	}
@@ -1505,12 +1494,12 @@ func compositeBadDeployFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	badReasons := map[string]bool{
-		"Failed":             true,
-		"BackOff":            true,
-		"CrashLoopBackOff":   true,
-		"FailedScheduling":   true,
-		"Killing":            true,
-		"Pulling":            true,
+		"Failed":                 true,
+		"BackOff":                true,
+		"CrashLoopBackOff":       true,
+		"FailedScheduling":       true,
+		"Killing":                true,
+		"Pulling":                true,
 		"FailedCreatePodSandBox": true,
 	}
 	for _, cluster := range r.Clusters {

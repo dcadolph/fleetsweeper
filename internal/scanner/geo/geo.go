@@ -296,7 +296,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-
 // firstLabel returns the value of the first label key from keys that is
 // present and non-empty in labels.
 func firstLabel(labels map[string]string, keys []string) string {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,12 +14,12 @@ import (
 )
 
 // recommendCmd synthesises an ordered "do this next" list from the
-// remediations attached to the most recent scan. The ordering favours
+// remediations attached to the most recent scan. The ordering favors
 // remediations that would fix the same problem on many clusters at
 // once — that's where the operator's effort goes furthest.
 var recommendCmd = &cobra.Command{
 	Use:   "recommend",
-	Short: "Prioritised action items derived from the latest scan",
+	Short: "Prioritized action items derived from the latest scan",
 	Long: "Walks the latest scan's findings, collapses identical\n" +
 		"remediations across clusters, and prints a ranked list. The\n" +
 		"hero metric is leverage: a remediation that fixes ten clusters\n" +
@@ -154,12 +155,7 @@ func recommendSeverityRank(s string) int {
 
 // containsCluster reports whether the slice already includes c.
 func containsCluster(in []string, c string) bool {
-	for _, v := range in {
-		if v == c {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(in, c)
 }
 
 // writeRecommendations renders the list to w in the chosen format.
@@ -182,7 +178,7 @@ func writeRecommendations(w io.Writer, recs []recommendation, jsonOut bool) erro
 		}
 		if r.YAML != "" {
 			fmt.Fprintln(w, "   Apply:")
-			for _, line := range strings.Split(strings.TrimRight(r.YAML, "\n"), "\n") {
+			for line := range strings.SplitSeq(strings.TrimRight(r.YAML, "\n"), "\n") {
 				fmt.Fprintf(w, "     %s\n", line)
 			}
 		}

@@ -182,9 +182,9 @@ func TestPostgresAuditFilters(t *testing.T) {
 func TestRebindParameters(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		Name     string
-		In       string
-		WantOut  string
+		Name    string
+		In      string
+		WantOut string
 	}{{
 		Name: "Test 0: No placeholders is identity.", In: "SELECT 1", WantOut: "SELECT 1",
 	}, {

@@ -184,8 +184,8 @@ func TestRenderPRBody_IncludesContext(t *testing.T) {
 		Scanner:     "Z",
 		Affected:    []string{"pod-1"},
 		Remediation: &report.Remediation{
-			Command: "kubectl apply -f -",
-			YAML:    "...",
+			Command:    "kubectl apply -f -",
+			YAML:       "...",
 			RunbookURL: "https://runbook.example.com",
 		},
 	}

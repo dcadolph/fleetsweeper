@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"go.uber.org/zap"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -93,7 +94,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // evaluate runs every check against the incoming pod and returns an
-// AdmissionResponse honouring the configured Mode.
+// AdmissionResponse honoring the configured Mode.
 func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
 	resp := &admissionv1.AdmissionResponse{UID: req.UID, Allowed: true}
 
@@ -177,9 +178,10 @@ func joinDenies(in []string) string {
 	if len(in) == 1 {
 		return in[0]
 	}
-	out := in[0]
+	var out strings.Builder
+	out.WriteString(in[0])
 	for _, m := range in[1:] {
-		out += "; " + m
+		out.WriteString("; " + m)
 	}
-	return out
+	return out.String()
 }

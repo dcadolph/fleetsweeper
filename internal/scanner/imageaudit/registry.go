@@ -23,7 +23,7 @@ import (
 // authn.AuthConfig itself does not carry the server address; we track it
 // alongside so the keychain can match a registry lookup to its credential.
 type authEntry struct {
-	// Server is the registry hostname (normalised, no scheme).
+	// Server is the registry hostname (normalized, no scheme).
 	Server string
 	// Auth is the credential for that server.
 	Auth authn.AuthConfig
@@ -275,16 +275,16 @@ type staticKeychain []authEntry
 func (k staticKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
 	host := target.RegistryStr()
 	for _, entry := range k {
-		if normaliseServer(entry.Server) == host {
+		if normalizeServer(entry.Server) == host {
 			return authn.FromConfig(entry.Auth), nil
 		}
 	}
 	return authn.Anonymous, nil
 }
 
-// normaliseServer strips scheme and trailing slashes so docker config keys
+// normalizeServer strips scheme and trailing slashes so docker config keys
 // like "https://index.docker.io/v1/" resolve to "index.docker.io".
-func normaliseServer(s string) string {
+func normalizeServer(s string) string {
 	s = strings.TrimPrefix(s, "https://")
 	s = strings.TrimPrefix(s, "http://")
 	s = strings.TrimSuffix(s, "/v1/")

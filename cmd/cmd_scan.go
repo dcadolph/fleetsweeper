@@ -14,14 +14,12 @@ import (
 
 	"github.com/dcadolph/fleetsweeper/internal/fleetdrift"
 	"github.com/dcadolph/fleetsweeper/internal/jsonutil"
-	"github.com/dcadolph/fleetsweeper/internal/policyreport"
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
+	"github.com/dcadolph/fleetsweeper/internal/policyreport"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
-	"github.com/dcadolph/fleetsweeper/internal/tracing"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/admission"
-	"github.com/dcadolph/fleetsweeper/internal/scanner/vulnerabilities"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/certs"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/clusterinfo"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/crd"
@@ -42,8 +40,10 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/security"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/service"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/version"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/vulnerabilities"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadcoverage"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadsec"
+	"github.com/dcadolph/fleetsweeper/internal/tracing"
 )
 
 var scanCmd = &cobra.Command{

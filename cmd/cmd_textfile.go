@@ -113,7 +113,7 @@ func writeProm(w io.Writer, rpt *report.Report, scanID string, now time.Time) er
 	fmt.Fprintf(w, "fleetsweeper_findings_total{severity=\"critical\"} %d\n", rpt.Summary.CriticalCount)
 	fmt.Fprintf(w, "fleetsweeper_findings_total{severity=\"warning\"} %d\n", rpt.Summary.WarningCount)
 
-	fmt.Fprintln(w, "# HELP fleetsweeper_clusters_total Clusters analysed in the most recent scan.")
+	fmt.Fprintln(w, "# HELP fleetsweeper_clusters_total Clusters analyzed in the most recent scan.")
 	fmt.Fprintln(w, "# TYPE fleetsweeper_clusters_total gauge")
 	fmt.Fprintf(w, "fleetsweeper_clusters_total %d\n", rpt.Summary.ClusterCount)
 

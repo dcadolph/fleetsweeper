@@ -67,10 +67,10 @@ func TestIngestReport_SeparatesSources(t *testing.T) {
 func TestUpdateTop_DescendingFailRanking(t *testing.T) {
 	t.Parallel()
 	topMap := map[string]*PolicyFailure{}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		updateTop(topMap, "kyverno", "policy-a", "rule-a", "high", "fail")
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		updateTop(topMap, "kyverno", "policy-b", "rule-b", "low", "fail")
 	}
 	updateTop(topMap, "kyverno", "policy-c", "", "", "warn")
@@ -116,7 +116,7 @@ func TestFinalizeSourceTallies_OrderedByFail(t *testing.T) {
 	}
 }
 
-// TestCRDAvailable_NoMatchTreatedMissing verifies the helper recognises
+// TestCRDAvailable_NoMatchTreatedMissing verifies the helper recognizes
 // the dynamic-client's "no matches" error pattern.
 func TestCRDAvailable_NoMatchTreatedMissing(t *testing.T) {
 	t.Parallel()

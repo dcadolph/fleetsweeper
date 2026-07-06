@@ -4,9 +4,9 @@ package integration
 
 import (
 	"context"
-	goruntime "runtime"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"testing"
 	"time"
 
@@ -78,7 +78,7 @@ func TestOperatorEndToEnd(t *testing.T) {
 // recordingRunner is a ScanRunner that returns a canned summary. The kind
 // test uses it instead of spinning up a real Server because that would
 // require a full Fleetsweeper deployment; the value of this test is the
-// controller's behaviour against the apiserver, not the scanners.
+// controller's behavior against the apiserver, not the scanners.
 type recordingRunner struct{ calls int }
 
 // ScanOnce records the call and returns a small synthetic summary.

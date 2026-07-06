@@ -42,7 +42,7 @@ your Prometheus data source for the `PROM_DS` variable, and save.
 ### Grafana sidecar (kube-prometheus-stack)
 
 When Grafana runs alongside Prometheus via the `grafana-sidecar` pattern
-(kube-prometheus-stack's default), create a labelled ConfigMap containing
+(kube-prometheus-stack's default), create a labeled ConfigMap containing
 the dashboard JSON and the sidecar picks them up automatically:
 
 ```bash

@@ -17,7 +17,7 @@ import (
 // ScanOnce executes a single scan with the given options and returns a summary.
 // It satisfies the controller.ScanRunner interface so the ClusterScan operator
 // can drive scans without depending on internal server types beyond Server.
-// Concurrent calls are serialised by the same mutex that gates HTTP triggers
+// Concurrent calls are serialized by the same mutex that gates HTTP triggers
 // so a controller-driven scan and an operator-driven scan cannot interleave.
 func (s *Server) ScanOnce(ctx context.Context, opts controller.ScanOptions) (controller.ScanSummary, error) {
 	contexts, err := s.resolveOptionContexts(ctx, opts)
@@ -102,7 +102,7 @@ func (s *Server) resolveOptionContexts(ctx context.Context, opts controller.Scan
 
 // selectScanners filters the registered scanners by the supplied allowlist.
 // An empty or nil allowlist means "all registered scanners," matching the
-// behaviour of the CLI scan command and existing HTTP trigger.
+// behavior of the CLI scan command and existing HTTP trigger.
 func (s *Server) selectScanners(allow []string) map[string]scanner.Scanner {
 	all := s.registry.All()
 	if len(allow) == 0 {

@@ -73,7 +73,7 @@ type CheckResult struct {
 	DurationMS int64 `json:"duration_ms"`
 }
 
-// Report aggregates all the checks for serialised output.
+// Report aggregates all the checks for serialized output.
 type Report struct {
 	// Generated is when the report ran.
 	Generated time.Time `json:"generated"`
@@ -299,7 +299,7 @@ func doctorCheckServer(ctx context.Context, cmd *cobra.Command) CheckResult {
 	return CheckResult{Status: StatusOK, Detail: addr + " healthy"}
 }
 
-// renderHuman writes a colour-friendly tabular report to w. Colours use
+// renderHuman writes a color-friendly tabular report to w. Colors use
 // ANSI escapes only when stdout is a TTY; otherwise plain text.
 func renderHuman(w io.Writer, r Report) {
 	fmt.Fprintf(w, "fleetsweeper doctor — %s\n\n", r.Generated.Format(time.RFC3339))
@@ -390,7 +390,7 @@ func doctorCheckAdmissionWebhook(ctx context.Context, cmd *cobra.Command) CheckR
 // doctorCheckScanFreshness reads the most recent scan from the
 // configured store and warns when its timestamp is older than
 // --scan-freshness. Distinguishes "no scans yet" (warn) from "stale
-// scans" (fail) so first-install behaviour isn't reported as broken.
+// scans" (fail) so first-install behavior isn't reported as broken.
 func doctorCheckScanFreshness(ctx context.Context, cmd *cobra.Command) CheckResult {
 	dbPath, _ := cmd.Flags().GetString("db")
 	if dbPath == "" {

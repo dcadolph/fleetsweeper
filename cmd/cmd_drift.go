@@ -55,7 +55,7 @@ type driftFinding struct {
 type driftReport struct {
 	// Context is the kubeconfig context inspected.
 	Context string `json:"context"`
-	// Baseline summarises the fleet norm used.
+	// Baseline summarizes the fleet norm used.
 	Baseline admission.Baseline `json:"baseline"`
 	// TotalPods is the number of pods inspected.
 	TotalPods int `json:"total_pods"`

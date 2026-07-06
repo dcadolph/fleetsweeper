@@ -55,7 +55,7 @@ func TestParseTagFilter_AndsMultipleTags(t *testing.T) {
 }
 
 // TestListAlerts_TagFilterApplies verifies the /alerts endpoint
-// honours ?tag= and excludes alerts on out-of-tag clusters.
+// honors ?tag= and excludes alerts on out-of-tag clusters.
 func TestListAlerts_TagFilterApplies(t *testing.T) {
 	t.Parallel()
 	srv, ss := testServer(t)

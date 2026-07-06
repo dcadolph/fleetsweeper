@@ -176,7 +176,7 @@ func TestWriteRecommendations_JSONRoundTrip(t *testing.T) {
 	}
 }
 
-// TestJoinTrim_ClipsLongLists verifies the cluster list summariser.
+// TestJoinTrim_ClipsLongLists verifies the cluster list summarizer.
 func TestJoinTrim_ClipsLongLists(t *testing.T) {
 	t.Parallel()
 	got := joinTrim([]string{"a", "b", "c", "d", "e", "f", "g"}, 3)

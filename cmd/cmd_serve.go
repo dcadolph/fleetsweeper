@@ -49,7 +49,7 @@ func init() {
 	serveCmd.Flags().String("controller-namespace", "", "Namespace the controller watches. Empty watches all namespaces (requires cluster-wide RBAC).")
 	serveCmd.Flags().String("controller-context", "", "Kubeconfig context the controller uses to reach the home cluster. Empty uses the default context or in-cluster config.")
 	serveCmd.Flags().Duration("controller-poll", 15*time.Second, "How often the controller re-evaluates ClusterScan resources.")
-	serveCmd.Flags().Bool("leader-election", true, "Enable leader election for the scheduler and controller. Honoured only when running inside Kubernetes. Multiple replicas without leader election will double-fire scheduled work.")
+	serveCmd.Flags().Bool("leader-election", true, "Enable leader election for the scheduler and controller. Honored only when running inside Kubernetes. Multiple replicas without leader election will double-fire scheduled work.")
 	serveCmd.Flags().String("leader-namespace", "", "Namespace for the leader-election Lease object. Defaults to $POD_NAMESPACE.")
 	serveCmd.Flags().String("leader-name", "fleetsweeper", "Name of the leader-election Lease object.")
 	serveCmd.Flags().String("config", "", "Path to a YAML config file. File values are applied as flag defaults; CLI flags override.")
@@ -62,7 +62,7 @@ func init() {
 	serveCmd.MarkFlagsMutuallyExclusive("all-contexts", "contexts")
 }
 
-// runServe starts the HTTP server and blocks until the parent context is cancelled.
+// runServe starts the HTTP server and blocks until the parent context is canceled.
 func runServe(cmd *cobra.Command, _ []string) error {
 	if err := applyConfigFile(cmd); err != nil {
 		return err

@@ -34,7 +34,7 @@ func init() {
 	watchCmd.Flags().Duration("interval", 5*time.Minute, "Pause between scans.")
 	watchCmd.Flags().Int("max-runs", 0, "Stop after N scans (0 = infinite).")
 	watchCmd.Flags().Bool("on-change-only", false, "Only print when the diff is non-empty.")
-	watchCmd.Flags().Bool("no-color", false, "Disable ANSI colour even on a TTY.")
+	watchCmd.Flags().Bool("no-color", false, "Disable ANSI color even on a TTY.")
 }
 
 // runWatch is the cobra entrypoint for the watch subcommand.

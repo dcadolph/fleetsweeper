@@ -10,7 +10,7 @@ type Driver string
 
 const (
 	// DriverSQLite stores data in a single SQLite file. Default for single-instance
-	// deployments. Concurrent readers are fine; writers are serialised by the
+	// deployments. Concurrent readers are fine; writers are serialized by the
 	// SQLite engine.
 	DriverSQLite Driver = "sqlite"
 	// DriverPostgres stores data in a PostgreSQL database. Use this when running
@@ -18,7 +18,7 @@ const (
 	DriverPostgres Driver = "postgres"
 )
 
-// Open returns a Store backed by the named driver. Recognised drivers are
+// Open returns a Store backed by the named driver. Recognized drivers are
 // "sqlite" and "postgres"; the DSN format depends on the driver:
 //   - sqlite: a filesystem path (":memory:" for ephemeral storage).
 //   - postgres: a libpq/pgx URL, e.g. "postgres://user:pass@host:5432/db?sslmode=require".

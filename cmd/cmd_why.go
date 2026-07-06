@@ -29,7 +29,7 @@ var whyCmd = &cobra.Command{
 }
 
 func init() {
-	whyCmd.Flags().Bool("no-color", false, "Disable ANSI colour even on a TTY.")
+	whyCmd.Flags().Bool("no-color", false, "Disable ANSI color even on a TTY.")
 }
 
 // runWhy is the cobra entrypoint for the why subcommand.

@@ -90,7 +90,7 @@ func TestReadOnlyRootFSCheck(t *testing.T) {
 }
 
 // TestNonRootCheck verifies pod-level and container-level runAsNonRoot
-// behaviour.
+// behavior.
 func TestNonRootCheck(t *testing.T) {
 	t.Parallel()
 	chk := nonRootCheck{}

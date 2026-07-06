@@ -29,7 +29,7 @@ var compareCmd = &cobra.Command{
 
 func init() {
 	compareCmd.Flags().String("format", "text", "Output format: text, markdown, json.")
-	compareCmd.Flags().Bool("no-color", false, "Disable ANSI colour even on a TTY.")
+	compareCmd.Flags().Bool("no-color", false, "Disable ANSI color even on a TTY.")
 }
 
 // runCompare is the cobra entrypoint for the compare subcommand.
@@ -79,7 +79,7 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// resolveScanID maps a friendly alias to an actual scan ID. Recognised
+// resolveScanID maps a friendly alias to an actual scan ID. Recognized
 // aliases: 'latest', 'previous' (== second-latest), 'second-latest'.
 // Anything else is returned verbatim.
 func resolveScanID(ctx context.Context, s *store.SQLite, alias string, _ int) (string, error) {

@@ -133,7 +133,7 @@ func TestFalcoWebhook_DedupesRepeatFirings(t *testing.T) {
 		"container.id": "ctr1",
 		"cluster":      "c1",
 	})
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/falco",
 			bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer topsecret")

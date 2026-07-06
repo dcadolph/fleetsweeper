@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )

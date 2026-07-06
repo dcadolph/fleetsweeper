@@ -88,9 +88,9 @@ func TestRenderText_IncludesAllSections(t *testing.T) {
 	d := ScanDiff{
 		ScoreBefore: 80, ScoreAfter: 73, GradeBefore: "B", GradeAfter: "C",
 		CriticalBefore: 1, CriticalAfter: 2,
-		WarningBefore:  3, WarningAfter:  2,
-		New:      []report.Finding{{Cluster: "c1", Severity: "critical", Title: "new"}},
-		Resolved: []report.Finding{{Cluster: "c1", Severity: "warning", Title: "fixed"}},
+		WarningBefore: 3, WarningAfter: 2,
+		New:                  []report.Finding{{Cluster: "c1", Severity: "critical", Title: "new"}},
+		Resolved:             []report.Finding{{Cluster: "c1", Severity: "warning", Title: "fixed"}},
 		ClusterStatusChanges: []ClusterStatusChange{{Cluster: "c1", Before: "healthy", After: "degraded"}},
 		AddedClusters:        []string{"c2"},
 	}

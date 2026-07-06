@@ -256,7 +256,7 @@ func RenderText(d ScanDiff, color bool) string {
 	return b.String()
 }
 
-// renderFindingsSection writes a labelled list of findings to b. Empty
+// renderFindingsSection writes a labeled list of findings to b. Empty
 // sections render a one-line "(none)" instead of being skipped, so the
 // reader sees that both halves were considered.
 func renderFindingsSection(b *strings.Builder, label string, fs []report.Finding, color, reset string) {

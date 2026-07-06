@@ -49,7 +49,6 @@ func TestVerify_Malformed(t *testing.T) {
 		{Name: "too_short", In: "sha256=deadbeef"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 			if err := Verify([]byte("x"), tc.In, "k"); !errors.Is(err, ErrMalformed) {

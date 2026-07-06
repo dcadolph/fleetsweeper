@@ -18,7 +18,7 @@ import (
 func TestRateLimiterAllow(t *testing.T) {
 	t.Parallel()
 	rl := newRateLimiter(60, 60) // 60 rpm each, burst = 60
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		if _, ok := rl.allow("k", false); !ok {
 			t.Fatalf("request %d rejected", i)
 		}
@@ -32,7 +32,7 @@ func TestRateLimiterAllow(t *testing.T) {
 func TestRateLimiterDisabled(t *testing.T) {
 	t.Parallel()
 	rl := newRateLimiter(0, 0)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		if _, ok := rl.allow("k", false); !ok {
 			t.Fatalf("zero-budget should never reject (request %d)", i)
 		}
@@ -56,7 +56,7 @@ func TestRateLimitMiddleware429(t *testing.T) {
 	}
 
 	// Burst (write=1, burst=2) lets one more pass, then 429.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		req = httptest.NewRequest(http.MethodPost, "/api/groups",
 			strings.NewReader(`{"name":"g","clusters":[]}`))
 		req.Header.Set("Authorization", "Bearer bootstrap-secret")

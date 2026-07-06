@@ -121,7 +121,7 @@ func TestWriteWhatChanged_HumanIncludesFleetDelta(t *testing.T) {
 	}
 }
 
-// TestWriteWhatChanged_JSON verifies the structured serialisation.
+// TestWriteWhatChanged_JSON verifies the structured serialization.
 func TestWriteWhatChanged_JSON(t *testing.T) {
 	t.Parallel()
 	d := whatChangedDiff{

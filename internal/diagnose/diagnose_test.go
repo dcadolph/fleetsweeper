@@ -197,6 +197,6 @@ func TestFormatText_PlainAndTTY(t *testing.T) {
 	}
 	tty := FormatText(r, true)
 	if !strings.Contains(tty, "\033[32m") || !strings.Contains(tty, "\033[31m") {
-		t.Errorf("tty output missing ANSI colours:\n%q", tty)
+		t.Errorf("tty output missing ANSI colors:\n%q", tty)
 	}
 }

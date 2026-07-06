@@ -33,7 +33,7 @@ func pairwiseDistances(profiles []ClusterProfile) [][]float64 {
 	for i := range d {
 		d[i] = make([]float64, n)
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for j := i + 1; j < n; j++ {
 			v := euclidean(profiles[i].Features, profiles[j].Features)
 			d[i][j] = v
@@ -46,10 +46,7 @@ func pairwiseDistances(profiles []ClusterProfile) [][]float64 {
 // euclidean returns the Euclidean distance between two equal-length vectors.
 // When lengths differ the shorter vector is treated as zero-padded.
 func euclidean(a, b []float64) float64 {
-	n := len(a)
-	if len(b) > n {
-		n = len(b)
-	}
+	n := max(len(b), len(a))
 	var sum float64
 	for i := 0; i < n; i++ {
 		var av, bv float64
@@ -82,16 +79,16 @@ func buildDendrogram(n int, dist [][]float64) []merge {
 	// active[i] is true while cluster i has not been merged into another.
 	active := make([]bool, 2*n-1)
 	size := make([]int, 2*n-1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		active[i] = true
 		size[i] = 1
 	}
 	// d holds pairwise distances between cluster ids. It grows as new
 	// clusters are created. Symmetric, zero on the diagonal.
 	d := make(map[int]map[int]float64, 2*n-1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		d[i] = make(map[int]float64, n-1)
-		for j := 0; j < n; j++ {
+		for j := range n {
 			if i != j {
 				d[i][j] = dist[i][j]
 			}
@@ -157,10 +154,7 @@ func chooseK(merges []merge, maxK, n int) int {
 	if len(merges) < 2 {
 		return 1
 	}
-	upper := maxK
-	if upper > n-1 {
-		upper = n - 1
-	}
+	upper := min(maxK, n-1)
 	if upper < 2 {
 		return 2
 	}
@@ -190,10 +184,7 @@ func cutDendrogram(merges []merge, n, k int) []int {
 		return out
 	}
 	// Replay merges only up to the point that leaves k clusters standing.
-	stop := len(merges) - (k - 1)
-	if stop < 0 {
-		stop = 0
-	}
+	stop := max(len(merges)-(k-1), 0)
 
 	parent := make([]int, 2*n-1)
 	for i := range parent {
@@ -208,7 +199,7 @@ func cutDendrogram(merges []merge, n, k int) []int {
 	// surviving cluster).
 	roots := make(map[int]int)
 	groups := make([]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		r := find(parent, i)
 		gid, ok := roots[r]
 		if !ok {

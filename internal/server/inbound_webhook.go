@@ -64,7 +64,7 @@ func (s *Server) handleWebhookScanTrigger(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if len(contexts) == 0 {
-		// Default behaviour for an empty body: scan every available context.
+		// Default behavior for an empty body: scan every available context.
 		contexts, err = kube.AvailableContexts(s.kubeconfigPath)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, safeMessage(err, "no contexts available"))

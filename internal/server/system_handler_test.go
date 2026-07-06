@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestAdminSystemReturnsFeatures verifies the system endpoint serialises a
+// TestAdminSystemReturnsFeatures verifies the system endpoint serializes a
 // reasonable snapshot of the running server.
 func TestAdminSystemReturnsFeatures(t *testing.T) {
 	t.Parallel()

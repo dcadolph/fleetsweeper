@@ -23,7 +23,7 @@ type systemResponse struct {
 	GoVersion string `json:"go_version"`
 	// Uptime is how long the process has been running.
 	Uptime string `json:"uptime"`
-	// StartedAt is when the server initialised.
+	// StartedAt is when the server initialized.
 	StartedAt time.Time `json:"started_at"`
 	// Features lists which optional features are active.
 	Features systemFeatures `json:"features"`
@@ -116,7 +116,9 @@ func (s *Server) handleAdminSystem(w http.ResponseWriter, r *http.Request) {
 // the store package so the Store interface itself stays minimal.
 func detectStoreDriver(s any) string {
 	switch s.(type) {
-	case interface{ VacuumInto(context.Context, string) error }:
+	case interface {
+		VacuumInto(context.Context, string) error
+	}:
 		return "sqlite"
 	default:
 		return "postgres"

@@ -46,7 +46,7 @@ type Webhook struct {
 	// FailurePolicy is "Fail" or "Ignore".
 	FailurePolicy string `json:"failure_policy"`
 	// CABundleNotAfter is the earliest expiry across the caBundle, or zero if none.
-	CABundleNotAfter time.Time `json:"ca_bundle_not_after,omitempty"`
+	CABundleNotAfter time.Time `json:"ca_bundle_not_after"`
 	// CABundleDaysRemaining is the days until the earliest cert expires; -1 when unknown.
 	CABundleDaysRemaining int `json:"ca_bundle_days_remaining"`
 }

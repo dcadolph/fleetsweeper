@@ -34,10 +34,7 @@ type tokenBucket struct {
 // readRPM <= 0 disables read limiting; writeRPM <= 0 disables write limiting.
 // burst defaults to the larger of the two budgets.
 func newRateLimiter(readRPM, writeRPM int) *rateLimiter {
-	burst := readRPM
-	if writeRPM > burst {
-		burst = writeRPM
-	}
+	burst := max(writeRPM, readRPM)
 	if burst <= 0 {
 		burst = 60
 	}

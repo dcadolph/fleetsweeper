@@ -62,7 +62,7 @@ func (s *Server) handleAdminCreateKey(w http.ResponseWriter, r *http.Request) {
 		TokenHash:    store.HashToken(raw),
 		Name:         req.Name,
 		Role:         req.Role,
-		ClusterScope: normaliseScope(req.ClusterScope),
+		ClusterScope: normalizeScope(req.ClusterScope),
 		CreatedAt:    time.Now().UTC(),
 		CreatedBy:    actorFromContext(r.Context()).ID,
 	}
@@ -125,10 +125,10 @@ func (s *Server) handleAdminRevokeKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// normaliseScope cleans up a user-supplied scope list: empty becomes wildcard,
+// normalizeScope cleans up a user-supplied scope list: empty becomes wildcard,
 // duplicates are removed, and entries are kept in input order so the original
 // intent is preserved when listing keys back.
-func normaliseScope(in []string) []string {
+func normalizeScope(in []string) []string {
 	if len(in) == 0 {
 		return []string{store.ScopeWildcard}
 	}

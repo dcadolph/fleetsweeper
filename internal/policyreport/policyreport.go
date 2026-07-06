@@ -34,7 +34,7 @@ const Kind = "PolicyReport"
 const Source = "fleetsweeper"
 
 // PolicyReport is the on-disk shape of a wgpolicyk8s.io/v1alpha2 PolicyReport
-// resource. Only the fields Fleetsweeper populates are modelled; the upstream
+// resource. Only the fields Fleetsweeper populates are modeled; the upstream
 // CRD has more optional fields, but additive omission is forward-compatible.
 type PolicyReport struct {
 	// APIVersion identifies the resource group/version.
@@ -254,7 +254,7 @@ func severityMap(sev string) string {
 
 // resultMap translates Fleetsweeper severities to the v1alpha2 result vocab.
 // Both critical and warning findings are failures; info is a warn so
-// dashboards can surface them without colouring the summary red.
+// dashboards can surface them without coloring the summary red.
 func resultMap(sev string) string {
 	switch sev {
 	case report.SeverityCritical, report.SeverityWarning:

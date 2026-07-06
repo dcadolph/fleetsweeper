@@ -12,9 +12,9 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "fleetsweeper",
-	Short: "Compare Kubernetes clusters across your fleet",
-	Long:  "Fleetsweeper scans multiple Kubernetes clusters and produces a structured comparison report highlighting configuration divergence.",
+	Use:           "fleetsweeper",
+	Short:         "Compare Kubernetes clusters across your fleet",
+	Long:          "Fleetsweeper scans multiple Kubernetes clusters and produces a structured comparison report highlighting configuration divergence.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

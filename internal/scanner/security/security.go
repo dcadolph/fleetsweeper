@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
@@ -16,12 +15,12 @@ const Name = "security"
 
 // Pod Security Standards label keys.
 const (
-	labelEnforce      = "pod-security.kubernetes.io/enforce"
-	labelEnforceVer   = "pod-security.kubernetes.io/enforce-version"
-	labelAudit        = "pod-security.kubernetes.io/audit"
-	labelAuditVer     = "pod-security.kubernetes.io/audit-version"
-	labelWarn          = "pod-security.kubernetes.io/warn"
-	labelWarnVer      = "pod-security.kubernetes.io/warn-version"
+	labelEnforce    = "pod-security.kubernetes.io/enforce"
+	labelEnforceVer = "pod-security.kubernetes.io/enforce-version"
+	labelAudit      = "pod-security.kubernetes.io/audit"
+	labelAuditVer   = "pod-security.kubernetes.io/audit-version"
+	labelWarn       = "pod-security.kubernetes.io/warn"
+	labelWarnVer    = "pod-security.kubernetes.io/warn-version"
 )
 
 // NamespaceSecurity describes the Pod Security Standards labels on a namespace.

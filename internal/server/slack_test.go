@@ -98,7 +98,7 @@ func TestBuildSlackPayload_TruncatesAtLimit(t *testing.T) {
 	t.Parallel()
 	r := &report.Report{Clusters: []string{"a"}}
 	var findings []report.Finding
-	for i := 0; i < slackMaxFindingsPerPost+5; i++ {
+	for i := range slackMaxFindingsPerPost + 5 {
 		findings = append(findings, report.Finding{
 			Severity: report.SeverityCritical,
 			Cluster:  "a",
@@ -125,7 +125,10 @@ func TestSlackEscape(t *testing.T) {
 
 func TestTruncate(t *testing.T) {
 	t.Parallel()
-	cases := []struct{ In, Want string; N int }{
+	cases := []struct {
+		In, Want string
+		N        int
+	}{
 		{"hello", "hello", 10},
 		{"hello world", "hello...", 5},
 		{"", "", 5},

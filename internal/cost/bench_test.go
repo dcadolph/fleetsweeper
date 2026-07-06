@@ -44,7 +44,7 @@ func BenchmarkCorrelate(b *testing.B) {
 func buildCSV(n int) string {
 	var b strings.Builder
 	b.WriteString("cluster,period,cost_usd\n")
-	for i := 0; i < n; i++ {
+	for i := range n {
 		fmt.Fprintf(&b, "cluster-%03d,2026-05,%d.00\n", i, 100+i)
 	}
 	return b.String()

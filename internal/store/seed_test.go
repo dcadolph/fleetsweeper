@@ -39,7 +39,7 @@ func TestSeedDemoDatabase(t *testing.T) { //nolint:funlen // Test function.
 	s.SaveGroup(ctx, "non-production", []string{"staging-us", "dev-local"})
 
 	// Simulate 5 scans over the past week with evolving data.
-	for scanNum := 0; scanNum < 5; scanNum++ {
+	for scanNum := range 5 {
 		results := make(map[string]map[string]scanner.Result, len(clusters))
 
 		for _, cluster := range clusters {
@@ -204,10 +204,7 @@ func buildClusterData(cluster string, scanNum int) map[string]scanner.Result { /
 	memPressure := 0
 	notReady := 0
 	if cluster == "prod-eu-central" && scanNum >= 2 {
-		memPressure = 1 + scanNum - 2
-		if memPressure > nodeCount {
-			memPressure = nodeCount
-		}
+		memPressure = min(1+scanNum-2, nodeCount)
 		unhealthyNodes = memPressure
 		healthyNodes = nodeCount - unhealthyNodes
 		if scanNum >= 4 {
