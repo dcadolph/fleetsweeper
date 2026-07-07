@@ -5,6 +5,32 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.3.0] - 2026-07-07
+
+Time-aware detection and a demo that runs the real engine. Cohort drift now
+reaches the fleet score, a cluster that diverges from its own history is
+flagged, and serve --demo exercises the actual outlier engine.
+
+### Added
+
+- Within-cohort outliers now become findings, so a cluster that drifts from its
+  cohort (not just the fleet) reaches the fleet score, ranked recommendations,
+  alerts, and the scan CLI. Deduped against fleet-wide outliers.
+- Self-drift detection. Each per-cluster metric series is scanned for its change
+  point, and a shift whose recent segment is far from the cluster's own
+  pre-change median and MAD is flagged on the history CLI and the per-cluster
+  trends endpoint.
+- Property and fuzz tests for the MAD outlier engine that pin its invariants and
+  guard against non-finite deviations.
+
+### Changed
+
+- serve --demo now synthesizes per-cluster scanner results and runs them through
+  the real report engine, so the demo exercises outlier detection, cohort
+  baselining, and degraded coverage instead of hand-faked sections.
+- The outlier engine caps an infinite modified z-score, which a negligibly small
+  MAD could produce, to a finite JSON-safe value instead of emitting an infinity.
+
 ## [0.2.0] - 2026-07-07
 
 Trust and polish release. Scanners can no longer report a false all-clear on an
