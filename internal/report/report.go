@@ -67,6 +67,9 @@ type Report struct {
 	// data for a cluster, so the report surfaces reduced coverage instead of
 	// reading a failed or forbidden scan as a clean, zero-resource result.
 	Degraded []ScannerStatus `json:"degraded,omitempty"`
+	// Incidents groups related findings by shared root cause so operators read
+	// one incident instead of a flat list of correlated symptoms.
+	Incidents []Incident `json:"incidents,omitempty"`
 }
 
 // ScannerStatus records a scanner run that did not return complete,
@@ -201,6 +204,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Cohorts = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
 	r.Findings = GenerateFindings(r)
 	r.Findings = append(r.Findings, misCohortFindings(r, opt.ClusterTags)...)
+	r.Incidents = FuseIncidents(r.Findings)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
 	r.FleetScore = ComputeFleetScore(r)
 
