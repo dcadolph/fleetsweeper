@@ -5,6 +5,23 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.5.0] - 2026-07-07
+
+Signed releases and fleet-scale resilience. Release artifacts are now cosign
+keyless-signed with SLSA provenance, and each scanner runs under a timeout so a
+hung cluster cannot stall the sweep.
+
+### Added
+
+- Cosign keyless signatures for the release checksums, produced in CI from the
+  release workflow's OIDC identity, plus SLSA build provenance attached to the
+  archives and checksums. Verify the checksums with `cosign verify-blob` against
+  the release workflow identity and the GitHub Actions OIDC issuer.
+- Per-scanner timeout (`--scanner-timeout`, default 60s) across the scan, watch,
+  and server sweeps, so a hung API call on one cluster is abandoned and recorded
+  as degraded coverage instead of stalling the fleet.
+- A 200-cluster build benchmark to guard against engine scale regressions.
+
 ## [0.4.0] - 2026-07-07
 
 Incidents and an executive brief. Correlated findings now fuse into incidents,
