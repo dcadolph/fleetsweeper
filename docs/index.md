@@ -2,6 +2,10 @@
 
 > The fleet is the policy.
 
+<p align="center">
+  <img src="hero.svg" alt="Fleetsweeper flags the one cluster that drifted from the fleet norm" width="720">
+</p>
+
 Fleetsweeper scans multiple Kubernetes clusters in parallel and flags
 drift. Not whether individual clusters violate a rulebook, but whether
 they have diverged from each other. The baseline is derived from your

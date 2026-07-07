@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="internal/logo/logo.png" alt="fleetsweeper" width="260">
+  <img src="docs/banner.svg" alt="Fleetsweeper: the fleet is the policy" width="100%">
 </p>
-
-<h1 align="center">Fleetsweeper</h1>
 
 <p align="center">
   <b>The cluster that drifted is the one that pages you at 3am.</b><br>
