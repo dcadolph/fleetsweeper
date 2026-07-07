@@ -15,6 +15,10 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
+<p align="center">
+  <img src="docs/hero.svg" alt="Fleetsweeper flags the one cluster that drifted from the fleet norm" width="880">
+</p>
+
 ---
 
 You run twelve clusters. Or fifty. Or two hundred. They started identical
