@@ -6,6 +6,11 @@ on:
 
 permissions:
   contents: write
+  # id-token lets cosign mint a short-lived Fulcio certificate from the
+  # workflow's OIDC identity for keyless signing; attestations lets the build
+  # publish SLSA provenance for the released artifacts.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -18,11 +23,20 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: anchore/sbom-action/download-syft@v0
+      - uses: sigstore/cosign-installer@v3
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          # Container images and cosign signing are deliberately deferred;
-          # drop the skips when registry publishing is wanted.
-          args: release --clean --skip=sign,docker
+          # Container images are deferred (ghcr publishing not set up yet), so
+          # docker is skipped; the checksums are cosign-signed keyless via the
+          # workflow OIDC identity.
+          args: release --clean --skip=docker
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

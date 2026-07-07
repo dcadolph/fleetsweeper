@@ -86,11 +86,12 @@ sboms:
       - "${artifact}.spdx.sbom.json"
 
 # Keyless cosign signature for the checksums file via Sigstore, in the
-# cosign v3 bundle format. Operators can verify with:
+# cosign v3 bundle format. Signed in CI by the release workflow's OIDC
+# identity. Operators can verify with:
 #   cosign verify-blob \
 #     --bundle checksums.txt.sigstore.json \
-#     --certificate-identity <signer identity> \
-#     --certificate-oidc-issuer <signer OIDC issuer> \
+#     --certificate-identity-regexp "https://github.com/dcadolph/fleetsweeper/.github/workflows/release.yaml@.*" \
+#     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
 #     checksums.txt
 signs:
   - cmd: cosign
