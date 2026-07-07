@@ -5,6 +5,31 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.1.1] - 2026-07-07
+
+Hardening release. No behavior changes to scanning or the API. Adds automated
+test coverage for the cluster-connection layer and five previously untested
+scanners, wires up continuous integration, and fixes a context-ordering bug.
+
+### Added
+
+- Continuous integration workflow running gofmt, vet, build, and the
+  race-enabled unit suite on every push and pull request, plus a kind-based
+  integration job that exercises every scanner against live clusters.
+- Unit tests for the `kube` connection layer and the `certs`, `admission`,
+  `network-policies`, `rbac-audit`, and `deprecated-apis` scanners, all
+  previously at zero coverage. A shared `testcerts` helper generates
+  certificate fixtures with controlled expiry.
+
+### Fixed
+
+- `AvailableContexts` now returns kubeconfig context names in sorted order, as
+  its documentation stated. Enumeration was previously in random map order.
+- The `certs`, `admission`, `rbac-audit`, and `deprecated-apis` scanners now
+  run against real clusters in the integration suite.
+- Fixture-generating tests skip cleanly instead of failing when their output
+  directory is not writable.
+
 ## [0.1.0] - 2026-07-06
 
 Initial public preview. Twenty-four scanners, MAD-based outlier detection,
