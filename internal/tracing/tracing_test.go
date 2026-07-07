@@ -2,7 +2,10 @@ package tracing
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 )
 
 // TestInit_NoEndpoint_IsNoOp confirms that without an OTLP endpoint the
@@ -33,6 +36,84 @@ func TestTracer_AlwaysSafe(t *testing.T) {
 	}
 	_, span := tr.Start(context.Background(), "test-span")
 	span.End()
+}
+
+// TestInitEndpoints exercises Init across the endpoint permutations: no
+// exporter (pure no-op), trace-only, metric-only, and the generic endpoint
+// that installs both providers. Each case must construct without error and
+// yield a shutdown function that runs to completion without panicking. Cannot
+// use t.Parallel because t.Setenv forbids it.
+func TestInitEndpoints(t *testing.T) {
+	tests := []struct {
+		Env             map[string]string
+		Name            string
+		Want            error
+		WantShutdownNil bool
+	}{{ // Test 0: No endpoints, the provider is a no-op and shutdown is a clean nil.
+		Name: "no endpoints",
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		},
+		WantShutdownNil: true,
+	}, { // Test 1: Trace-specific endpoint installs only a tracer provider.
+		Name: "trace only",
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "http://127.0.0.1:4318/v1/traces",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		},
+	}, { // Test 2: Metric-specific endpoint installs only a meter provider.
+		Name: "metric only",
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://127.0.0.1:4318/v1/metrics",
+		},
+	}, { // Test 3: Generic endpoint installs both signals.
+		Name: "generic both",
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "http://127.0.0.1:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		},
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			for k, v := range test.Env {
+				t.Setenv(k, v)
+			}
+			shutdown, err := Init(context.Background(), "fleetsweeper-test", "1.2.3")
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("Init error: want %v, got %v", test.Want, err)
+			}
+			if shutdown == nil {
+				t.Fatalf("Init returned nil shutdown")
+			}
+			// Bound the shutdown so an unreachable collector cannot stall the
+			// test; without emitted spans it returns promptly regardless.
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if gotErr := shutdown(ctx); test.WantShutdownNil && gotErr != nil {
+				t.Errorf("shutdown: want nil, got %v", gotErr)
+			}
+		})
+	}
+}
+
+// TestMeterAlwaysSafe confirms Meter() never returns nil and can register an
+// instrument even with no exporter configured.
+func TestMeterAlwaysSafe(t *testing.T) {
+	t.Parallel()
+	m := Meter()
+	if m == nil {
+		t.Fatal("Meter() returned nil")
+	}
+	if _, err := m.Int64Counter("fleetsweeper.test.counter"); err != nil {
+		t.Errorf("Int64Counter: %v", err)
+	}
 }
 
 // TestHasEndpoint covers the env-var detection branches.

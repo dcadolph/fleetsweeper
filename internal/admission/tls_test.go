@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/testcerts"
 )
 
 // TestCertSourceGenerated verifies a generated leaf chains to the CA bundle
@@ -171,5 +173,32 @@ func writeKeypair(t *testing.T, certPath, keyPath, dnsName string) {
 	}
 	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		t.Fatalf("write key: %v", err)
+	}
+}
+
+// TestNewCertSourceFileKeyError verifies a file-backed source surfaces an
+// error when the certificate cannot be paired with a private key. The
+// certificate fixture comes from the shared testcerts helper with a controlled
+// expiry so the failure is isolated to the missing key.
+func TestNewCertSourceFileKeyError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "tls.crt")
+	keyPath := filepath.Join(dir, "tls.key")
+
+	certPEM, err := testcerts.PEMWithExpiry("fleetsweeper.fleet.svc", time.Now().Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("testcerts.PEMWithExpiry: %v", err)
+	}
+	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	// The key file holds no usable PEM, so pairing the keypair must fail.
+	if err := os.WriteFile(keyPath, []byte("not a private key"), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+
+	if _, err := NewCertSource(certPath, keyPath, nil); err == nil {
+		t.Fatal("expected NewCertSource to fail with an unusable key")
 	}
 }
