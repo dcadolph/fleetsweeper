@@ -185,6 +185,17 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Surface cohort partitioning and the within-cohort outliers, which catch
+	// drift the fleet-wide view drowns out.
+	if len(rpt.Cohorts) > 0 {
+		var cohortOutliers int
+		for _, c := range rpt.Cohorts {
+			cohortOutliers += len(c.Outliers)
+		}
+		fmt.Fprintf(os.Stderr, "cohorts: %d group(s), %d within-cohort outlier(s)\n",
+			len(rpt.Cohorts), cohortOutliers)
+	}
+
 	// Emit FleetDriftReport YAMLs when --fleetdrift-output is set so GitOps
 	// pipelines can pick up the drift state. Best-effort: a write failure logs
 	// and continues so the operator still gets the JSON/HTML output.

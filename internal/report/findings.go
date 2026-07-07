@@ -128,6 +128,7 @@ func GenerateFindings(r *Report) []Finding {
 		findings = append(findings, namespaceFindings(r)...)
 		findings = append(findings, rbacFindings(r)...)
 	}
+	findings = append(findings, cohortOutlierFindings(r)...)
 
 	findings = append(findings, nodeHealthFindings(r)...)
 	findings = append(findings, capacityFindings(r)...)
@@ -167,6 +168,46 @@ func outlierFindings(r *Report) []Finding {
 		})
 	}
 	return findings
+}
+
+// cohortOutlierFindings converts within-cohort outliers into findings so drift
+// that is invisible at fleet scale still reaches the fleet score, the ranked
+// recommendations, and alerts. Outliers already reported against the whole
+// fleet are skipped so a cluster is not flagged twice for the same field.
+func cohortOutlierFindings(r *Report) []Finding {
+	if len(r.Cohorts) == 0 {
+		return nil
+	}
+	fleet := make(map[string]struct{}, len(r.Outliers))
+	for _, o := range r.Outliers {
+		fleet[outlierKey(o.Cluster, o.Field, o.Scanner)] = struct{}{}
+	}
+	var findings []Finding
+	for _, c := range r.Cohorts {
+		for _, o := range c.Outliers {
+			if _, dup := fleet[outlierKey(o.Cluster, o.Field, o.Scanner)]; dup {
+				continue
+			}
+			findings = append(findings, Finding{
+				Title: fmt.Sprintf("%s deviates from its cohort on %s", o.Cluster, o.Field),
+				Description: fmt.Sprintf(
+					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).",
+					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner],
+				),
+				Severity: o.Severity,
+				Cluster:  o.Cluster,
+				Scanner:  o.Scanner,
+				Affected: []string{o.Field},
+			})
+		}
+	}
+	return findings
+}
+
+// outlierKey identifies an outlier by cluster, field, and scanner so fleet and
+// cohort findings for the same deviation can be deduplicated.
+func outlierKey(cluster, field, scanner string) string {
+	return cluster + "\x00" + field + "\x00" + scanner
 }
 
 // GenerateClusterHealth builds per-cluster health summaries.
