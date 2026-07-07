@@ -5,6 +5,24 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.1.2] - 2026-07-07
+
+Test-coverage release. Adds unit tests for the twelve remaining scanners (now
+90 to 100 percent each), removes a stale duplicate OpenAPI spec, and lifts
+overall coverage to 56 percent.
+
+### Added
+
+- Unit tests for the clusterinfo, crd, events, geo, imageaudit, ingress,
+  metrics, nodehealth, quota, resources, workload-coverage, and
+  workload-security scanners. Every scanner now has test coverage.
+
+### Removed
+
+- Stale duplicate OpenAPI spec under deploy/openapi. The embedded
+  internal/server/openapi.yaml served at /openapi.yaml is now the single
+  source of truth.
+
 ## [0.1.1] - 2026-07-07
 
 Hardening release. No behavior changes to scanning or the API. Adds automated
