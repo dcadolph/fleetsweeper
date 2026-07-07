@@ -410,7 +410,7 @@
       var grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F';
       // background arc
       el('circle', {cx: cx, cy: cy, r: R, fill: 'none', stroke: BD, 'stroke-width': 14}, svg);
-      // foreground arc — uses dasharray to draw fraction
+      // foreground arc, uses dasharray to draw fraction
       var circ = 2 * Math.PI * R;
       el('circle', {
         cx: cx, cy: cy, r: R, fill: 'none',
@@ -487,7 +487,7 @@
   scenes.push({
     label: 'Alerts',
     duration: 9000,
-    headline: 'Drift findings, AlertManager, Falco — one stream.',
+    headline: 'Drift findings, AlertManager, Falco: one stream.',
     subcaption: 'Every signal lands in one alerts table with a shared <span class="accent">fingerprint dedup</span> so the dashboard never floods.',
     paint: function (svg) {
       var sources = [
@@ -560,23 +560,23 @@
   scenes.push({
     label: 'Whatchanged',
     duration: 7500,
-    headline: 'After every deploy — what moved?',
+    headline: 'After every deploy: what moved?',
     subcaption: '<span class="accent">fleetsweeper whatchanged</span> diffs two scans. New findings, cleared findings, per-cluster score deltas, sorted worst-first.',
     paint: function (svg) {
       txt(svg, 100, 90, 'Fleet score: 88 -> 73 (-15)', {fill: HD, size: 18, mono: true, weight: 700});
       // New
       txt(svg, 100, 140, 'new findings (3)', {fill: CR, size: 13, mono: true, weight: 600});
       var newF = [
-        '[CRITICAL] prod-east — 5 nodes report NotReady',
-        '[CRITICAL] prod-east — admission webhook unreachable',
-        '[WARNING]  staging — 3 deployments without resource limits'
+        '[CRITICAL] prod-east: 5 nodes report NotReady',
+        '[CRITICAL] prod-east: admission webhook unreachable',
+        '[WARNING]  staging: 3 deployments without resource limits'
       ];
       for (var i = 0; i < newF.length; i++) {
         txt(svg, 120, 168 + i * 22, newF[i], {fill: TX, size: 12, mono: true});
       }
       // Cleared
       txt(svg, 100, 260, 'cleared findings (1)', {fill: OK, size: 13, mono: true, weight: 600});
-      txt(svg, 120, 286, '[WARNING] staging — 12 containers without digest pin', {
+      txt(svg, 120, 286, '[WARNING] staging: 12 containers without digest pin', {
         fill: MU, size: 12, mono: true
       });
       // Cluster deltas

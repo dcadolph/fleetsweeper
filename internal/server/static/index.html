@@ -372,7 +372,7 @@ function nav(pg,opts){P.page=pg;P.cluster=opts&&opts.cluster||null;P.scanId=opts
 
 // === SIDEBAR ===
 function renderSb(){
-  var h='<div class="sb-brand"><img class="sb-logo" src="logo.jpg" alt=""><h1>Fleetsweeper</h1></div>';
+  var h='<div class="sb-brand" onclick="nav(\'dash\')" style="cursor:pointer" title="Back to dashboard"><img class="sb-logo" src="logo.jpg" alt=""><h1>Fleetsweeper</h1></div>';
   h+='<a class="'+(P.page==='dash'?'on':'')+'" onclick="nav(\'dash\')">Dashboard</a>';
   h+='<a class="'+(P.page==='findings'?'on':'')+'" onclick="nav(\'findings\')">Findings</a>';
   h+='<a class="'+(P.page==='alerts'?'on':'')+'" onclick="nav(\'alerts\')">Alerts</a>';
@@ -2247,7 +2247,7 @@ async function renderDiff(){
   var aId=P.diffA||scans[1].id;
   var bId=P.diffB||scans[0].id;
   var h='<h2>Scan diff</h2><p class="sub">Compare two scans to see what changed: findings that resolved, findings that are new, summary deltas.</p>';
-  function opts(sel){return scans.map(function(s){return '<option value="'+s.id+'"'+(s.id===sel?' selected':'')+'>'+esc(s.id)+' — '+esc(s.timestamp)+'</option>'}).join('')}
+  function opts(sel){return scans.map(function(s){return '<option value="'+s.id+'"'+(s.id===sel?' selected':'')+'>'+esc(s.id)+' · '+esc(s.timestamp)+'</option>'}).join('')}
   h+='<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;font-size:12px">';
   h+='<label>Base (older): <select id="diffA" style="background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;color:var(--tx);font-size:11px">'+opts(aId)+'</select></label>';
   h+='<label>Target (newer): <select id="diffB" style="background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;color:var(--tx);font-size:11px">'+opts(bId)+'</select></label>';
@@ -2264,11 +2264,11 @@ async function renderDiff(){
   h+='<div class="g g2">';
   h+='<div class="cd"><h3 style="color:var(--cr);margin-top:0">New ('+added.length+')</h3>';
   if(!added.length)h+='<p class="sub">No new findings.</p>';
-  else added.slice(0,50).forEach(function(f){h+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px"><span class="tag" style="background:rgba(248,81,73,.1);color:var(--cr)">'+esc(f.severity)+'</span> '+esc(f.cluster)+' — '+esc(f.title)+'</div>'});
+  else added.slice(0,50).forEach(function(f){h+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px"><span class="tag" style="background:rgba(248,81,73,.1);color:var(--cr)">'+esc(f.severity)+'</span> '+esc(f.cluster)+' · '+esc(f.title)+'</div>'});
   h+='</div>';
   h+='<div class="cd"><h3 style="color:var(--ok);margin-top:0">Resolved ('+resolved.length+')</h3>';
   if(!resolved.length)h+='<p class="sub">No resolved findings.</p>';
-  else resolved.slice(0,50).forEach(function(f){h+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;opacity:.7"><span class="tag" style="background:rgba(63,185,80,.1);color:var(--ok)">'+esc(f.severity)+'</span> '+esc(f.cluster)+' — '+esc(f.title)+'</div>'});
+  else resolved.slice(0,50).forEach(function(f){h+='<div style="padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;opacity:.7"><span class="tag" style="background:rgba(63,185,80,.1);color:var(--ok)">'+esc(f.severity)+'</span> '+esc(f.cluster)+' · '+esc(f.title)+'</div>'});
   h+='</div></div>';
   h+='<button class="btn btn-ac copy-btn" data-copy="'+esc(diffMarkdown(aId,bId,resolved,added))+'" style="margin-top:14px">Copy Markdown summary</button>';
   return h;
@@ -2288,7 +2288,7 @@ render();
 // === Enhancements: hash routing, copy buttons, Cmd-K palette, markdown export ===
 // The original SPA mutated a private P state and called render() directly. This
 // layer wraps nav() so every navigation also pushes a hash, and a hashchange
-// listener restores state on reload or back/forward — making URLs bookmarkable
+// listener restores state on reload or back/forward, making URLs bookmarkable
 // and Slack-pasteable. Hash routing works under file:// as well as http://.
 
 (function(){
@@ -2362,7 +2362,7 @@ document.addEventListener('click',function(ev){
 function exportCriticalsMarkdown(){
   var nodes=document.querySelectorAll('.fi[data-sev="critical"]');
   var dateStr=new Date().toISOString().slice(0,10);
-  var lines=['## Critical findings — '+dateStr,''];
+  var lines=['## Critical findings: '+dateStr,''];
   if(!nodes.length){
     lines.push('_No critical findings._');
   }else{
@@ -2372,7 +2372,7 @@ function exportCriticalsMarkdown(){
       var titleText=title?title.textContent.trim():'';
       var rem=el.querySelector('.remediation');
       var remText=rem?rem.textContent.trim():'';
-      lines.push('- **'+cluster+'** — '+titleText);
+      lines.push('- **'+cluster+'**: '+titleText);
       if(remText)lines.push('  ```');
       if(remText)remText.split('\n').forEach(function(l){lines.push('  '+l)});
       if(remText)lines.push('  ```');
@@ -2387,7 +2387,7 @@ function exportCriticalsMarkdown(){
 }
 
 // Inject the markdown export button when the Findings page renders. We watch
-// for #ct changes via a MutationObserver — cheap and resilient to the SPA's
+// for #ct changes via a MutationObserver, cheap and resilient to the SPA's
 // frequent full-replacement re-renders.
 (function(){
   var ct=document.getElementById('ct');

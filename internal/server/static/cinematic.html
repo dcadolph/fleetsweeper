@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fleetsweeper — the fleet is the policy</title>
+<title>Fleetsweeper: the fleet is the policy</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -52,7 +52,8 @@ body{display:flex;flex-direction:column;align-items:stretch}
 
 /* Header */
 #fs-cin-header{display:flex;align-items:center;justify-content:space-between;padding:16px 32px;border-bottom:1px solid var(--bd);background:var(--c1)}
-#fs-cin-brand{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mu)}
+#fs-cin-brand{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--mu);text-decoration:none;cursor:pointer}
+#fs-cin-brand:hover strong{color:var(--ac)}
 #fs-cin-brand strong{color:var(--hd);font-size:15px}
 #fs-cin-brand .dot{width:8px;height:8px;border-radius:50%;background:var(--ac);box-shadow:0 0 12px var(--ac)}
 #fs-cin-progress{font-size:12px;font-family:var(--mono);color:var(--mu)}
@@ -79,11 +80,11 @@ body{display:flex;flex-direction:column;align-items:stretch}
 <body>
 
 <div id="fs-cin-header">
-  <div id="fs-cin-brand">
+  <a id="fs-cin-brand" href="/" title="Back to Fleetsweeper">
     <span class="dot"></span>
     <strong>Fleetsweeper</strong>
-    <span>— the fleet is the policy</span>
-  </div>
+    <span>the fleet is the policy</span>
+  </a>
   <div id="fs-cin-progress">scene 1 / 10</div>
 </div>
 

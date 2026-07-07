@@ -12,7 +12,7 @@
   var TOPICS = {
     'mad': {
       title: 'MAD-based outlier detection',
-      body: 'Median absolute deviation. For each numeric scanner field, fleetsweeper computes the median across the fleet, then the median of absolute deviations from that median. A cluster is an outlier when its modified z-score (0.6745 × |x − median| / MAD) exceeds the threshold (default 3.5). MAD is robust against outliers in a way that mean+std-dev is not — a single broken cluster cannot inflate the threshold past usefulness.\n\nGuardrails: the fleet must have at least 8 reporting values, and a fleet-wide MAD of zero is suppressed (otherwise every non-mode value looks anomalous on near-uniform integer data).',
+      body: 'Median absolute deviation. For each numeric scanner field, fleetsweeper computes the median across the fleet, then the median of absolute deviations from that median. A cluster is an outlier when its modified z-score (0.6745 × |x − median| / MAD) exceeds the threshold (default 3.5). MAD is robust against outliers in a way that mean+std-dev is not. A single broken cluster cannot inflate the threshold past usefulness.\n\nGuardrails: the fleet must have at least 8 reporting values, and a fleet-wide MAD of zero is suppressed (otherwise every non-mode value looks anomalous on near-uniform integer data).',
     },
     'mode-mass': {
       title: 'String outlier voting',
@@ -32,7 +32,7 @@
     },
     'fleet-policy': {
       title: 'Why "the fleet is the policy"',
-      body: 'Rule engines like OPA and Kyverno require you to author a rule before they can flag anything. They are great at "no privileged containers" but useless at "this cluster looks different from the others."\n\nFleetsweeper inverts the question. It derives the norm from your actual fleet — your real version distribution, your real namespace counts, your real warning-event rates — then flags clusters that deviate. You discover the rule, you do not write it.',
+      body: 'Rule engines like OPA and Kyverno require you to author a rule before they can flag anything. They are great at "no privileged containers" but useless at "this cluster looks different from the others."\n\nFleetsweeper inverts the question. It derives the norm from your actual fleet (your real version distribution, your real namespace counts, your real warning-event rates) then flags clusters that deviate. You discover the rule, you do not write it.',
     },
   };
 
