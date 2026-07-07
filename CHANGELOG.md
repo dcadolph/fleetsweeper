@@ -5,6 +5,19 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.6.0] - 2026-07-07
+
+Test hardening and a moving landing page. Broad new test coverage with parser
+fuzzing across the CLI, server, store, and admission paths, plus an animated
+README hero and banner.
+
+### Added
+
+- Table-driven tests across cmd, admission, server, store, and tracing, plus Go
+  fuzz targets for the certificate PEM, image-reference, PolicyReport,
+  AlertManager, and Falco parsers.
+- Animated SVG hero and banner on the README landing page.
+
 ## [0.5.0] - 2026-07-07
 
 Signed releases and fleet-scale resilience. Release artifacts are now cosign
