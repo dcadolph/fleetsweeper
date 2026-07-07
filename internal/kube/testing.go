@@ -3,6 +3,7 @@ package kube
 import (
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 )
@@ -42,5 +43,16 @@ func NewTestClientWithClientset(contextName string, cs kubernetes.Interface) *Cl
 	return &Client{
 		Context:   contextName,
 		clientset: cs,
+	}
+}
+
+// NewTestClientWithDynamic creates a Client backed by both a typed clientset
+// and a dynamic client, for scanners that consult discovery and the dynamic
+// API. Either interface may be nil when a test does not exercise it.
+func NewTestClientWithDynamic(contextName string, cs kubernetes.Interface, dyn dynamic.Interface) *Client {
+	return &Client{
+		Context:   contextName,
+		clientset: cs,
+		dynamic:   dyn,
 	}
 }

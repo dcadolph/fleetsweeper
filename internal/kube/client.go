@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -175,5 +176,6 @@ func contextNames(cfg *api.Config) []string {
 	for name := range cfg.Contexts {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }

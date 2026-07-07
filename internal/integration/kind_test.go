@@ -27,11 +27,15 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/admission"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/certs"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/deprecatedapis"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/ingress"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/namespace"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/networkpolicy"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/quota"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/rbac"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/rbacaudit"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/resources"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/security"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/service"
@@ -223,6 +227,10 @@ func buildRegistry() *scanner.Registry {
 	r.Register(security.Name, security.NewScanner())
 	r.Register(quota.Name, quota.NewScanner())
 	r.Register(resources.Name, resources.NewScanner())
+	r.Register(certs.Name, certs.NewScanner())
+	r.Register(admission.Name, admission.NewScanner())
+	r.Register(rbacaudit.Name, rbacaudit.NewScanner())
+	r.Register(deprecatedapis.Name, deprecatedapis.NewScanner())
 	return r
 }
 
