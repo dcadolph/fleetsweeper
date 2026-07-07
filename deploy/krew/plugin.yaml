@@ -30,8 +30,8 @@ spec:
         matchLabels:
           os: linux
           arch: amd64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "linux" "amd64"}}
-      sha256: REPLACE_BEFORE_PUBLISHING
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.1.0/fleetsweeper_0.1.0_linux_x86_64.tar.gz
+      sha256: b2b016fdb482ce43eea554c898749146fbdfc51eda666e24cc955c29ae1e51f4
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -42,8 +42,8 @@ spec:
         matchLabels:
           os: linux
           arch: arm64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "linux" "arm64"}}
-      sha256: REPLACE_BEFORE_PUBLISHING
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.1.0/fleetsweeper_0.1.0_linux_arm64.tar.gz
+      sha256: f5038609bed5b6aa2e2d8f8077152fd8d1c4484615f12a01c654ab1672a4fea6
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -54,8 +54,8 @@ spec:
         matchLabels:
           os: darwin
           arch: amd64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "darwin" "amd64"}}
-      sha256: REPLACE_BEFORE_PUBLISHING
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.1.0/fleetsweeper_0.1.0_darwin_x86_64.tar.gz
+      sha256: ff7885f542f8173753b093fee892201305e66947e2b897730332e28dfc3fe908
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -66,8 +66,8 @@ spec:
         matchLabels:
           os: darwin
           arch: arm64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "darwin" "arm64"}}
-      sha256: REPLACE_BEFORE_PUBLISHING
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.1.0/fleetsweeper_0.1.0_darwin_arm64.tar.gz
+      sha256: 8e37567c50ae8883e9f6983cc03d90b0ad124ac88e7cd8e183faabd94b6d1dfa
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -78,8 +78,8 @@ spec:
         matchLabels:
           os: windows
           arch: amd64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/{{addURIAndSha "windows" "amd64"}}
-      sha256: REPLACE_BEFORE_PUBLISHING
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.1.0/fleetsweeper_0.1.0_windows_x86_64.zip
+      sha256: e0d02492432ec1ccdb41855312193582dfc6af704fce8385920e4ea7cfea6dd9
       bin: fleetsweeper.exe
       files:
         - from: fleetsweeper.exe
