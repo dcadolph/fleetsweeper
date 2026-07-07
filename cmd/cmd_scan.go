@@ -198,6 +198,9 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if len(rpt.Incidents) > 0 {
 		fmt.Fprintf(os.Stderr, "incidents: %d fused from correlated findings\n", len(rpt.Incidents))
 	}
+	if rpt.Brief.Headline != "" {
+		fmt.Fprintf(os.Stderr, "brief: %s\n", rpt.Brief.Headline)
+	}
 
 	// Emit FleetDriftReport YAMLs when --fleetdrift-output is set so GitOps
 	// pipelines can pick up the drift state. Best-effort: a write failure logs

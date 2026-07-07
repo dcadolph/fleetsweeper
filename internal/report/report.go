@@ -70,6 +70,8 @@ type Report struct {
 	// Incidents groups related findings by shared root cause so operators read
 	// one incident instead of a flat list of correlated symptoms.
 	Incidents []Incident `json:"incidents,omitempty"`
+	// Brief is a short, deterministic executive summary of this report.
+	Brief Brief `json:"brief"`
 }
 
 // ScannerStatus records a scanner run that did not return complete,
@@ -207,6 +209,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Incidents = FuseIncidents(r.Findings)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
 	r.FleetScore = ComputeFleetScore(r)
+	r.Brief = GenerateBrief(r)
 
 	return r
 }
