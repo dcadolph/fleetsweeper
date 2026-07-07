@@ -18,6 +18,12 @@ const minMADSample = 8
 // version distribution incorrectly flagged 2/3 of the fleet as outliers.
 const minStringModeMass = 0.6
 
+// maxReportedDeviation caps the modified z-score a finding reports. A MAD that
+// is negligibly small next to the spread can drive the score to infinity for a
+// far-off cluster; the cluster is still a real outlier, so it is flagged with a
+// capped, finite, JSON-safe deviation rather than an infinity.
+const maxReportedDeviation = 1e6
+
 // OutlierResult describes a cluster that deviates from the fleet norm.
 type OutlierResult struct {
 	// Cluster is the cluster that deviates.
@@ -116,13 +122,20 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 	var outliers []OutlierResult
 	for c, v := range clusterVals {
 		zScore := 0.6745 * (v - median) / mad
-		if math.Abs(zScore) > threshold {
+		absZ := math.Abs(zScore)
+		if absZ > threshold {
+			// A near-zero MAD can drive the score to infinity for a far value.
+			// The cluster is still a real outlier, so cap the reported deviation
+			// to keep the finding finite and JSON-safe.
+			if math.IsInf(absZ, 0) {
+				absZ = maxReportedDeviation
+			}
 			outliers = append(outliers, OutlierResult{
 				Cluster:   c,
 				Field:     field,
 				Value:     formatNum(v),
 				FleetNorm: formatNum(median),
-				Deviation: math.Abs(zScore),
+				Deviation: absZ,
 				Scanner:   scannerName,
 				Severity:  classifySeverity(scannerName, field),
 			})
