@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -90,5 +91,84 @@ func TestDoctorCheckScanFreshness(t *testing.T) {
 	// Test 3: A near-zero freshness window makes the same scan read as stale.
 	if got := doctorCheckScanFreshness(ctx, newFreshnessCmd(freshPath, time.Nanosecond)); got.Status != StatusFail {
 		t.Errorf("stale scan: got %s, want fail", got.Status)
+	}
+}
+
+// newKubeconfigCmd returns a command carrying only a kubeconfig flag.
+func newKubeconfigCmd(path string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("kubeconfig", path, "")
+	return cmd
+}
+
+// newDBCheckCmd returns a command carrying the db and db-driver flags.
+func newDBCheckCmd(dbPath, driver string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("db", dbPath, "")
+	cmd.Flags().String("db-driver", driver, "")
+	return cmd
+}
+
+// TestDoctorCheckKubeconfig verifies skip, missing-file, and valid-parse paths.
+func TestDoctorCheckKubeconfig(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	if got := doctorCheckKubeconfig(ctx, newKubeconfigCmd("")); got.Status != StatusSkip {
+		t.Errorf("empty: got %s, want skip", got.Status)
+	}
+	if got := doctorCheckKubeconfig(ctx, newKubeconfigCmd(filepath.Join(t.TempDir(), "absent"))); got.Status != StatusFail {
+		t.Errorf("missing: got %s, want fail", got.Status)
+	}
+
+	kc := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(kc, []byte(testKubeconfig), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	if got := doctorCheckKubeconfig(ctx, newKubeconfigCmd(kc)); got.Status != StatusOK {
+		t.Errorf("valid: got %s (%s), want ok", got.Status, got.Detail)
+	}
+}
+
+// TestDoctorCheckDatabase verifies skip, ok, and bad-driver failure.
+func TestDoctorCheckDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	if got := doctorCheckDatabase(ctx, newDBCheckCmd("", "")); got.Status != StatusSkip {
+		t.Errorf("no db: got %s, want skip", got.Status)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "d.db")
+	if s, err := store.NewSQLite(dbPath); err != nil {
+		t.Fatalf("seed: %v", err)
+	} else {
+		s.Close()
+	}
+	if got := doctorCheckDatabase(ctx, newDBCheckCmd(dbPath, "")); got.Status != StatusOK {
+		t.Errorf("valid db: got %s (%s), want ok", got.Status, got.Detail)
+	}
+	if got := doctorCheckDatabase(ctx, newDBCheckCmd(dbPath, "bogus-driver")); got.Status != StatusFail {
+		t.Errorf("bad driver: got %s, want fail", got.Status)
+	}
+}
+
+// TestFmtStatus verifies the badge strings and the unknown-status passthrough.
+func TestFmtStatus(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		In    Status
+		WantS string
+	}{
+		{In: StatusOK, WantS: "ok"},           // Test 0: OK badge.
+		{In: StatusWarn, WantS: "warn"},       // Test 1: Warn badge.
+		{In: StatusFail, WantS: "fail"},       // Test 2: Fail badge.
+		{In: StatusSkip, WantS: "skip"},       // Test 3: Skip badge.
+		{In: Status("other"), WantS: "other"}, // Test 4: Unknown passes through.
+	}
+	for testNum, test := range tests {
+		if got := fmtStatus(test.In); got != test.WantS {
+			t.Errorf("test %d: got %q, want %q", testNum, got, test.WantS)
+		}
 	}
 }

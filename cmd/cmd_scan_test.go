@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,6 +79,22 @@ func TestResolveContexts(t *testing.T) {
 	}
 	if diff := cmp.Diff([]string{"alpha", "beta"}, names); diff != "" {
 		t.Errorf("all-contexts mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestRunScannersNoClients verifies the fan-out harness returns an empty
+// result set when there are no clients to scan, exercising the span setup and
+// wait/return path without touching a cluster.
+func TestRunScannersNoClients(t *testing.T) {
+	t.Parallel()
+	reg := buildRegistry()
+	selected := selectScanners(reg, []string{"version"})
+	got := runScanners(context.Background(), nil, selected, 2, 0)
+	if got == nil {
+		t.Fatal("runScanners returned nil map")
+	}
+	if len(got) != 0 {
+		t.Errorf("no clients should yield no results, got %d", len(got))
 	}
 }
 
