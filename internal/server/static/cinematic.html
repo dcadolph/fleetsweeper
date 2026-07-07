@@ -57,6 +57,10 @@ body{display:flex;flex-direction:column;align-items:stretch}
 #fs-cin-brand strong{color:var(--hd);font-size:15px}
 #fs-cin-brand .dot{width:8px;height:8px;border-radius:50%;background:var(--ac);box-shadow:0 0 12px var(--ac)}
 #fs-cin-progress{font-size:12px;font-family:var(--mono);color:var(--mu)}
+#fs-cin-header-right{display:flex;align-items:center;gap:14px}
+#fs-cin-sound{background:var(--c2);border:1px solid var(--bd);color:var(--tx);padding:5px 12px;font-size:12px;border-radius:6px;cursor:pointer;font-family:inherit}
+#fs-cin-sound:hover{background:#2d333b;color:var(--hd)}
+#fs-cin-sound[aria-pressed="true"]{color:var(--ac);border-color:var(--ac)}
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce){
@@ -85,7 +89,10 @@ body{display:flex;flex-direction:column;align-items:stretch}
     <strong>Fleetsweeper</strong>
     <span>the fleet is the policy</span>
   </a>
-  <div id="fs-cin-progress">scene 1 / 10</div>
+  <div id="fs-cin-header-right">
+    <button id="fs-cin-sound" aria-pressed="false" title="Toggle sound">♪ Sound off</button>
+    <div id="fs-cin-progress">scene 1 / 10</div>
+  </div>
 </div>
 
 <div id="fs-cin-frame">

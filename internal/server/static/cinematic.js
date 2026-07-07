@@ -73,6 +73,134 @@
   var teardown = null;
   var ticker = null;
 
+  // ---------- Audio: procedural ambient bed + transition cues ----------
+  // No assets. A soft two-oscillator pad drifts through a lowpass with a slow
+  // LFO, retuned per scene to a pentatonic root, plus a gentle ping on each
+  // scene change. Sound is off by default because browsers block autoplay; the
+  // first user gesture starts it once enabled, and the preference persists.
+  var AudioCtx = window.AudioContext || window.webkitAudioContext;
+  var AUDIO_LEVEL = 0.09;
+  var PENTA = [130.81, 146.83, 164.81, 196.00, 220.00];
+  var audioMuted = (function () {
+    try { return localStorage.getItem('fs-cin-sound') !== 'on'; } catch (_) { return true; }
+  })();
+  var actx = null, master = null, padGain = null, padFilter = null;
+  var padA = null, padB = null, lfo = null, lfoGain = null;
+
+  // buildAudio lazily constructs the pad graph. Called on the first gesture so
+  // the AudioContext is created in response to user input.
+  function buildAudio() {
+    if (actx || !AudioCtx) return;
+    actx = new AudioCtx();
+    master = actx.createGain();
+    master.gain.value = 0;
+    master.connect(actx.destination);
+    padFilter = actx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = 900;
+    padFilter.Q.value = 0.6;
+    padFilter.connect(master);
+    padGain = actx.createGain();
+    padGain.gain.value = 0.5;
+    padGain.connect(padFilter);
+    padA = actx.createOscillator();
+    padA.type = 'sine';
+    padA.frequency.value = PENTA[0];
+    padB = actx.createOscillator();
+    padB.type = 'triangle';
+    padB.frequency.value = PENTA[0] * 2.005;
+    padA.connect(padGain);
+    padB.connect(padGain);
+    lfo = actx.createOscillator();
+    lfo.frequency.value = 0.08;
+    lfoGain = actx.createGain();
+    lfoGain.gain.value = 0.22;
+    lfo.connect(lfoGain);
+    lfoGain.connect(padGain.gain);
+    padA.start();
+    padB.start();
+    lfo.start();
+  }
+
+  // fadeMaster ramps the master volume so mute, pause, and resume are smooth.
+  function fadeMaster(v) {
+    if (!actx) return;
+    var g = master.gain;
+    g.cancelScheduledValues(actx.currentTime);
+    g.setTargetAtTime(v, actx.currentTime, 0.4);
+  }
+
+  // ensureAudio starts or resumes the bed when sound is enabled.
+  function ensureAudio() {
+    if (audioMuted || !AudioCtx) return;
+    if (!actx) buildAudio();
+    if (actx.state === 'suspended' && actx.resume) actx.resume();
+    fadeMaster(AUDIO_LEVEL);
+  }
+
+  // silenceAudio fades the bed out without tearing down the graph.
+  function silenceAudio() {
+    fadeMaster(0);
+  }
+
+  // rootFor maps a scene index to a pentatonic root, rising an octave every
+  // time the scale wraps so later scenes feel like they climb.
+  function rootFor(i) {
+    var root = PENTA[i % PENTA.length];
+    if (Math.floor(i / PENTA.length) % 2 === 1) root *= 2;
+    return root;
+  }
+
+  // audioScene retunes the pad and plays a transition ping for scene i.
+  function audioScene(i) {
+    if (!actx || audioMuted) return;
+    var t = actx.currentTime;
+    var root = rootFor(i);
+    padA.frequency.setTargetAtTime(root, t, 0.3);
+    padB.frequency.setTargetAtTime(root * 2.005, t, 0.3);
+    padFilter.frequency.setTargetAtTime(720 + (i % PENTA.length) * 60, t, 0.5);
+    cue(root * 3);
+  }
+
+  // cue plays a short, soft sine ping that decays quickly.
+  function cue(freq) {
+    if (!actx || audioMuted) return;
+    var t = actx.currentTime;
+    var o = actx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    var g = actx.createGain();
+    g.gain.value = 0;
+    o.connect(g);
+    g.connect(master);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.35, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.start(t);
+    o.stop(t + 0.55);
+  }
+
+  // updateSoundBtn reflects the current mute state on the header toggle.
+  function updateSoundBtn() {
+    var b = document.getElementById('fs-cin-sound');
+    if (!b) return;
+    b.textContent = audioMuted ? '♪ Sound off' : '♪ Sound on';
+    b.setAttribute('aria-pressed', audioMuted ? 'false' : 'true');
+  }
+
+  // toggleSound flips the mute preference and persists it.
+  function toggleSound() {
+    audioMuted = !audioMuted;
+    try { localStorage.setItem('fs-cin-sound', audioMuted ? 'off' : 'on'); } catch (_) {}
+    updateSoundBtn();
+    if (audioMuted) {
+      silenceAudio();
+    } else {
+      ensureAudio();
+      audioScene(idx);
+    }
+  }
+
   function totalDuration() {
     var t = 0;
     for (var i = 0; i < scenes.length; i++) t += scenes[i].duration;
@@ -111,6 +239,7 @@
       var cap = document.getElementById('fs-cin-caption');
       cap.innerHTML = '<div class="hl">Scene error</div><div class="sb">' + e.message + '</div>';
     }
+    audioScene(idx);
     if (reduceMotion) {
       // No animation; just advance after a beat.
       window.clearTimeout(ticker);
@@ -233,14 +362,28 @@
     pauseBtn.addEventListener('click', function () {
       playing = !playing;
       pauseBtn.textContent = playing ? 'Pause' : 'Play';
-      if (playing) sceneStart = Date.now() - (sceneStart ? 0 : 0);
+      if (playing) { sceneStart = Date.now() - (sceneStart ? 0 : 0); ensureAudio(); }
+      else { silenceAudio(); }
     });
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         playing = false;
         pauseBtn.textContent = 'Play';
+        silenceAudio();
       }
     });
+    var soundBtn = document.getElementById('fs-cin-sound');
+    if (soundBtn) {
+      if (!AudioCtx) soundBtn.style.display = 'none';
+      else soundBtn.addEventListener('click', toggleSound);
+    }
+    // Browsers block audio until a user gesture. Start the bed on the first
+    // one when sound is enabled, then stop listening.
+    function firstGesture() {
+      if (!audioMuted) ensureAudio();
+      document.removeEventListener('pointerdown', firstGesture);
+    }
+    document.addEventListener('pointerdown', firstGesture);
   }
 
   // ---------- Reusable primitives ----------
@@ -678,6 +821,7 @@
     paintMarkers();
     wireScrubber();
     wireControls();
+    updateSoundBtn();
     startScene(0);
     ticker = window.setInterval(tick, 250);
   }
