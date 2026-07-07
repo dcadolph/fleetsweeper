@@ -542,7 +542,7 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 				)
 				defer span.End()
 
-				res, err := s.Scan(spanCtx, c)
+				res, err := scanner.RunWithTimeout(spanCtx, s, c, scanner.DefaultScanTimeout)
 				if err != nil {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, "scanner failed")

@@ -57,6 +57,7 @@ func init() {
 	scanCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan.")
 	scanCmd.Flags().Bool("all-contexts", false, "Scan all contexts in the kubeconfig.")
 	scanCmd.Flags().Int("workers", 5, "Maximum concurrent operations.")
+	scanCmd.Flags().Duration("scanner-timeout", scanner.DefaultScanTimeout, "Maximum time a single scanner may run against one cluster. 0 disables.")
 	scanCmd.Flags().StringSlice("scanners", nil, "Scanner names to run (default: all).")
 	scanCmd.Flags().StringP("output", "o", "json", "Output format: json or html.")
 	scanCmd.Flags().String("html-file", "", "Write HTML report to this file path (implies --output html).")
@@ -105,6 +106,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
 	pretty, _ := cmd.Flags().GetBool("pretty")
 	workers, _ := cmd.Flags().GetInt("workers")
+	scannerTimeout, _ := cmd.Flags().GetDuration("scanner-timeout")
 	allContexts, _ := cmd.Flags().GetBool("all-contexts")
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
@@ -143,7 +145,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	registry := buildRegistry()
 	selected := selectScanners(registry, scannerNames)
 
-	results := runScanners(ctx, clients, selected, workers)
+	results := runScanners(ctx, clients, selected, workers, scannerTimeout)
 
 	clusterNames := make([]string, len(clients))
 	for i, c := range clients {
@@ -285,7 +287,7 @@ func selectScanners(registry *scanner.Registry, names []string) map[string]scann
 // A root "fleetsweeper.scan" span wraps the fan-out and one child span per
 // scanner-cluster pair records timing and success. When no OTel exporter is
 // configured the spans drop silently.
-func runScanners(ctx context.Context, clients []*kube.Client, scanners map[string]scanner.Scanner, workers int) map[string]map[string]scanner.Result {
+func runScanners(ctx context.Context, clients []*kube.Client, scanners map[string]scanner.Scanner, workers int, timeout time.Duration) map[string]map[string]scanner.Result {
 	log := logutil.UnwrapLogger(ctx)
 
 	ctx, rootSpan := tracing.Tracer().Start(ctx, "fleetsweeper.scan",
@@ -325,7 +327,7 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 				)
 				defer span.End()
 
-				res, err := sc.Scan(spanCtx, c)
+				res, err := scanner.RunWithTimeout(spanCtx, sc, c, timeout)
 				if err != nil {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, "scanner failed")

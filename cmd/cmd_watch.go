@@ -12,6 +12,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // watchCmd reruns a scan on an interval and prints a diff between
@@ -76,7 +77,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		if len(clients) == 0 {
 			log.Warn("watch: no clients reached")
 		} else {
-			results := runScanners(ctx, clients, selected, workers)
+			results := runScanners(ctx, clients, selected, workers, scanner.DefaultScanTimeout)
 			clusterNames := make([]string, len(clients))
 			for i, c := range clients {
 				clusterNames[i] = c.Context
