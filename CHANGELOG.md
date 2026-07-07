@@ -5,6 +5,40 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.2.0] - 2026-07-07
+
+Trust and polish release. Scanners can no longer report a false all-clear on an
+unreachable or forbidden API, the cinematic explainer gained audio, and the
+dashboard shed its em-dashes.
+
+### Added
+
+- Per-scanner trust state. Every scan result now carries a state (ok, degraded,
+  errored, or unavailable) and a reason. A failed or forbidden scan is recorded
+  as errored and kept out of the fleet statistics instead of reading as a clean,
+  zero-resource cluster. The report exposes a `degraded` list and each cluster's
+  degraded-scanner count, and the CLI prints "N of 24 scanners degraded on
+  cluster X" to stderr.
+- Procedural audio for the `/cinematic` explainer. A muted-by-default WebAudio
+  ambient bed retunes per scene with a soft transition cue and a header toggle.
+  It starts on the first user gesture and suspends on pause or tab-hidden, with
+  no audio assets.
+
+### Changed
+
+- Error-swallowing scanners now fail loudly. clusterinfo, crd, and geo propagate
+  list errors; admission, certs, workloadcoverage, and rbacaudit mark partial
+  results degraded; vulnerabilities, metrics, and policyreportingest distinguish
+  a genuinely absent feature (unavailable) from a real API failure (errored), so
+  a forbidden metrics API is no longer reported as "not installed".
+- The top-left Fleetsweeper brand returns to the landing view from both the
+  dashboard and the cinematic.
+
+### Removed
+
+- Em-dashes across the dashboard, help text, exported markdown, and cinematic
+  captions.
+
 ## [0.1.2] - 2026-07-07
 
 Test-coverage release. Adds unit tests for the twelve remaining scanners (now
