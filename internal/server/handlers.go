@@ -538,10 +538,13 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 	}
 
 	trends := report.ComputeClusterTrends(cluster, scanMetas, clusterResults)
+	selfDrift := report.DetectSelfDrift(cluster, scanMetas, clusterResults)
 	findings := report.GenerateTrendFindings(trends, nil)
+	findings = append(findings, report.SelfDriftFindings(selfDrift)...)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"cluster":        cluster,
 		"cluster_trends": trends,
+		"self_drift":     selfDrift,
 		"findings":       findings,
 	})
 }

@@ -368,6 +368,7 @@ func runHistoryTrend(cmd *cobra.Command, _ []string) error {
 	type trendOutput struct {
 		ClusterTrends []report.ClusterTrend `json:"cluster_trends,omitempty"`
 		FleetTrends   []report.FleetTrend   `json:"fleet_trends,omitempty"`
+		SelfDrift     []report.SelfDrift    `json:"self_drift,omitempty"`
 		Findings      []report.Finding      `json:"findings,omitempty"`
 	}
 
@@ -388,6 +389,7 @@ func runHistoryTrend(cmd *cobra.Command, _ []string) error {
 			}
 		}
 		output.ClusterTrends = report.ComputeClusterTrends(clusterName, scanMetas, clusterResults)
+		output.SelfDrift = report.DetectSelfDrift(clusterName, scanMetas, clusterResults)
 	}
 
 	// Fleet trends: restructure to scanID->clusterName->scannerName->fields.
@@ -407,6 +409,7 @@ func runHistoryTrend(cmd *cobra.Command, _ []string) error {
 	}
 	output.FleetTrends = report.ComputeFleetTrends(scanMetas, fleetResults)
 	output.Findings = report.GenerateTrendFindings(output.ClusterTrends, output.FleetTrends)
+	output.Findings = append(output.Findings, report.SelfDriftFindings(output.SelfDrift)...)
 
 	out, err := jsonutil.Marshal(output, pretty)
 	if err != nil {
