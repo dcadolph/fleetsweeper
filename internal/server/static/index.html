@@ -375,6 +375,7 @@ function renderSb(){
   var h='<div class="sb-brand" onclick="nav(\'dash\')" style="cursor:pointer" title="Back to dashboard"><img class="sb-logo" src="logo.jpg" alt=""><h1>Fleetsweeper</h1></div>';
   h+='<a class="'+(P.page==='dash'?'on':'')+'" onclick="nav(\'dash\')">Dashboard</a>';
   h+='<a class="'+(P.page==='findings'?'on':'')+'" onclick="nav(\'findings\')">Findings</a>';
+  h+='<a class="'+(P.page==='incidents'?'on':'')+'" onclick="nav(\'incidents\')">Incidents</a>';
   h+='<a class="'+(P.page==='alerts'?'on':'')+'" onclick="nav(\'alerts\')">Alerts</a>';
   h+='<a class="'+(P.page==='scans'?'on':'')+'" onclick="nav(\'scans\')">Scan history</a>';
   h+='<a class="'+(P.page==='capacity'?'on':'')+'" onclick="nav(\'capacity\')">Capacity</a>';
@@ -515,6 +516,10 @@ async function renderDash(){
 
   // Store report for drilldown.
   window._dashReport=rpt;
+  if(rpt.degraded&&rpt.degraded.length){
+    var degClusters={};rpt.degraded.forEach(function(d){degClusters[d.cluster]=1});
+    h+='<div style="border:1px solid var(--wn);background:rgba(210,153,34,.08);border-radius:6px;padding:8px 12px;margin:8px 0;font-size:12px;color:var(--wn)">&#9888; '+rpt.degraded.length+' scanner run(s) degraded across '+Object.keys(degClusters).length+' cluster(s). Coverage is partial; some data may be missing.</div>';
+  }
 
   // Fleet Score hero. Single big number for a status-TV view.
   h+=renderFleetScoreHero(rpt.fleet_score,prevScore,prevTs,forecast);
@@ -1635,6 +1640,41 @@ async function renderCohorts(){
   return h;
 }
 
+// === INCIDENTS ===
+async function renderIncidents(){
+  renderBar();
+  var scans=await api('/scans?limit=1');
+  if(!scans||!scans.length)return '<div class="empty">No scans.</div>';
+  var rpt=await api('/scans/'+scans[0].id+'/report');
+  var incidents=rpt.incidents||[];
+  var h='<h2>Incidents</h2><p class="sub">Correlated findings fused by shared root cause, so you triage one incident instead of a list of symptoms.</p>';
+  if(!incidents.length){
+    h+='<div class="empty">No correlated incidents. Any findings stand alone.</div>';
+    return h;
+  }
+  incidents.forEach(function(inc){
+    var col=inc.severity==='critical'?'var(--cr)':inc.severity==='warning'?'var(--wn)':'var(--ac)';
+    h+='<div style="border:1px solid var(--bd);border-left:3px solid '+col+';border-radius:8px;padding:14px;margin-bottom:14px;background:var(--bg2)">';
+    h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">';
+    h+='<span class="tag" style="background:'+sb(inc.severity)+';color:'+col+'">'+esc(inc.severity)+'</span>';
+    h+='<span class="tag" style="background:rgba(139,148,158,.08);color:var(--t2)">'+esc(inc.theme)+'</span>';
+    if(inc.cluster)h+='<a class="tag" style="background:rgba(88,166,255,.08);color:var(--ac);cursor:pointer" onclick="nav(\'detail\',{cluster:\''+esc(inc.cluster)+'\'})">'+esc(inc.cluster)+'</a>';
+    h+='</div>';
+    h+='<div style="font-size:14px;font-weight:600;color:var(--tx)">'+esc(inc.title)+'</div>';
+    h+='<div style="font-size:12px;color:var(--t2);line-height:1.4;margin-top:4px">'+esc(inc.summary)+'</div>';
+    if(inc.findings&&inc.findings.length){
+      h+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">';
+      h+='<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:4px">Fused signals ('+inc.findings.length+')</div>';
+      inc.findings.forEach(function(t){
+        h+='<div style="font-size:12px;color:var(--t2);padding:2px 0">&bull; '+esc(t)+'</div>';
+      });
+      h+='</div>';
+    }
+    h+='</div>';
+  });
+  return h;
+}
+
 // === CLUSTERS ===
 async function renderClusters(){
   renderBar('<span class="btn btn-ac" onclick="exportClustersCSV()">Export CSV</span>');
@@ -1810,6 +1850,7 @@ async function render(){
     if(P.page==='dash')result=await renderDash();
     else if(P.page==='detail')result=await renderDetail();
     else if(P.page==='findings')result=await renderFindings();
+    else if(P.page==='incidents')result=await renderIncidents();
     else if(P.page==='alerts')result=await renderAlerts();
     else if(P.page==='scans')result=await renderScans();
     else if(P.page==='scanReport')result=await renderScanReport();
