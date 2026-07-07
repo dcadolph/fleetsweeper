@@ -10,7 +10,7 @@ kind: Plugin
 metadata:
   name: fleetsweeper
 spec:
-  version: v0.2.0  # bump on every release
+  version: v0.3.0  # bump on every release
   homepage: https://github.com/dcadolph/fleetsweeper
   shortDescription: Cross-cluster Kubernetes drift detection
   description: |
@@ -30,8 +30,8 @@ spec:
         matchLabels:
           os: linux
           arch: amd64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.2.0/fleetsweeper_0.2.0_linux_x86_64.tar.gz
-      sha256: 2b57c322a9476f308c790cb6ac65581108bbf89874da9bf8702f5198f48e379b
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.3.0/fleetsweeper_0.3.0_linux_x86_64.tar.gz
+      sha256: 90626e2a24368c4a27b6e05ec663272a3c1da51d909808e7e47518fa98167a47
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -42,8 +42,8 @@ spec:
         matchLabels:
           os: linux
           arch: arm64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.2.0/fleetsweeper_0.2.0_linux_arm64.tar.gz
-      sha256: b4b2f3007a3a5ee14704a8be73f42da4d83b5e072cfbcb4feece3530cf77b28e
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.3.0/fleetsweeper_0.3.0_linux_arm64.tar.gz
+      sha256: 8b2a2f050027bc1d426eee8db2790e06c23e4ad948654b14ca0bac8fd07529b6
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -54,8 +54,8 @@ spec:
         matchLabels:
           os: darwin
           arch: amd64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.2.0/fleetsweeper_0.2.0_darwin_x86_64.tar.gz
-      sha256: e910cf6eee62b1448d387951554699e1ad01a429a093ea9e8d2ac0b162a77464
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.3.0/fleetsweeper_0.3.0_darwin_x86_64.tar.gz
+      sha256: c8ec0ca07ce00bce290a274541f242336b2991aedcb1c07d49d16db8d7ebbe40
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -66,8 +66,8 @@ spec:
         matchLabels:
           os: darwin
           arch: arm64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.2.0/fleetsweeper_0.2.0_darwin_arm64.tar.gz
-      sha256: 47aac5a93d04ed4bc0cdf33d1dbab695c6a019b6ef680a8c9b2133f6ef570ea2
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.3.0/fleetsweeper_0.3.0_darwin_arm64.tar.gz
+      sha256: 3a80b2eef562b085feb69b00e56d0db6f32459f2369ea712113e366009134626
       bin: fleetsweeper
       files:
         - from: fleetsweeper
@@ -78,8 +78,8 @@ spec:
         matchLabels:
           os: windows
           arch: amd64
-      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.2.0/fleetsweeper_0.2.0_windows_x86_64.zip
-      sha256: df2c777348957bb5f9a2bb287bdc4ff8c6c15413456d82d03e6608f59bfdf394
+      uri: https://github.com/dcadolph/fleetsweeper/releases/download/v0.3.0/fleetsweeper_0.3.0_windows_x86_64.zip
+      sha256: 7ce54e34fb6796486d0410722dc51190d6157fac83b2f4ce12ac7ba25557c23f
       bin: fleetsweeper.exe
       files:
         - from: fleetsweeper.exe
