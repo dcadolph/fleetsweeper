@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -71,11 +72,11 @@ func NewScanner() scanner.Scanner {
 		data := Data{}
 		now := time.Now()
 
-		mwh, err := client.Clientset().AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{
+		mwh, mutatingErr := client.Clientset().AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if mutatingErr == nil {
 			for i := range mwh.Items {
 				cfg := &mwh.Items[i]
 				for _, wh := range cfg.Webhooks {
@@ -83,11 +84,11 @@ func NewScanner() scanner.Scanner {
 				}
 			}
 		}
-		vwh, err := client.Clientset().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{
+		vwh, validatingErr := client.Clientset().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if validatingErr == nil {
 			for i := range vwh.Items {
 				cfg := &vwh.Items[i]
 				for _, wh := range cfg.Webhooks {
@@ -116,8 +117,27 @@ func NewScanner() scanner.Scanner {
 			data.Webhooks = data.Webhooks[:100]
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		result := scanner.Result{Scanner: Name, Data: data}
+		if mutatingErr != nil || validatingErr != nil {
+			result.State = scanner.StateDegraded
+			result.Reason = degradedReason(mutatingErr, validatingErr)
+		}
+		return result, nil
 	})
+}
+
+// degradedReason names which webhook list calls failed so a degraded result
+// carries a short explanation. At least one of mutatingErr or validatingErr
+// must be non-nil.
+func degradedReason(mutatingErr, validatingErr error) string {
+	var parts []string
+	if mutatingErr != nil {
+		parts = append(parts, fmt.Sprintf("mutating webhook list failed: %v", mutatingErr))
+	}
+	if validatingErr != nil {
+		parts = append(parts, fmt.Sprintf("validating webhook list failed: %v", validatingErr))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // buildWebhook resolves a mutating webhook into the audit-friendly Webhook

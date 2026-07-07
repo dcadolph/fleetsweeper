@@ -8,6 +8,7 @@ package policyreportingest
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -112,10 +113,18 @@ func NewScanner() scanner.Scanner {
 		clList, clErr := client.Dynamic().Resource(clusterPolicyReportGVR).
 			List(ctx, metav1.ListOptions{ResourceVersion: "0"})
 
-		// If both CRDs are missing the scanner reports unavailable; if
-		// only one is present we still aggregate what we found.
-		if !crdAvailable(nsErr) && !crdAvailable(clErr) {
-			return scanner.Result{Scanner: Name, Data: data}, nil
+		nsAbsent := !crdAvailable(nsErr)
+		clAbsent := !crdAvailable(clErr)
+
+		// Both CRDs not installed means the feature is genuinely absent, a
+		// trustworthy "nothing here" rather than a failed read.
+		if nsAbsent && clAbsent {
+			return scanner.Result{
+				Scanner: Name,
+				State:   scanner.StateUnavailable,
+				Reason:  "wgpolicyk8s.io PolicyReport CRDs not installed",
+				Data:    data,
+			}, nil
 		}
 		data.Available = true
 
@@ -134,6 +143,26 @@ func NewScanner() scanner.Scanner {
 
 		data.BySource = finalizeSourceTallies(bySource)
 		data.TopFailures = finalizeTopFailures(topMap, 20)
+
+		// A real error (not "CRD absent") on one list while the other was
+		// reachable means we hold partial data, so report degraded rather
+		// than letting missing reports read as a clean cluster.
+		var degraded []string
+		if nsErr != nil && !nsAbsent {
+			degraded = append(degraded, fmt.Sprintf("policy reports: %v", nsErr))
+		}
+		if clErr != nil && !clAbsent {
+			degraded = append(degraded, fmt.Sprintf("cluster policy reports: %v", clErr))
+		}
+		if len(degraded) > 0 {
+			return scanner.Result{
+				Scanner: Name,
+				State:   scanner.StateDegraded,
+				Reason:  "partial data: " + strings.Join(degraded, "; "),
+				Data:    data,
+			}, nil
+		}
+
 		return scanner.Result{Scanner: Name, Data: data}, nil
 	})
 }

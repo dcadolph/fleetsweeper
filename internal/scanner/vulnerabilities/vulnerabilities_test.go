@@ -2,10 +2,22 @@ package vulnerabilities
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
+
+	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // TestParseReportFleetTotals verifies severity counts roll up from the
@@ -139,4 +151,66 @@ func TestScannerHandlesMissingCRD(t *testing.T) {
 	_ = unstructured.Unstructured{}
 	_ = metav1.ListOptions{}
 	_ = context.Background()
+}
+
+// newReportsDynamic returns a dynamic fake that serves the Trivy
+// VulnerabilityReport list kind so the scanner's list call can be intercepted.
+func newReportsDynamic() *dynamicfake.FakeDynamicClient {
+	scheme := runtime.NewScheme()
+	listKinds := map[schema.GroupVersionResource]string{reportsGVR: "VulnerabilityReportList"}
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds)
+}
+
+// denyingClient returns a client whose vulnerabilityreports list fails with the
+// supplied error, exercising the not-installed and generic-error branches.
+func denyingClient(listErr error) *kube.Client {
+	dyn := newReportsDynamic()
+	dyn.PrependReactor("list", "vulnerabilityreports", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, listErr
+	})
+	return kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
+}
+
+// TestScanErrorClassification verifies the scanner treats a genuinely missing
+// CRD as a trustworthy unavailable result but propagates any other list
+// failure as a wrapped ErrScan so a blind read is never mistaken for a clean,
+// zero-vulnerability cluster.
+func TestScanErrorClassification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Client    *kube.Client
+		Want      error
+		WantState scanner.State
+	}{{ // Test 0: A NoMatch error means the Trivy CRD is absent, not a failure.
+		Client:    denyingClient(&meta.NoResourceMatchError{PartialResource: reportsGVR}),
+		WantState: scanner.StateUnavailable,
+	}, { // Test 1: The apiserver's missing-resource phrasing is treated as absent.
+		Client:    denyingClient(stubError("the server could not find the requested resource")),
+		WantState: scanner.StateUnavailable,
+	}, { // Test 2: The discovery no-matches phrasing is treated as absent.
+		Client:    denyingClient(stubError("no matches for kind VulnerabilityReport in version v1alpha1")),
+		WantState: scanner.StateUnavailable,
+	}, { // Test 3: A forbidden read is a blind read and propagates as an error.
+		Client: denyingClient(apierrors.NewForbidden(
+			schema.GroupResource{Group: reportsGVR.Group, Resource: reportsGVR.Resource}, "",
+			errors.New("rbac denied"))),
+		Want: scanner.ErrScan,
+	}, { // Test 4: A generic error propagates as a wrapped ErrScan.
+		Client: denyingClient(errors.New("boom")),
+		Want:   scanner.ErrScan,
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			result, err := NewScanner().Scan(context.Background(), test.Client)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("error mismatch: want %v, got %v", test.Want, err)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state mismatch: want %q, got %q", test.WantState, result.State)
+			}
+		})
+	}
 }

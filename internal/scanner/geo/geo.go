@@ -10,6 +10,7 @@ package geo
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -105,7 +106,7 @@ func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		nodes, err := client.Clientset().CoreV1().Nodes().List(ctx, scanner.CacheReadOptions())
 		if err != nil {
-			return scanner.Result{Scanner: Name, Data: Data{}}, nil
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 
 		regionCount := map[string]int{}

@@ -547,9 +547,10 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 					span.RecordError(err)
 					span.SetStatus(codes.Error, "scanner failed")
 					log.Warn("scanner failed", zap.String("context", c.Context), zap.Error(err))
-					return
+					res = scanner.ErroredResult(scanName, err)
+				} else {
+					span.SetStatus(codes.Ok, "")
 				}
-				span.SetStatus(codes.Ok, "")
 
 				mu.Lock()
 				results[c.Context][scanName] = res

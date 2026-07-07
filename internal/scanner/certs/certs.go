@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -66,17 +67,21 @@ type Data struct {
 
 // NewScanner returns a scanner that enumerates TLS certificates across the
 // cluster. Errors fetching one source do not abort the whole scan; the result
-// reflects whatever was successfully read.
+// reflects whatever was successfully read and is marked StateDegraded with a
+// reason naming any list that failed.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		data := Data{Soonest: -1}
 		now := time.Now()
+		var reasons []string
 
 		secrets, err := client.Clientset().CoreV1().Secrets("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("secrets list failed: %v", err))
+		} else {
 			for i := range secrets.Items {
 				s := &secrets.Items[i]
 				if s.Type != corev1.SecretTypeTLS {
@@ -103,7 +108,9 @@ func NewScanner() scanner.Scanner {
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("mutating webhook configurations list failed: %v", err))
+		} else {
 			for i := range mwh.Items {
 				appendWebhookCAs(&data, &mwh.Items[i], now)
 			}
@@ -113,7 +120,9 @@ func NewScanner() scanner.Scanner {
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("validating webhook configurations list failed: %v", err))
+		} else {
 			for i := range vwh.Items {
 				appendValidatingCAs(&data, &vwh.Items[i], now)
 			}
@@ -141,7 +150,12 @@ func NewScanner() scanner.Scanner {
 			data.Certs = data.Certs[:100]
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		result := scanner.Result{Scanner: Name, Data: data}
+		if len(reasons) > 0 {
+			result.State = scanner.StateDegraded
+			result.Reason = strings.Join(reasons, "; ")
+		}
+		return result, nil
 	})
 }
 

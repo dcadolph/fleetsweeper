@@ -109,6 +109,10 @@ type ClusterHealth struct {
 	WarningEvents int `json:"warning_events"`
 	// NamespaceCount is the number of namespaces.
 	NamespaceCount int `json:"namespace_count"`
+	// DegradedScanners is how many scanner runs did not return complete,
+	// trustworthy data for this cluster (errored, degraded, or unavailable).
+	// Nonzero means this cluster's report rests on partial coverage.
+	DegradedScanners int `json:"degraded_scanners,omitempty"`
 }
 
 // GenerateFindings analyzes a report and produces human-readable findings.
@@ -168,6 +172,7 @@ func outlierFindings(r *Report) []Finding {
 // GenerateClusterHealth builds per-cluster health summaries.
 func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 	healths := make([]ClusterHealth, 0, len(r.Clusters))
+	degradedByCluster := r.DegradedByCluster()
 	for _, cluster := range r.Clusters {
 		h := ClusterHealth{
 			Name:          cluster,
@@ -192,6 +197,7 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 		h.AvgMemory = getFloatField(r, "metrics", cluster, "avg_memory_percent")
 		h.WarningEvents = getIntField(r, "events", cluster, "warning_events")
 		h.NamespaceCount = getIntField(r, "namespaces", cluster, "count")
+		h.DegradedScanners = degradedByCluster[cluster]
 
 		healths = append(healths, h)
 	}

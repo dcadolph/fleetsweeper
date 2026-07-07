@@ -2,7 +2,9 @@ package admission
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,8 +14,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/testcerts"
 )
 
@@ -31,6 +35,18 @@ func mutating(cfgName, whName string, cc admissionregv1.WebhookClientConfig, pol
 	return &admissionregv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: cfgName},
 		Webhooks: []admissionregv1.MutatingWebhook{{
+			Name:          whName,
+			ClientConfig:  cc,
+			FailurePolicy: policy,
+		}},
+	}
+}
+
+// validating builds a ValidatingWebhookConfiguration with one webhook.
+func validating(cfgName, whName string, cc admissionregv1.WebhookClientConfig, policy *admissionregv1.FailurePolicyType) *admissionregv1.ValidatingWebhookConfiguration {
+	return &admissionregv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: cfgName},
+		Webhooks: []admissionregv1.ValidatingWebhook{{
 			Name:          whName,
 			ClientConfig:  cc,
 			FailurePolicy: policy,
@@ -123,6 +139,79 @@ func TestNewScanner(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantFailClosed, data.FailClosedWebhooks); diff != "" {
 				t.Errorf("fail-closed mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNewScannerDegraded verifies that a failed webhook list marks the result
+// degraded, names the failing list in the reason, and still returns the
+// webhooks collected from the list that succeeded.
+func TestNewScannerDegraded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Name           string
+		Objects        []runtime.Object
+		WantReasons    []string
+		WantTotal      int
+		FailMutating   bool
+		FailValidating bool
+	}{{ // Test 0: Mutating list fails; validating webhooks still counted.
+		Name:         "mutating fails",
+		Objects:      []runtime.Object{validating("vwc", "v.example.com", serviceRef("webhooks", "svc", nil), nil)},
+		FailMutating: true,
+		WantTotal:    1,
+		WantReasons:  []string{"mutating webhook list failed"},
+	}, { // Test 1: Validating list fails; mutating webhooks still counted.
+		Name:           "validating fails",
+		Objects:        []runtime.Object{mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", nil), nil)},
+		FailValidating: true,
+		WantTotal:      1,
+		WantReasons:    []string{"validating webhook list failed"},
+	}, { // Test 2: Both lists fail; no webhooks and both reasons present.
+		Name:           "both fail",
+		FailMutating:   true,
+		FailValidating: true,
+		WantTotal:      0,
+		WantReasons:    []string{"mutating webhook list failed", "validating webhook list failed"},
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+
+			cs := fakeclientset.NewSimpleClientset(test.Objects...)
+			if test.FailMutating {
+				cs.PrependReactor("list", "mutatingwebhookconfigurations", func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, errors.New("boom")
+				})
+			}
+			if test.FailValidating {
+				cs.PrependReactor("list", "validatingwebhookconfigurations", func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, errors.New("boom")
+				})
+			}
+			client := kube.NewTestClientWithClientset("test", cs)
+
+			result, err := NewScanner().Scan(context.Background(), client)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(scanner.StateDegraded, result.State); diff != "" {
+				t.Errorf("state mismatch (-want +got):\n%s", diff)
+			}
+			for _, want := range test.WantReasons {
+				if !strings.Contains(result.Reason, want) {
+					t.Errorf("reason %q missing %q", result.Reason, want)
+				}
+			}
+			data, ok := result.Data.(Data)
+			if !ok {
+				t.Fatalf("expected Data type, got %T", result.Data)
+			}
+			if diff := cmp.Diff(test.WantTotal, data.TotalWebhooks); diff != "" {
+				t.Errorf("total webhooks mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

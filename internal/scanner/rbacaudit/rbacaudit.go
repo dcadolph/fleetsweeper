@@ -133,11 +133,15 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		rbList, err := rbacClient.RoleBindings("").List(ctx, metav1.ListOptions{
+		var degraded []string
+
+		rbList, rbErr := rbacClient.RoleBindings("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if rbErr != nil {
+			degraded = append(degraded, fmt.Sprintf("role bindings: %v", rbErr))
+		} else {
 			data.RoleBindingsAudited = len(rbList.Items)
 			for i := range rbList.Items {
 				rb := &rbList.Items[i]
@@ -178,11 +182,13 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		podList, err := client.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		podList, podErr := client.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		if err == nil {
+		if podErr != nil {
+			degraded = append(degraded, fmt.Sprintf("pods: %v", podErr))
+		} else {
 			for _, pod := range podList.Items {
 				automount := true
 				if pod.Spec.AutomountServiceAccountToken != nil && !*pod.Spec.AutomountServiceAccountToken {
@@ -201,7 +207,12 @@ func NewScanner() scanner.Scanner {
 			data.RiskBindings = data.RiskBindings[:30]
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		result := scanner.Result{Scanner: Name, Data: data}
+		if len(degraded) > 0 {
+			result.State = scanner.StateDegraded
+			result.Reason = "partial data: " + strings.Join(degraded, "; ")
+		}
+		return result, nil
 	})
 }
 

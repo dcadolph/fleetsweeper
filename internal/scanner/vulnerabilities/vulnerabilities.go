@@ -7,6 +7,7 @@ package vulnerabilities
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -78,16 +79,22 @@ type Data struct {
 }
 
 // NewScanner returns a scanner that reads VulnerabilityReport custom
-// resources and aggregates them. Safe to register unconditionally; the
-// scanner returns Available=false when the Trivy CRD isn't installed.
+// resources and aggregates them. Safe to register unconditionally; a missing
+// Trivy CRD yields StateUnavailable while any other list failure propagates a
+// wrapped ErrScan instead of a clean, zero-vulnerability result.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		list, err := client.Dynamic().Resource(reportsGVR).List(ctx, metav1.ListOptions{ResourceVersion: "0"})
 		if err != nil {
 			if meta.IsNoMatchError(err) || isNotFound(err) {
-				return scanner.Result{Scanner: Name, Data: Data{Available: false}}, nil
+				return scanner.Result{
+					Scanner: Name,
+					State:   scanner.StateUnavailable,
+					Reason:  "Trivy VulnerabilityReport CRD not installed",
+					Data:    Data{Available: false},
+				}, nil
 			}
-			return scanner.Result{Scanner: Name, Data: Data{Available: false}}, nil
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 		data := Data{Available: true, Reports: len(list.Items)}
 		seen := make(map[string]*VulnerableImage)

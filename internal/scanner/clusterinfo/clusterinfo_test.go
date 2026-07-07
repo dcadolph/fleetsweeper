@@ -15,7 +15,11 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
+
+// errBoom is a sentinel error injected into fake client reactors.
+var errBoom = errors.New("boom")
 
 // node builds a Node whose status.nodeInfo carries the given platform strings.
 func node(name, osImage, kernel, runtimeVer, kubelet, kubeProxy string) *corev1.Node {
@@ -156,28 +160,22 @@ func TestNewScanner(t *testing.T) {
 	}
 }
 
-// TestNewScannerListError verifies a list failure yields empty data and no error.
+// TestNewScannerListError verifies a node list failure propagates ErrScan
+// instead of returning a false all-clear with empty data.
 func TestNewScannerListError(t *testing.T) {
 	t.Parallel()
 
 	cs := fakeclientset.NewSimpleClientset()
 	cs.PrependReactor("list", "nodes", func(clienttesting.Action) (bool, runtime.Object, error) {
-		return true, nil, errors.New("boom")
+		return true, nil, errBoom
 	})
 	client := kube.NewTestClientWithClientset("test", cs)
 
-	result, err := NewScanner().Scan(context.Background(), client)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := NewScanner().Scan(context.Background(), client)
+	if !errors.Is(err, scanner.ErrScan) {
+		t.Fatalf("expected error %v, got %v", scanner.ErrScan, err)
 	}
-	data, ok := result.Data.(Data)
-	if !ok {
-		t.Fatalf("expected Data type, got %T", result.Data)
-	}
-	if diff := cmp.Diff(Data{}, data, cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("expected empty data (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(Name, result.Scanner); diff != "" {
-		t.Errorf("scanner name mismatch (-want +got):\n%s", diff)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("expected wrapped %v, got %v", errBoom, err)
 	}
 }

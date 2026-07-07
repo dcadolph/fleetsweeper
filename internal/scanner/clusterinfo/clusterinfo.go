@@ -7,6 +7,7 @@ package clusterinfo
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,7 +62,7 @@ func NewScanner() scanner.Scanner {
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
 		if err != nil {
-			return scanner.Result{Scanner: Name, Data: Data{}}, nil
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 		data := Data{NodeCount: len(list.Items)}
 		os := uniqueStringSet{}

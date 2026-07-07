@@ -1,9 +1,19 @@
 package policyreportingest
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
+
+	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // fakeReport builds a PolicyReport-shaped unstructured object with the
@@ -136,3 +146,102 @@ type stringErr string
 
 // Error implements the error interface.
 func (s stringErr) Error() string { return string(s) }
+
+// policyDynamic returns a dynamic fake serving the PolicyReport and
+// ClusterPolicyReport list kinds. Any resource named in listErrs fails its list
+// with the mapped error, letting a test model an absent or unreadable CRD.
+func policyDynamic(listErrs map[string]error) *dynamicfake.FakeDynamicClient {
+	scheme := runtime.NewScheme()
+	listKinds := map[schema.GroupVersionResource]string{
+		policyReportGVR:        "PolicyReportList",
+		clusterPolicyReportGVR: "ClusterPolicyReportList",
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds)
+	for res, listErr := range listErrs {
+		dyn.PrependReactor("list", res, func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, listErr
+		})
+	}
+	return dyn
+}
+
+// TestScanBothCRDsAbsentUnavailable verifies that when neither PolicyReport CRD
+// is installed the scanner reports unavailable rather than a clean empty result.
+func TestScanBothCRDsAbsentUnavailable(t *testing.T) {
+	t.Parallel()
+
+	absent := stringErr("could not find the requested resource")
+	dyn := policyDynamic(map[string]error{
+		policyReportGVR.Resource:        absent,
+		clusterPolicyReportGVR.Resource: absent,
+	})
+	client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
+
+	result, err := NewScanner().Scan(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.State != scanner.StateUnavailable {
+		t.Errorf("state: want %q, got %q", scanner.StateUnavailable, result.State)
+	}
+	if result.Reason != "wgpolicyk8s.io PolicyReport CRDs not installed" {
+		t.Errorf("reason: got %q", result.Reason)
+	}
+	data, ok := result.Data.(Data)
+	if !ok {
+		t.Fatalf("expected Data type, got %T", result.Data)
+	}
+	if data.Available {
+		t.Error("Available should be false when both CRDs are absent")
+	}
+}
+
+// TestScanOneAbsentOneReadableOK verifies that one CRD being uninstalled while
+// the other is present is a normal, available result.
+func TestScanOneAbsentOneReadableOK(t *testing.T) {
+	t.Parallel()
+
+	dyn := policyDynamic(map[string]error{
+		clusterPolicyReportGVR.Resource: stringErr("could not find the requested resource"),
+	})
+	client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
+
+	result, err := NewScanner().Scan(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.State != scanner.StateOK {
+		t.Errorf("state: want OK, got %q", result.State)
+	}
+	data := result.Data.(Data)
+	if !data.Available {
+		t.Error("Available should be true when one CRD is present")
+	}
+}
+
+// TestScanReadableAndErroredDegrades verifies that a real (non-absent) error on
+// one report type while the other is readable yields a degraded result naming
+// the failed list, so missing reports do not read as a clean cluster.
+func TestScanReadableAndErroredDegrades(t *testing.T) {
+	t.Parallel()
+
+	dyn := policyDynamic(map[string]error{
+		clusterPolicyReportGVR.Resource: stringErr("forbidden: access denied"),
+	})
+	client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
+
+	result, err := NewScanner().Scan(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.State != scanner.StateDegraded {
+		t.Errorf("state: want degraded, got %q", result.State)
+	}
+	if !strings.Contains(result.Reason, "cluster policy reports") {
+		t.Errorf("reason should name cluster policy reports, got %q", result.Reason)
+	}
+	data := result.Data.(Data)
+	if !data.Available {
+		t.Error("Available should be true when one report type is readable")
+	}
+}

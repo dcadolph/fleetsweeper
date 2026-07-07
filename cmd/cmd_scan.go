@@ -172,6 +172,19 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		OutlierThreshold: outlierThreshold,
 	})
 
+	// Surface degraded coverage so a forbidden or unreachable API never reads
+	// as a clean, zero-resource cluster. This goes to stderr so stdout stays
+	// pure report output.
+	if degraded := rpt.DegradedByCluster(); len(degraded) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: %d scanner run(s) did not return trustworthy data across %d cluster(s); coverage is partial\n",
+			len(rpt.Degraded), len(degraded))
+		for _, c := range clusterNames {
+			if d := degraded[c]; d > 0 {
+				fmt.Fprintf(os.Stderr, "  %s: %d of %d scanners degraded\n", c, d, len(selected))
+			}
+		}
+	}
+
 	// Emit FleetDriftReport YAMLs when --fleetdrift-output is set so GitOps
 	// pipelines can pick up the drift state. Best-effort: a write failure logs
 	// and continues so the operator still gets the JSON/HTML output.
@@ -303,9 +316,10 @@ func runScanners(ctx context.Context, clients []*kube.Client, scanners map[strin
 						logutil.ContextField(c.Context),
 						logutil.ErrorField(err),
 					)
-					return
+					res = scanner.ErroredResult(scanName, err)
+				} else {
+					span.SetStatus(codes.Ok, "")
 				}
-				span.SetStatus(codes.Ok, "")
 
 				mu.Lock()
 				results[c.Context][scanName] = res

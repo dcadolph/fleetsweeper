@@ -4,6 +4,7 @@ package crd
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -47,12 +48,12 @@ func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
 		if dyn == nil {
-			return scanner.Result{Scanner: Name, Data: Data{}}, nil
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: dynamic client unavailable", scanner.ErrScan, Name)
 		}
 
 		list, err := dyn.Resource(crdGVR).List(ctx, scanner.CacheReadOptions())
 		if err != nil {
-			return scanner.Result{Scanner: Name, Data: Data{}}, nil //nolint:nilerr // CRD API may not be available.
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 
 		crds := make([]CRDInfo, 0, len(list.Items))

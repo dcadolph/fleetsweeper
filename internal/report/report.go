@@ -63,6 +63,25 @@ type Report struct {
 	// cluster tags when present, otherwise from agglomerative clustering
 	// on scanner-derived features.
 	Cohorts []CohortSummary `json:"cohorts,omitempty"`
+	// Degraded lists scanner runs that did not return complete, trustworthy
+	// data for a cluster, so the report surfaces reduced coverage instead of
+	// reading a failed or forbidden scan as a clean, zero-resource result.
+	Degraded []ScannerStatus `json:"degraded,omitempty"`
+}
+
+// ScannerStatus records a scanner run that did not return complete,
+// trustworthy data for one cluster. It lets the report show degraded coverage
+// ("3 of 24 scanners degraded on cluster X") instead of silently treating a
+// failed or forbidden scan as a clean result.
+type ScannerStatus struct {
+	// Cluster is the cluster the scanner ran against.
+	Cluster string `json:"cluster"`
+	// Scanner is the scanner name.
+	Scanner string `json:"scanner"`
+	// State is "degraded", "errored", or "unavailable".
+	State string `json:"state"`
+	// Reason is a short explanation of why the data is not fully trustworthy.
+	Reason string `json:"reason,omitempty"`
 }
 
 // BuildOptions controls report generation behavior.
@@ -146,14 +165,30 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	for _, name := range scannerNames {
 		perCluster := make(map[string]any, len(clusters))
 		for _, cluster := range clusters {
-			if res, ok := results[cluster][name]; ok {
-				perCluster[cluster] = res.Data
+			res, ok := results[cluster][name]
+			if !ok {
+				continue
 			}
+			if res.State != scanner.StateOK {
+				r.Degraded = append(r.Degraded, ScannerStatus{
+					Cluster: cluster,
+					Scanner: name,
+					State:   string(res.State),
+					Reason:  res.Reason,
+				})
+			}
+			// A blind (errored) scanner never observed the cluster, so its
+			// data must not enter the statistical population as a real zero.
+			if res.Blind() {
+				continue
+			}
+			perCluster[cluster] = res.Data
 		}
 		section := compare(clusters, perCluster)
 		applySeverity(name, section)
 		r.Sections[name] = section
 	}
+	sortScannerStatuses(r.Degraded)
 
 	r.Categories = buildCategories(scannerNames)
 	r.Summary = buildSummary(clusters, r.Sections)
@@ -170,6 +205,31 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.FleetScore = ComputeFleetScore(r)
 
 	return r
+}
+
+// DegradedByCluster counts, per cluster, how many scanner runs did not return
+// complete, trustworthy data. Clusters with full coverage are omitted. Returns
+// nil when the whole fleet scanned cleanly.
+func (r *Report) DegradedByCluster() map[string]int {
+	if len(r.Degraded) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(r.Degraded))
+	for _, d := range r.Degraded {
+		out[d.Cluster]++
+	}
+	return out
+}
+
+// sortScannerStatuses orders degraded-coverage entries by cluster then scanner
+// so report output is stable across runs.
+func sortScannerStatuses(s []ScannerStatus) {
+	sort.Slice(s, func(i, j int) bool {
+		if s[i].Cluster != s[j].Cluster {
+			return s[i].Cluster < s[j].Cluster
+		}
+		return s[i].Scanner < s[j].Scanner
+	})
 }
 
 // buildCategories creates category groupings for the scanned scanner names.

@@ -7,7 +7,9 @@ package workloadcoverage
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	policyv1 "k8s.io/api/policy/v1"
@@ -51,21 +53,30 @@ type Data struct {
 
 // NewScanner returns a scanner that flags replicated workloads missing PDB or
 // HPA coverage. It is read-only and tolerant: a failure listing one resource
-// type does not abort the others.
+// type does not abort the others; the result is marked StateDegraded with a
+// reason naming any list that failed.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		appsClient := client.Clientset().AppsV1()
 		policyClient := client.Clientset().PolicyV1()
 		hpaClient := client.Clientset().AutoscalingV2()
 
-		pdbs, _ := policyClient.PodDisruptionBudgets("").List(ctx, metav1.ListOptions{
+		var reasons []string
+
+		pdbs, err := policyClient.PodDisruptionBudgets("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
-		hpas, _ := hpaClient.HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("pod disruption budgets list failed: %v", err))
+		}
+		hpas, err := hpaClient.HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("horizontal pod autoscalers list failed: %v", err))
+		}
 
 		hpaTargets := make(map[hpaKey]bool)
 		if hpas != nil {
@@ -81,10 +92,13 @@ func NewScanner() scanner.Scanner {
 
 		data := Data{}
 
-		deployments, _ := appsClient.Deployments("").List(ctx, metav1.ListOptions{
+		deployments, err := appsClient.Deployments("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("deployments list failed: %v", err))
+		}
 		if deployments != nil {
 			for i := range deployments.Items {
 				d := &deployments.Items[i]
@@ -116,10 +130,13 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		statefulSets, _ := appsClient.StatefulSets("").List(ctx, metav1.ListOptions{
+		statefulSets, err := appsClient.StatefulSets("").List(ctx, metav1.ListOptions{
 			ResourceVersion:      "0",
 			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
 		})
+		if err != nil {
+			reasons = append(reasons, fmt.Sprintf("statefulsets list failed: %v", err))
+		}
 		if statefulSets != nil {
 			for i := range statefulSets.Items {
 				ss := &statefulSets.Items[i]
@@ -162,7 +179,12 @@ func NewScanner() scanner.Scanner {
 		}
 
 		_ = autoscalingv2.SchemeGroupVersion // ensure the import is used even when no HPAs are present
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		result := scanner.Result{Scanner: Name, Data: data}
+		if len(reasons) > 0 {
+			result.State = scanner.StateDegraded
+			result.Reason = strings.Join(reasons, "; ")
+		}
+		return result, nil
 	})
 }
 

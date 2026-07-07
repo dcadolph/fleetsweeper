@@ -2,7 +2,9 @@ package rbacaudit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -11,8 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // wildcardRole builds a ClusterRole whose single rule uses "*" for verbs.
@@ -120,6 +124,75 @@ func TestNewScanner(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantRiskBindings, len(data.RiskBindings)); diff != "" {
 				t.Errorf("risk bindings count mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// failingClientset returns a fake clientset seeded with objs that errors when
+// listing any of the named resources, used to exercise the degraded path.
+func failingClientset(objs []runtime.Object, failResources ...string) *fakeclientset.Clientset {
+	cs := fakeclientset.NewSimpleClientset(objs...)
+	for _, res := range failResources {
+		cs.PrependReactor("list", res, func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("list failed")
+		})
+	}
+	return cs
+}
+
+// TestNewScannerDegraded verifies a failed RoleBinding or Pod list keeps the
+// ClusterRoleBinding findings but marks the result degraded and names which
+// listing failed, rather than silently dropping the failure.
+func TestNewScannerDegraded(t *testing.T) {
+	t.Parallel()
+
+	userAlice := rbacv1.Subject{Kind: "User", Name: "alice"}
+
+	tests := []struct {
+		Name          string
+		FailResources []string
+		WantReasonHas []string
+	}{{ // Test 0: RoleBinding list failure degrades, keeps cluster-admin count.
+		Name:          "role bindings fail",
+		FailResources: []string{"rolebindings"},
+		WantReasonHas: []string{"role bindings"},
+	}, { // Test 1: Pod list failure degrades.
+		Name:          "pods fail",
+		FailResources: []string{"pods"},
+		WantReasonHas: []string{"pods"},
+	}, { // Test 2: Both failing name both listings in the reason.
+		Name:          "both fail",
+		FailResources: []string{"rolebindings", "pods"},
+		WantReasonHas: []string{"role bindings", "pods"},
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+
+			objs := []runtime.Object{crb("grant-admin", "cluster-admin", userAlice)}
+			cs := failingClientset(objs, test.FailResources...)
+			client := kube.NewTestClientWithClientset("test", cs)
+
+			result, err := NewScanner().Scan(context.Background(), client)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(scanner.StateDegraded, result.State); diff != "" {
+				t.Errorf("state mismatch (-want +got):\n%s", diff)
+			}
+			for _, want := range test.WantReasonHas {
+				if !strings.Contains(result.Reason, want) {
+					t.Errorf("reason %q should mention %q", result.Reason, want)
+				}
+			}
+			data, ok := result.Data.(Data)
+			if !ok {
+				t.Fatalf("expected Data type, got %T", result.Data)
+			}
+			if diff := cmp.Diff(1, data.ClusterAdminBindings); diff != "" {
+				t.Errorf("partial data lost, cluster-admin bindings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

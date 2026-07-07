@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -20,6 +21,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // newMetricsDynamic returns a dynamic fake that serves the metrics.k8s.io
@@ -168,8 +170,9 @@ func TestExtractNodeMetrics(t *testing.T) {
 }
 
 // TestScan drives the full metrics scanner over the dynamic and typed fakes,
-// covering the missing dynamic client, a 403, a generic list error, the
-// resolved-percentage aggregation, and metrics without matching nodes.
+// covering the missing dynamic client, a missing metrics API (NoMatch and
+// NotFound), a 403, a generic list error, the resolved-percentage
+// aggregation, and metrics without matching nodes.
 func TestScan(t *testing.T) {
 	t.Parallel()
 
@@ -177,19 +180,33 @@ func TestScan(t *testing.T) {
 	errBoom := errors.New("boom")
 
 	tests := []struct {
-		Client   *kube.Client
-		WantData Data
+		Client    *kube.Client
+		Want      error
+		WantState scanner.State
+		WantData  Data
 	}{{ // Test 0: No dynamic client means metrics are unavailable.
 		Client:   nilDynamicClient(),
 		WantData: Data{Available: false},
-	}, { // Test 1: A 403 marks metrics unavailable and flags the RBAC cause.
+	}, { // Test 1: A NoMatch error means the metrics API is absent, not a failure.
+		Client: denyingClient(&meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{
+			Group: "metrics.k8s.io", Version: "v1beta1", Resource: "nodes",
+		}}),
+		WantState: scanner.StateUnavailable,
+		WantData:  Data{Available: false},
+	}, { // Test 2: A NotFound error also means the metrics API is absent.
+		Client: denyingClient(apierrors.NewNotFound(
+			schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")),
+		WantState: scanner.StateUnavailable,
+		WantData:  Data{Available: false},
+	}, { // Test 3: A 403 is a blind read: the error propagates with the RBAC flag set.
 		Client: denyingClient(apierrors.NewForbidden(
 			schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "", errDenied)),
+		Want:     scanner.ErrScan,
 		WantData: Data{Available: false, Forbidden: true},
-	}, { // Test 2: A non-403 error is swallowed as simply unavailable.
-		Client:   denyingClient(errBoom),
-		WantData: Data{Available: false},
-	}, { // Test 3: Metrics resolve against allocatable node capacity.
+	}, { // Test 4: A non-403 error is a blind read and propagates as an error.
+		Client: denyingClient(errBoom),
+		Want:   scanner.ErrScan,
+	}, { // Test 5: Metrics resolve against allocatable node capacity.
 		Client: kube.NewTestClientWithDynamic("test",
 			fakeclientset.NewSimpleClientset(
 				allocNode("node1", "1", "2000Mi"),
@@ -210,7 +227,7 @@ func TestScan(t *testing.T) {
 				{Name: "node2", CPUUsage: "1000m", MemoryUsage: "1000Mi", CPUPercent: 50, MemoryPercent: 25},
 			},
 		},
-	}, { // Test 4: Metrics without matching nodes stay unresolved but available.
+	}, { // Test 6: Metrics without matching nodes stay unresolved but available.
 		Client: kube.NewTestClientWithDynamic("test",
 			fakeclientset.NewSimpleClientset(),
 			newMetricsDynamic(nodeMetric("orphan", "250m", "100Mi")),
@@ -227,15 +244,21 @@ func TestScan(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			result, err := NewScanner().Scan(context.Background(), test.Client)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("error mismatch: want %v, got %v", test.Want, err)
+			}
+			if diff := cmp.Diff(Name, result.Scanner); diff != "" {
+				t.Errorf("scanner name mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantState, result.State); diff != "" {
+				t.Errorf("state mismatch (-want +got):\n%s", diff)
+			}
+			if result.Data == nil {
+				return
 			}
 			data, ok := result.Data.(Data)
 			if !ok {
 				t.Fatalf("expected Data type, got %T", result.Data)
-			}
-			if diff := cmp.Diff(Name, result.Scanner); diff != "" {
-				t.Errorf("scanner name mismatch (-want +got):\n%s", diff)
 			}
 			opts := cmp.Options{cmpopts.EquateApprox(0, 1e-9), cmpopts.EquateEmpty()}
 			if diff := cmp.Diff(test.WantData, data, opts); diff != "" {

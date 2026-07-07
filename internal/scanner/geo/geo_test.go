@@ -15,6 +15,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // labeledNode builds a Node carrying the supplied topology labels.
@@ -394,6 +395,7 @@ func TestScan(t *testing.T) {
 		ConfigMap *corev1.ConfigMap
 		Namespace *corev1.Namespace
 		ListErr   bool
+		WantErr   bool
 		WantData  Data
 	}{{ // Test 0: Auto-detect picks the dominant region.
 		Nodes: []*corev1.Node{
@@ -440,10 +442,10 @@ func TestScan(t *testing.T) {
 			labeledNode("n2", nil),
 		},
 		WantData: Data{NodeCount: 2},
-	}, { // Test 5: A node list error yields empty data.
-		Nodes:    []*corev1.Node{labeledNode("n1", stableRegion)},
-		ListErr:  true,
-		WantData: Data{},
+	}, { // Test 5: A node list error propagates ErrScan.
+		Nodes:   []*corev1.Node{labeledNode("n1", stableRegion)},
+		ListErr: true,
+		WantErr: true,
 	}, { // Test 6: A region label holding a zone value resolves via zone fallback.
 		Nodes: []*corev1.Node{
 			labeledNode("n1", map[string]string{"topology.kubernetes.io/region": "us-east-1a"}),
@@ -522,6 +524,12 @@ func TestScan(t *testing.T) {
 			client := kube.NewTestClientWithClientset("test", cs)
 
 			result, err := NewScanner().Scan(context.Background(), client)
+			if test.WantErr {
+				if !errors.Is(err, scanner.ErrScan) {
+					t.Fatalf("want ErrScan, got %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -2,9 +2,11 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -64,8 +66,9 @@ type Data struct {
 }
 
 // NewScanner returns a scanner that collects node resource utilization from
-// the metrics API. Returns Available=false with Forbidden=true on 403 so
-// operators know whether to install metrics-server or fix RBAC.
+// the metrics API. A missing metrics API yields StateUnavailable, while a 403
+// or any other API failure propagates a wrapped ErrScan so a denied read is
+// never mistaken for a healthy, zero-utilization cluster.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
@@ -75,10 +78,21 @@ func NewScanner() scanner.Scanner {
 
 		metricsList, err := dyn.Resource(nodeMetricsGVR).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			if errors.IsForbidden(err) {
-				return scanner.Result{Scanner: Name, Data: Data{Available: false, Forbidden: true}}, nil
+			if meta.IsNoMatchError(err) || errors.IsNotFound(err) {
+				return scanner.Result{
+					Scanner: Name,
+					State:   scanner.StateUnavailable,
+					Reason:  "metrics-server not installed",
+					Data:    Data{Available: false},
+				}, nil
 			}
-			return scanner.Result{Scanner: Name, Data: Data{Available: false}}, nil
+			if errors.IsForbidden(err) {
+				return scanner.Result{
+					Scanner: Name,
+					Data:    Data{Available: false, Forbidden: true},
+				}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+			}
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
 		}
 
 		nodeList, nodeErr := client.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{
