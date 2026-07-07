@@ -1,6 +1,7 @@
 package server
 
 import (
+	"sort"
 	"time"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
@@ -87,64 +88,36 @@ func demoScanRecord() store.ScanRecord {
 func demoReport() *report.Report {
 	pts := demoPoints()
 	clusters := make([]string, len(pts))
-	statusByCluster := make(map[string]string, len(pts))
 	for i, p := range pts {
 		clusters[i] = p.Cluster
-		statusByCluster[p.Cluster] = normalizeStatus(p.status())
 	}
 
-	r := &report.Report{
-		Timestamp:  demoTimestamp().Format(time.RFC3339),
-		Clusters:   clusters,
-		Sections:   map[string]*report.SectionReport{},
-		Categories: toCategoryReports(report.Categories()),
-	}
+	// Run the real report engine over a synthetic fleet so the demo exercises
+	// MAD outlier detection, cohort baselining, and degraded coverage instead
+	// of hand-faked sections. Build populates Sections, Outliers, Cohorts,
+	// Degraded, ClusterHealths, Capacity, and the fleet score for real.
+	r := report.Build(clusters, demoResults(), report.BuildOptions{ClusterTags: demoTags()})
+	r.Timestamp = demoTimestamp().Format(time.RFC3339)
 
-	for _, p := range pts {
-		r.ClusterHealths = append(r.ClusterHealths, report.ClusterHealth{
-			Name:              p.Cluster,
-			Status:            normalizeStatus(p.status()),
-			FindingCounts:     map[string]int{report.SeverityCritical: p.CriticalFindings, report.SeverityWarning: p.WarningFindings, report.SeverityInfo: 0},
-			KubernetesVersion: demoVersion(p.Cluster),
-			NodeCount:         demoNodeCount(p.Cluster),
-			HealthyNodes:      demoHealthyNodes(p.Cluster, p.status()),
-			AvgCPU:            demoCPU(p.status()),
-			AvgMemory:         demoMem(p.status()),
-			WarningEvents:     demoEventCount(p.status()),
-			NamespaceCount:    demoNSCount(p.Cluster),
-		})
-
-		nodes := demoNodeCount(p.Cluster)
-		healthy := demoHealthyNodes(p.Cluster, p.status())
-		cpu := demoCPU(p.status())
-		mem := demoMem(p.status())
-		r.Capacity = append(r.Capacity, report.CapacityAnalysis{
-			Cluster:           p.Cluster,
-			Status:            demoCapStatus(p.status()),
-			CPUUtilization:    cpu,
-			MemoryUtilization: mem,
-			NodeCount:         nodes,
-			HealthyNodes:      healthy,
-			HeadroomCPU:       100 - cpu,
-			HeadroomMemory:    100 - mem,
-			HasMemoryPressure: p.status() == "critical",
-			Recommendation:    demoRecommendation(p.status()),
-		})
-	}
-
-	r.Findings = demoFindings(pts)
-	r.Summary = report.Summary{
-		ClusterCount:     len(clusters),
-		ScannerCount:     14,
-		UniformCount:     8,
-		DivergentCount:   6,
-		TotalDivergences: 23,
-		CriticalCount:    countSeverity(r.Findings, report.SeverityCritical),
-		WarningCount:     countSeverity(r.Findings, report.SeverityWarning),
-	}
+	// Layer the curated incident narratives on top of the engine findings so
+	// the Findings page keeps its specific stories next to the live outliers
+	// and cohort drift the engine surfaced. Re-derive health and score from the
+	// combined set so the numbers reconcile.
+	r.Findings = append(r.Findings, demoFindings(pts)...)
+	sortBySeverity(r.Findings)
+	r.ClusterHealths = report.GenerateClusterHealth(r, r.Findings)
 	r.FleetScore = report.ComputeFleetScore(r)
+	r.Summary.CriticalCount = countSeverity(r.Findings, report.SeverityCritical)
+	r.Summary.WarningCount = countSeverity(r.Findings, report.SeverityWarning)
 
 	return r
+}
+
+// sortBySeverity orders findings critical-first so the demo Findings page leads
+// with what matters.
+func sortBySeverity(fs []report.Finding) {
+	order := map[string]int{report.SeverityCritical: 0, report.SeverityWarning: 1, report.SeverityInfo: 2}
+	sort.SliceStable(fs, func(i, j int) bool { return order[fs[i].Severity] < order[fs[j].Severity] })
 }
 
 // status normalizes the legacy "strained" label so consumers can match the
@@ -154,23 +127,6 @@ func (g geoPoint) status() string {
 		return "degraded"
 	}
 	return g.Status
-}
-
-// normalizeStatus collapses strained onto degraded for output paths.
-func normalizeStatus(s string) string {
-	if s == "strained" {
-		return "degraded"
-	}
-	return s
-}
-
-// toCategoryReports converts the report.Categories list into the wire format.
-func toCategoryReports(cats []report.Category) []report.CategoryReport {
-	out := make([]report.CategoryReport, len(cats))
-	for i, c := range cats {
-		out[i] = report.CategoryReport{Name: c.Name, Scanners: c.Scanners}
-	}
-	return out
 }
 
 // demoFindings builds the per-cluster findings for the synthetic fleet.
@@ -406,34 +362,6 @@ func demoNSCount(cluster string) int {
 		return 18
 	default:
 		return 12
-	}
-}
-
-// demoCapStatus maps fleet status onto capacity-analysis status labels.
-func demoCapStatus(status string) string {
-	switch status {
-	case "critical":
-		return "critical"
-	case "degraded":
-		return "degraded"
-	case "busy":
-		return "busy"
-	default:
-		return "healthy"
-	}
-}
-
-// demoRecommendation provides a one-line suggestion per cluster state.
-func demoRecommendation(status string) string {
-	switch status {
-	case "critical":
-		return "Memory pressure plus elevated event rate. Investigate top consumers; add 2 nodes if condition persists."
-	case "degraded":
-		return "Elevated utilization. Monitor; no immediate action required."
-	case "busy":
-		return "Busy but stable. Plan capacity if the trend continues."
-	default:
-		return "Healthy headroom on both CPU and memory."
 	}
 }
 
