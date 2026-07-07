@@ -5,6 +5,24 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.4.0] - 2026-07-07
+
+Incidents and an executive brief. Correlated findings now fuse into incidents,
+and the dashboard surfaces incidents, degraded coverage, and a one-glance brief.
+
+### Added
+
+- Incident fusion. Findings that share a root cause on a cluster (admission
+  control, node pressure, or security posture) fuse into a single incident with
+  the highest member severity and a templated root-cause summary, surfaced on
+  the report and the scan CLI.
+- Dashboard Incidents page and a degraded-coverage banner, so correlated
+  symptoms read as one incident and partial coverage is never mistaken for a
+  clean fleet.
+- Deterministic executive brief: a templated one-glance summary of the score,
+  the worst incident, cohort drift, degraded coverage, and the top fixes, on the
+  dashboard hero, the scan CLI, and the report JSON.
+
 ## [0.3.0] - 2026-07-07
 
 Time-aware detection and a demo that runs the real engine. Cohort drift now
