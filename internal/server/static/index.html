@@ -18,13 +18,14 @@ a{color:var(--ac);text-decoration:none;cursor:pointer}a:hover{text-decoration:un
 .sb h1{font-size:15px;font-weight:600;color:var(--tx);margin:0}
 .sb-brand{display:flex;align-items:center;gap:10px;padding:0 14px 10px;border-bottom:1px solid var(--bd);margin-bottom:6px}
 .sb-logo{width:28px;height:28px;border-radius:6px;object-fit:cover;flex-shrink:0;box-shadow:0 0 0 1px rgba(88,166,255,.25)}
-.sb a.sb-show-welcome{margin-top:auto;color:var(--t3);font-size:11px;border-top:1px solid var(--bd);padding-top:10px}
+.sb a.sb-show-welcome{color:var(--t3);font-size:11px}
+.sb .hd.sb-help-hd{margin-top:auto;border-top:1px solid var(--bd);padding-top:10px}
 .sb a.sb-show-welcome:hover{color:var(--ac)}
 .sb a{display:block;padding:4px 14px;color:var(--t2);border-left:2px solid transparent;transition:all .1s}
 .sb a:hover{color:var(--tx);background:rgba(88,166,255,.04);text-decoration:none}
 .sb a.on{color:var(--ac);border-color:var(--ac);background:rgba(88,166,255,.06)}
 .sb .hd{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--t3);padding:10px 14px 3px}
-.sb .foot{margin-top:auto;padding:10px 14px;border-top:1px solid var(--bd);font-size:11px;color:var(--t3)}
+.sb .foot{padding:10px 14px;border-top:1px solid var(--bd);font-size:11px;color:var(--t3)}
 
 /* Main */
 .mn{flex:1;min-width:0}
@@ -390,9 +391,9 @@ function renderSb(){
   h+='<a class="'+(P.page==='clusters'?'on':'')+'" onclick="nav(\'clusters\')">Clusters</a>';
   h+='<a class="'+(P.page==='manage'?'on':'')+'" onclick="nav(\'manage\')">Add cluster</a>';
   h+='<a class="'+(P.page==='groups'?'on':'')+'" onclick="nav(\'groups\')">Groups</a>';
+  h+='<div class="hd sb-help-hd">Help</div>';
   h+='<a class="sb-show-welcome" onclick="window.Help&&window.Help.openMenu()">How it works</a>';
   h+='<a class="sb-show-welcome" href="/cinematic" target="_blank">Watch the cinematic</a>';
-  h+='<a class="sb-show-welcome" onclick="window.Welcome&&window.Welcome.show()">Show welcome</a>';
   h+='<div class="foot">fleetsweeper server</div>';
   document.getElementById('sb').innerHTML=h;
 }
