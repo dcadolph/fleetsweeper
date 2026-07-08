@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -31,13 +32,28 @@ func NewSQLite(path string) (*SQLite, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: open: %w", ErrStore, err)
 	}
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(2)
+	// An in-memory database lives inside a single connection: a pool would give
+	// each connection its own empty database, so migrations applied on one would
+	// be missing on the others and queries would fail with "no such table". Pin
+	// the pool to one connection so the schema and data are visible everywhere.
+	if isMemoryDSN(path) {
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	} else {
+		db.SetMaxOpenConns(4)
+		db.SetMaxIdleConns(2)
+	}
 	if err := migrate(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return &SQLite{db: db}, nil
+}
+
+// isMemoryDSN reports whether path opens an in-memory SQLite database, which is
+// private to the connection that created it.
+func isMemoryDSN(path string) bool {
+	return path == ":memory:" || strings.Contains(path, ":memory:") || strings.Contains(path, "mode=memory")
 }
 
 // Ping verifies database connectivity. Used by the server's /readyz endpoint.
