@@ -231,6 +231,10 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(alerts) == 0 && s.demo {
+		alerts = demoAlerts()
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"alerts": alerts,
 		"count":  len(alerts),
