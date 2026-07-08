@@ -208,6 +208,15 @@ components:
         status: {type: string, enum: [configured, off, demo]}
         hint: {type: string}
 
+    Group:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        clusters:
+          type: array
+          items: {type: string}
+
     AckRequest:
       type: object
       properties:
@@ -398,7 +407,13 @@ paths:
     get:
       summary: List groups
       responses:
-        "200": {description: OK}
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Group"}
     post:
       summary: Create a group
       requestBody:

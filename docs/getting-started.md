@@ -163,3 +163,5 @@ See [outliers](concepts/outliers.md) for the full statistical treatment.
 - [Server mode](operator/server-mode.md). Run as a service with dashboard and API.
 - [ClusterScan CRD](operator/clusterscan.md). Full spec reference.
 - [RBAC and API keys](operator/rbac.md). Multi-tenant access control.
+- Go SDK. A standard-library client for the HTTP API lives in the `client`
+  package, with contract tests that run against a live server.
