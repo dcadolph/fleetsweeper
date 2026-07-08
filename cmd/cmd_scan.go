@@ -100,7 +100,7 @@ func buildRegistry() *scanner.Registry {
 
 // runScan is the main scan command implementation.
 func runScan(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	log := logutil.UnwrapLogger(ctx)
 
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")

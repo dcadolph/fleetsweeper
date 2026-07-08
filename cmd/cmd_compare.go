@@ -34,7 +34,7 @@ func init() {
 
 // runCompare is the cobra entrypoint for the compare subcommand.
 func runCompare(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	format, _ := cmd.Flags().GetString("format")
 	noColor, _ := cmd.Flags().GetBool("no-color")
 

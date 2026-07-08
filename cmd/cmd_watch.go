@@ -40,7 +40,7 @@ func init() {
 
 // runWatch is the cobra entrypoint for the watch subcommand.
 func runWatch(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	log := logutil.UnwrapLogger(ctx)
 
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")

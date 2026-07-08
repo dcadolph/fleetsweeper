@@ -76,7 +76,7 @@ func runWhatChanged(cmd *cobra.Command, args []string) error {
 	}
 	defer st.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	scanA, scanB, err := resolveScans(ctx, st, args)
 	if err != nil {
 		return err
