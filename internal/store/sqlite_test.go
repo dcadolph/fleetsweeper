@@ -141,6 +141,36 @@ func TestListScans(t *testing.T) {
 	}
 }
 
+// TestListScansTiebreak verifies that scans sharing a second-granularity
+// timestamp return in a deterministic order, newest id first. Without the id
+// tiebreak, two scans in the same second have unstable latest and previous
+// order.
+func TestListScansTiebreak(t *testing.T) {
+	t.Parallel()
+	s := testStore(t)
+	ctx := context.Background()
+
+	const ts = "2026-07-07T12:00:00Z"
+	// Insert out of id order so the query, not insertion order, decides.
+	for _, id := range []string{"0000000000001-aaaa", "0000000000001-cccc", "0000000000001-bbbb"} {
+		execRaw(t, s, "INSERT INTO scans (id, timestamp, clusters, scanners) VALUES (?, ?, ?, ?)",
+			id, ts, "[]", "[]")
+	}
+
+	scans, err := s.ListScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
+	}
+	if len(scans) != 3 {
+		t.Fatalf("want 3 scans, got %d", len(scans))
+	}
+	got := []string{scans[0].ID, scans[1].ID, scans[2].ID}
+	want := []string{"0000000000001-cccc", "0000000000001-bbbb", "0000000000001-aaaa"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("tiebreak order mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestClusterTracking(t *testing.T) {
 	t.Parallel()
 	s := testStore(t)

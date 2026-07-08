@@ -9,7 +9,7 @@ import (
 
 // ScanRecord represents a persisted scan execution.
 type ScanRecord struct {
-	// ID is the unique scan identifier (ULID).
+	// ID is the unique, time-sortable scan identifier.
 	ID string `json:"id"`
 	// Timestamp is when the scan was executed.
 	Timestamp time.Time `json:"timestamp"`
