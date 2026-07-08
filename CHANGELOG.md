@@ -5,6 +5,35 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.7.0] - 2026-07-07
+
+A Go client SDK and stability fixes. Applications can now call the Fleetsweeper
+API through a typed standard-library client that mirrors the OpenAPI spec,
+verified by in-process contract tests against the real server.
+
+### Added
+
+- Go SDK in the `client` package: a standard-library HTTP client that mirrors
+  `internal/server/openapi.yaml`, with in-process contract tests that exercise
+  the real server through a new `Server.Handler()`. The tests confirmed and
+  documented that `GET /api/groups` returns `Group` objects.
+- A 60-second quickstart in the getting-started guide.
+
+### Fixed
+
+- Stable scan ordering: `ListScans`, `GetClusterHistory`, and
+  `GetScansByTimeRange` break same-second RFC3339 timestamp ties with a
+  secondary sort on id, so latest and previous scans no longer swap
+  nondeterministically in either backend.
+- Nil command context: a cobra command run outside `Execute` has a nil
+  `Context()`, which hung a `database/sql` context call. A helper now anchors a
+  background context so those calls proceed.
+
+### Changed
+
+- Release and CI workflow actions moved off the deprecated Node 20 runtime
+  (checkout v7, setup-go v6, goreleaser-action v7, attest-build-provenance v4).
+
 ## [0.6.0] - 2026-07-07
 
 Test hardening and a moving landing page. Broad new test coverage with parser

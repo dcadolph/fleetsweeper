@@ -89,7 +89,7 @@ func runHistoryPrune(cmd *cobra.Command, _ []string) error {
 	cutoff := time.Now().Add(-dur)
 
 	if dryRun {
-		scans, err := s.GetScansByTimeRange(cmd.Context(), time.Unix(0, 0), cutoff)
+		scans, err := s.GetScansByTimeRange(cmdContext(cmd), time.Unix(0, 0), cutoff)
 		if err != nil {
 			return fmt.Errorf("count scans: %w", err)
 		}
@@ -97,14 +97,14 @@ func runHistoryPrune(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	n, err := s.Prune(cmd.Context(), cutoff)
+	n, err := s.Prune(cmdContext(cmd), cutoff)
 	if err != nil {
 		return fmt.Errorf("prune: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "deleted %d scans older than %s\n", n, cutoff.UTC().Format(time.RFC3339))
 
 	if vacuum {
-		if err := s.Vacuum(cmd.Context()); err != nil {
+		if err := s.Vacuum(cmdContext(cmd)); err != nil {
 			return fmt.Errorf("vacuum: %w", err)
 		}
 		fmt.Fprintln(os.Stderr, "vacuum complete")
@@ -147,7 +147,7 @@ func runHistoryList(cmd *cobra.Command, _ []string) error {
 	limit, _ := cmd.Flags().GetInt("limit")
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
-	scans, err := s.ListScans(cmd.Context(), limit)
+	scans, err := s.ListScans(cmdContext(cmd), limit)
 	if err != nil {
 		return fmt.Errorf("list scans: %w", err)
 	}
@@ -168,7 +168,7 @@ func runHistoryShow(cmd *cobra.Command, args []string) error {
 	}
 	defer s.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
 	scan, err := s.GetScan(ctx, args[0])
@@ -198,7 +198,7 @@ func runHistoryDiff(cmd *cobra.Command, args []string) error {
 	}
 	defer s.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
 	scan1, err := s.GetScan(ctx, args[0])
@@ -320,7 +320,7 @@ func runHistoryTrend(cmd *cobra.Command, _ []string) error {
 	}
 	defer s.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 	limit, _ := cmd.Flags().GetInt("scans")
 	clusterName, _ := cmd.Flags().GetString("cluster")

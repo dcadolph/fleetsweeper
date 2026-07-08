@@ -74,7 +74,7 @@ func runDrift(cmd *cobra.Command, _ []string) error {
 	failOnDrift, _ := cmd.Flags().GetBool("fail-on-drift")
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 
 	baseline, err := resolveDriftBaseline(cmd, baselinePath)
 	if err != nil {

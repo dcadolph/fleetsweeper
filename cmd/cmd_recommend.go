@@ -61,7 +61,7 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 	}
 	defer st.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	rpt, _, err := latestReport(ctx, st)
 	if err != nil {
 		return err

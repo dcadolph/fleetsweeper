@@ -37,7 +37,7 @@ func init() {
 
 // runDiagnose is the cobra entrypoint for the diagnose subcommand.
 func runDiagnose(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 
 	probe, _ := cmd.Flags().GetBool("probe")
 	jsonOut, _ := cmd.Flags().GetBool("json")

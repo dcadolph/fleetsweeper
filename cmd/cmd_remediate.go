@@ -44,7 +44,7 @@ func init() {
 
 // runRemediate is the cobra entrypoint for the remediate subcommand.
 func runRemediate(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 
 	scanID, _ := cmd.Flags().GetString("scan-id")
 	cluster, _ := cmd.Flags().GetString("cluster")

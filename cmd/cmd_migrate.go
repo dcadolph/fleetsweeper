@@ -63,13 +63,13 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	defer dst.Close()
 
 	if force, _ := cmd.Flags().GetBool("force"); !force {
-		if err := refuseIfDestinationNotEmpty(cmd.Context(), dst); err != nil {
+		if err := refuseIfDestinationNotEmpty(cmdContext(cmd), dst); err != nil {
 			return err
 		}
 	}
 
 	out := cmd.ErrOrStderr()
-	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(cmdContext(cmd), 30*time.Minute)
 	defer cancel()
 
 	counts := migrationCounts{}
