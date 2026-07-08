@@ -2,12 +2,12 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // AckRecord is a single finding acknowledgement persisted in SQLite.
@@ -37,13 +37,7 @@ type AckRecord struct {
 // AckFingerprint returns the stable SHA-256 used to key acknowledgements for
 // a finding identified by its cluster, scanner, and title.
 func AckFingerprint(cluster, scanner, title string) string {
-	h := sha256.New()
-	h.Write([]byte(cluster))
-	h.Write([]byte{0})
-	h.Write([]byte(scanner))
-	h.Write([]byte{0})
-	h.Write([]byte(title))
-	return hex.EncodeToString(h.Sum(nil))
+	return util.Fingerprint(cluster, scanner, title)
 }
 
 // SaveAck upserts an acknowledgement. The fingerprint is the primary key, so

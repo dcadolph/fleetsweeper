@@ -285,6 +285,8 @@ func (s *Server) routes() {
 	api.HandleFunc("GET /cost", s.handleGetCost)
 	api.HandleFunc("GET /integrations", s.handleGetIntegrations)
 	api.HandleFunc("GET /acks", s.handleListAcks)
+	api.HandleFunc("GET /findings/timeline", s.handleFindingsTimeline)
+	api.HandleFunc("GET /findings/persistence", s.handleFindingsPersistence)
 	api.HandleFunc("POST /findings/{fingerprint}/ack", s.handleCreateAck)
 	api.HandleFunc("DELETE /findings/{fingerprint}/ack", s.handleDeleteAck)
 	api.HandleFunc("POST /alerts/{fingerprint}/ack", s.handleAckAlert)

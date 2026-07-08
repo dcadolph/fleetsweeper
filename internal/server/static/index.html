@@ -385,6 +385,7 @@ function renderSb(){
   h+='<a class="'+(P.page==='heatmap'?'on':'')+'" onclick="nav(\'heatmap\')">Fleet heatmap</a>';
   h+='<a class="'+(P.page==='globe'?'on':'')+'" onclick="nav(\'globe\')">Globe</a>';
   h+='<a class="'+(P.page==='diff'?'on':'')+'" onclick="nav(\'diff\')">Scan diff</a>';
+  h+='<a class="'+(P.page==='replay'?'on':'')+'" onclick="nav(\'replay\')">Drift replay</a>';
   h+='<div class="hd">Manage</div>';
   h+='<a class="'+(P.page==='clusters'?'on':'')+'" onclick="nav(\'clusters\')">Clusters</a>';
   h+='<a class="'+(P.page==='manage'?'on':'')+'" onclick="nav(\'manage\')">Add cluster</a>';
@@ -1848,6 +1849,7 @@ async function triggerScan(){
 // === RENDER ===
 async function render(){
   destroyCharts();
+  if(P.replayStop)P.replayStop();
   renderSb();
   window.render=render;
   var el=document.getElementById('ct');
@@ -1868,6 +1870,7 @@ async function render(){
     else if(P.page==='heatmap')result=await renderHeatmap();
     else if(P.page==='globe')result=await renderGlobe();
     else if(P.page==='diff')result=await renderDiff();
+    else if(P.page==='replay')result=await renderReplay();
     else if(P.page==='clusters')result=await renderClusters();
     else if(P.page==='manage')result=await (window.renderManage?window.renderManage():Promise.resolve());
     else if(P.page==='groups')result=await renderGroups();
@@ -1875,6 +1878,163 @@ async function render(){
     if(typeof result==='string'){el.innerHTML=result}
     else if(result){el.innerHTML=result.html;if(result.post)result.post()}
   }catch(e){el.innerHTML='<div class="empty">Error: '+esc(e.message)+'</div>'}
+}
+
+// === Drift replay: scrub findings across recent scans ===
+async function renderReplay(){
+  renderBar('');
+  var tl,pers;
+  try{
+    tl=await api('/findings/timeline?scans=24');
+    pers=await api('/findings/persistence?scans=24');
+  }catch(e){return '<div class="empty">Error loading replay: '+esc(e.message)+'</div>';}
+  var pts=(tl&&tl.points)||[];
+  if(pts.length<2){
+    return '<div class="card"><h2 style="margin:0 0 6px">Drift replay</h2><p style="color:var(--t2);font-size:13px;margin:0">Not enough scan history to replay yet. Drift replay needs at least two scans. Run more scans and check back.</p></div>';
+  }
+  var sets=pts.map(function(p){var m={};(p.findings||[]).forEach(function(f){m[f.fingerprint]=f});return m;});
+  var idx=pts.length-1;
+  var html=''
+    +'<div class="card">'
+    +'<h2 style="margin:0 0 4px">Drift replay</h2>'
+    +'<p style="color:var(--t2);font-size:13px;margin:0 0 10px">Scrub through recent scans to watch findings appear and resolve across the fleet. Press Play to step forward in time. The chronic panel ranks findings by how persistently they recur, an implicit signal of what is a standing problem versus a passing blip.</p>'
+    +'<div style="height:110px"><canvas id="replayChart"></canvas></div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin:12px 0 8px;flex-wrap:wrap">'
+    +'<button id="replayPlay" class="btn">Play</button>'
+    +'<input id="replaySlider" type="range" min="0" max="'+(pts.length-1)+'" value="'+idx+'" style="flex:1;min-width:180px">'
+    +'<span id="replayStamp" class="mono" style="font-size:12px;color:var(--t2)"></span>'
+    +'</div>'
+    +'<div id="replaySummary" style="display:flex;gap:8px;flex-wrap:wrap"></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
+    +'<div class="card"><h3 style="margin:0 0 8px">Findings at this point <span id="replayIdxLabel" style="color:var(--t3);font-weight:400;font-size:12px"></span></h3><div id="replayFindings"></div></div>'
+    +'<div class="card"><h3 style="margin:0 0 8px">Chronic findings <span style="color:var(--t3);font-weight:400;font-size:12px">by recurrence across '+pts.length+' scans</span></h3><div id="replayChronic"></div></div>'
+    +'</div>';
+  return {html:html,post:function(){replayWire(pts,sets,pers,idx);}};
+}
+
+// replayWire binds the slider, play/pause, and chart for the drift replay view.
+// Autoplay respects reduced-motion and pauses when the tab is hidden or the
+// chart scrolls out of view; the cleanup is registered on P so navigation stops
+// the timer and detaches listeners.
+function replayWire(pts,sets,pers,idx){
+  var slider=document.getElementById('replaySlider');
+  var stamp=document.getElementById('replayStamp');
+  var playBtn=document.getElementById('replayPlay');
+  var idxLabel=document.getElementById('replayIdxLabel');
+  var cur=idx;
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var chart=makeChart('replayChart',{
+    type:'line',
+    data:{labels:pts.map(function(_,i){return i+1;}),datasets:[
+      {label:'Total',data:pts.map(function(p){return p.total;}),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,.12)',fill:true,tension:.3,pointRadius:markRadius(pts,cur)},
+      {label:'Critical',data:pts.map(function(p){return p.critical;}),borderColor:'#f85149',backgroundColor:'rgba(248,81,73,.10)',fill:true,tension:.3,pointRadius:markRadius(pts,cur)}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{boxWidth:10,color:'#8b949e'}}},scales:{x:{ticks:{color:'#8b949e'},grid:{color:'rgba(139,148,158,.08)'}},y:{beginAtZero:true,ticks:{color:'#8b949e',precision:0},grid:{color:'rgba(139,148,158,.08)'}}}}
+  });
+
+  renderChronic(pers);
+
+  function paint(){
+    var p=pts[cur];
+    if(stamp)stamp.textContent='Scan '+(cur+1)+' of '+pts.length+' · '+new Date(p.timestamp).toLocaleString();
+    if(idxLabel)idxLabel.textContent='· '+p.total+' findings';
+    var prev=cur>0?sets[cur-1]:{};
+    var now=sets[cur];
+    var appeared=0,resolved=0;
+    Object.keys(now).forEach(function(fp){if(!prev[fp])appeared++;});
+    Object.keys(prev).forEach(function(fp){if(!now[fp])resolved++;});
+    document.getElementById('replaySummary').innerHTML=
+      replayChip('Total',p.total,'var(--tx)')+replayChip('Critical',p.critical,'var(--cr)')
+      +replayChip('Warning',p.warning,'var(--wn)')+replayChip('Info',p.info,'var(--ac)')
+      +replayChip('Appeared','+'+appeared,'var(--ok)')+replayChip('Resolved','-'+resolved,'var(--t3)');
+    var items=Object.keys(now).map(function(fp){return now[fp];});
+    items.sort(function(a,b){return replaySev(a.severity)-replaySev(b.severity);});
+    var out=items.length?items.map(function(f){return replayRow(f,prev[f.fingerprint]?'':'new');}).join(''):'<div class="empty" style="padding:14px">No findings at this point.</div>';
+    var res=Object.keys(prev).filter(function(fp){return !now[fp];}).map(function(fp){return prev[fp];});
+    if(res.length){out+='<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin:10px 0 4px">Resolved since previous scan</div>'+res.map(function(f){return replayRow(f,'resolved');}).join('');}
+    document.getElementById('replayFindings').innerHTML=out;
+    if(chart){chart.data.datasets[0].pointRadius=markRadius(pts,cur);chart.data.datasets[1].pointRadius=markRadius(pts,cur);chart.update('none');}
+    if(slider)slider.value=cur;
+  }
+
+  var timer=null;
+  function stop(){if(timer){clearInterval(timer);timer=null;}if(playBtn){playBtn.textContent='Play';playBtn.classList.remove('on');}}
+  function start(){
+    if(reduce)return;
+    if(cur>=pts.length-1)cur=0;
+    playBtn.textContent='Pause';playBtn.classList.add('on');
+    timer=setInterval(function(){if(cur>=pts.length-1){stop();return;}cur++;paint();},900);
+  }
+  if(slider)slider.addEventListener('input',function(){cur=parseInt(slider.value,10)||0;stop();paint();});
+  if(playBtn)playBtn.addEventListener('click',function(){if(timer)stop();else start();});
+  if(reduce&&playBtn){playBtn.disabled=true;playBtn.style.opacity='.5';playBtn.title='Autoplay disabled by your reduced-motion preference';}
+
+  function onVis(){if(document.hidden)stop();}
+  document.addEventListener('visibilitychange',onVis);
+  var io=null;
+  if(window.IntersectionObserver){io=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)stop();});});var cv=document.getElementById('replayChart');if(cv)io.observe(cv);}
+  P.replayStop=function(){stop();document.removeEventListener('visibilitychange',onVis);if(io)io.disconnect();P.replayStop=null;};
+
+  paint();
+}
+
+// markRadius enlarges the plotted point at the current scrub index.
+function markRadius(pts,cur){return pts.map(function(_,i){return i===cur?5:2;});}
+
+// replaySev ranks severities critical-first for stable ordering.
+function replaySev(s){return s==='critical'?0:s==='warning'?1:2;}
+
+// replayChip renders one labeled summary tile for the replay header.
+function replayChip(label,val,color){
+  return '<div style="background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:5px 9px;min-width:62px">'
+    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--t3)">'+esc(label)+'</div>'
+    +'<div style="font-size:16px;font-weight:600;color:'+color+'">'+esc(String(val))+'</div></div>';
+}
+
+// replayRow renders one finding row, badged as newly appeared or resolved.
+function replayRow(f,mark){
+  var c=f.severity==='critical'?'var(--cr)':f.severity==='warning'?'var(--wn)':'var(--ac)';
+  var badge='';
+  if(mark==='new')badge=' <span style="background:rgba(63,185,80,.15);color:var(--ok);font-size:9px;padding:1px 5px;border-radius:3px">new</span>';
+  else if(mark==='resolved')badge=' <span style="background:rgba(139,148,158,.12);color:var(--t3);font-size:9px;padding:1px 5px;border-radius:3px">resolved</span>';
+  var op=mark==='resolved'?'opacity:.5;':'';
+  var cl=(f.cluster&&f.cluster!=='fleet')?f.cluster:'fleet';
+  return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-left:3px solid '+c+';background:var(--c2);border-radius:4px;margin-bottom:4px;'+op+'">'
+    +'<span style="font-size:9px;text-transform:uppercase;color:'+c+';min-width:52px">'+esc(f.severity)+'</span>'
+    +'<span style="flex:1;font-size:12px;color:var(--tx)">'+esc(f.title)+badge+'</span>'
+    +'<span class="mono" style="font-size:10px;color:var(--t3)">'+esc(cl)+'</span>'
+    +'</div>';
+}
+
+// renderChronic fills the persistence panel: findings ranked by how often they
+// recur across the scan window, with class, recurrence bar, and ack marker.
+function renderChronic(pers){
+  var box=document.getElementById('replayChronic');
+  if(!box)return;
+  var list=(pers&&pers.findings)||[];
+  if(!list.length){box.innerHTML='<div class="empty" style="padding:14px">No findings.</div>';return;}
+  var head='<div style="display:flex;gap:8px;margin-bottom:8px;font-size:11px">'
+    +'<span style="color:var(--cr)">Chronic '+(pers.chronic||0)+'</span>·'
+    +'<span style="color:var(--wn)">Intermittent '+(pers.intermittent||0)+'</span>·'
+    +'<span style="color:var(--t3)">Transient '+(pers.transient||0)+'</span></div>';
+  var rows=list.slice(0,16).map(function(p){
+    var cc=p.class==='chronic'?'var(--cr)':p.class==='intermittent'?'var(--wn)':'var(--t3)';
+    var pct=Math.round(p.fraction*100);
+    var ack=p.acked?' <span title="Acknowledged" style="color:var(--t3);font-size:10px">ack</span>':'';
+    var sevc=p.severity==='critical'?'var(--cr)':p.severity==='warning'?'var(--wn)':'var(--ac)';
+    return '<div style="padding:6px 8px;background:var(--c2);border-radius:4px;margin-bottom:4px">'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span style="font-size:9px;text-transform:uppercase;color:'+cc+';min-width:80px">'+esc(p.class)+'</span>'
+      +'<span style="flex:1;font-size:12px;color:var(--tx)">'+esc(p.title)+ack+'</span>'
+      +'<span class="mono" style="font-size:11px;color:'+sevc+'">'+pct+'%</span>'
+      +'</div>'
+      +'<div style="height:4px;background:var(--c3);border-radius:2px;margin-top:5px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+cc+'"></div></div>'
+      +'<div style="font-size:10px;color:var(--t3);margin-top:3px">present in '+p.present+' of '+p.total+' scans · streak '+p.streak+'</div>'
+      +'</div>';
+  }).join('');
+  box.innerHTML=head+rows;
 }
 
 // === Fleet heatmap: clusters x scanners colored by worst severity ===
