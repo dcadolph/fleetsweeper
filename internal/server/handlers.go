@@ -387,6 +387,9 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list groups failed")
 		return
 	}
+	if len(groups) == 0 && s.demo {
+		groups = demoGroups()
+	}
 	writeJSON(w, http.StatusOK, groups)
 }
 

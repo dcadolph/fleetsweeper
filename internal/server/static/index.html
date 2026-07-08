@@ -24,8 +24,16 @@ a{color:var(--ac);text-decoration:none;cursor:pointer}a:hover{text-decoration:un
 .sb a{display:block;padding:4px 14px;color:var(--t2);border-left:2px solid transparent;transition:all .1s}
 .sb a:hover{color:var(--tx);background:rgba(88,166,255,.04);text-decoration:none}
 .sb a.on{color:var(--ac);border-color:var(--ac);background:rgba(88,166,255,.06)}
-.sb .hd{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--t3);padding:10px 14px 3px}
+.sb .hd{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--t2);padding:14px 14px 4px}
+.chgroup{margin:6px 0}
+.chgroup>summary{cursor:pointer;display:flex;align-items:center;gap:6px;margin:8px 0 6px;list-style:none;user-select:none}
+.chgroup>summary::-webkit-details-marker{display:none}
+.chgroup>summary::before{content:'\25B8';color:var(--t3);font-size:10px}
+.chgroup[open]>summary::before{content:'\25BE'}
 .sb .foot{padding:10px 14px;border-top:1px solid var(--bd);font-size:11px;color:var(--t3)}
+.dash-toc{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 10px;margin:0 0 6px;background:var(--bg);border-bottom:1px solid var(--bd)}
+.toc-link{font-size:11px;color:var(--t2);background:var(--c2);border:1px solid var(--bd);border-radius:12px;padding:3px 10px;cursor:pointer;transition:all .1s}
+.toc-link:hover{color:var(--ac);border-color:var(--ac)}
 
 /* Main */
 .mn{flex:1;min-width:0}
@@ -33,6 +41,10 @@ a{color:var(--ac);text-decoration:none;cursor:pointer}a:hover{text-decoration:un
 .bar input{background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 10px;color:var(--tx);font-size:12px;width:200px;outline:none}
 .bar input:focus{border-color:var(--ac)}
 .bar select{background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;color:var(--tx);font-size:11px;outline:none}
+input[type=text],input[type=search],input[type=number],input:not([type]),select,textarea{background:var(--c2);border:1px solid var(--bd);border-radius:6px;padding:5px 9px;color:var(--tx);font-size:12px;font-family:inherit;outline:none}
+input[type=text]:focus,input[type=search]:focus,input[type=number]:focus,select:focus,textarea:focus{border-color:var(--ac)}
+::placeholder{color:var(--t3)}
+select option{background:var(--c1);color:var(--tx)}
 .bar .sp{flex:1}
 .btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:11px;border-radius:5px;cursor:pointer;border:1px solid var(--bd);background:var(--c2);color:var(--t2);transition:background .1s}
 .btn:hover{background:var(--c3);color:var(--tx)}
@@ -374,27 +386,16 @@ function nav(pg,opts){P.page=pg;P.cluster=opts&&opts.cluster||null;P.scanId=opts
 // === SIDEBAR ===
 function renderSb(){
   var h='<div class="sb-brand" onclick="nav(\'dash\')" style="cursor:pointer" title="Back to dashboard"><img class="sb-logo" src="logo.jpg" alt=""><h1>Fleetsweeper</h1></div>';
-  h+='<a class="'+(P.page==='dash'?'on':'')+'" onclick="nav(\'dash\')">Dashboard</a>';
-  h+='<a class="'+(P.page==='findings'?'on':'')+'" onclick="nav(\'findings\')">Findings</a>';
-  h+='<a class="'+(P.page==='incidents'?'on':'')+'" onclick="nav(\'incidents\')">Incidents</a>';
-  h+='<a class="'+(P.page==='alerts'?'on':'')+'" onclick="nav(\'alerts\')">Alerts</a>';
-  h+='<a class="'+(P.page==='scans'?'on':'')+'" onclick="nav(\'scans\')">Scan history</a>';
-  h+='<a class="'+(P.page==='capacity'?'on':'')+'" onclick="nav(\'capacity\')">Capacity</a>';
-  h+='<a class="'+(P.page==='trends'?'on':'')+'" onclick="nav(\'trends\')">Trends</a>';
-  h+='<a class="'+(P.page==='outliers'?'on':'')+'" onclick="nav(\'outliers\')">Outliers</a>';
-  h+='<a class="'+(P.page==='cohorts'?'on':'')+'" onclick="nav(\'cohorts\')">Cohorts</a>';
-  h+='<a class="'+(P.page==='heatmap'?'on':'')+'" onclick="nav(\'heatmap\')">Fleet heatmap</a>';
-  h+='<a class="'+(P.page==='globe'?'on':'')+'" onclick="nav(\'globe\')">Globe</a>';
-  h+='<a class="'+(P.page==='diff'?'on':'')+'" onclick="nav(\'diff\')">Scan diff</a>';
-  h+='<a class="'+(P.page==='replay'?'on':'')+'" onclick="nav(\'replay\')">Drift replay</a>';
-  h+='<div class="hd">Manage</div>';
-  h+='<a class="'+(P.page==='clusters'?'on':'')+'" onclick="nav(\'clusters\')">Clusters</a>';
-  h+='<a class="'+(P.page==='manage'?'on':'')+'" onclick="nav(\'manage\')">Add cluster</a>';
-  h+='<a class="'+(P.page==='groups'?'on':'')+'" onclick="nav(\'groups\')">Groups</a>';
+  function ln(pg,label){return '<a class="'+(P.page===pg?'on':'')+'" onclick="nav(\''+pg+'\')">'+label+'</a>';}
+  h+='<div class="hd">Overview</div>'+ln('dash','Dashboard');
+  h+='<div class="hd">Issues</div>'+ln('findings','Findings')+ln('incidents','Incidents')+ln('alerts','Alerts');
+  h+='<div class="hd">Analysis</div>'+ln('outliers','Outliers')+ln('cohorts','Cohorts')+ln('trends','Trends')+ln('replay','Drift replay')+ln('capacity','Capacity');
+  h+='<div class="hd">Maps</div>'+ln('heatmap','Fleet heatmap')+ln('globe','Globe')+ln('diff','Scan diff');
+  h+='<div class="hd">History</div>'+ln('scans','Scan history');
+  h+='<div class="hd">Manage</div>'+ln('clusters','Clusters')+ln('groups','Groups')+ln('manage','Add cluster');
   h+='<div class="hd sb-help-hd">Help</div>';
   h+='<a class="sb-show-welcome" onclick="window.Help&&window.Help.openMenu()">How it works</a>';
   h+='<a class="sb-show-welcome" href="/cinematic" target="_blank">Watch the cinematic</a>';
-  h+='<div class="foot">fleetsweeper server</div>';
   document.getElementById('sb').innerHTML=h;
 }
 
@@ -515,6 +516,14 @@ async function renderDash(){
   }catch(_){}
   var S=rpt.summary;
   var h='<h2>Fleet overview</h2><p class="sub">Latest scan: '+esc(rpt.timestamp)+' &middot; '+S.cluster_count+' clusters &middot; '+(rpt.findings?rpt.findings.length:0)+' findings</p>';
+  h+='<div class="dash-toc">'+
+    '<span class="toc-link" data-jump="dash-score">Score</span>'+
+    '<span class="toc-link" data-jump="dash-summary">Summary</span>'+
+    '<span class="toc-link" data-jump="dash-health">Cluster health</span>'+
+    '<span class="toc-link" data-jump="dash-util">Utilization</span>'+
+    '<span class="toc-link" data-jump="dash-findings">Findings</span>'+
+    '<span class="toc-link" data-jump="dash-cost">Cost</span>'+
+    '</div>';
 
   // Store report for drilldown.
   window._dashReport=rpt;
@@ -524,16 +533,16 @@ async function renderDash(){
   }
 
   // Fleet Score hero. Single big number for a status-TV view.
-  h+=renderFleetScoreHero(rpt.fleet_score,prevScore,prevTs,forecast);
+  h+='<div id="dash-score">'+renderFleetScoreHero(rpt.fleet_score,prevScore,prevTs,forecast)+'</div>';
   if(rpt.brief&&rpt.brief.headline){
     h+='<div style="border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin:12px 0;background:var(--bg2)">';
-    h+='<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:6px">This scan, in brief</div>';
+    h+='<div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:6px">Scan summary</div>';
     h+='<div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:6px">'+esc(rpt.brief.headline)+'</div>';
     (rpt.brief.lines||[]).forEach(function(l){h+='<div style="font-size:12px;color:var(--t2);padding:2px 0">&bull; '+esc(l)+'</div>'});
     h+='</div>';
   }
 
-  h+='<div class="g g6" data-tour="summary">';
+  h+='<div class="g g6" data-tour="summary" id="dash-summary">';
   h+='<div class="cd st click" data-tip="'+esc(TIPS.clusters)+' Click to view all clusters." onclick="nav(\'clusters\')"><div class="v" style="color:var(--ac)">'+S.cluster_count+'</div><div class="l">Clusters</div></div>';
   h+='<div class="cd st click" data-tip="'+esc(TIPS.uniform)+' Click to view." onclick="showDashDrilldown(\'uniform\')"><div class="v" style="color:var(--ok)">'+S.uniform_count+'</div><div class="l">Uniform</div></div>';
   h+='<div class="cd st click" data-tip="'+esc(TIPS.divergent)+' Click to view." onclick="showDashDrilldown(\'divergent\')"><div class="v" style="color:var(--cr)">'+S.divergent_count+'</div><div class="l">Divergent</div></div>';
@@ -573,11 +582,12 @@ async function renderDash(){
     var statusLabels={'critical':'Critical','degraded':'Degraded','busy':'Busy','healthy':'Healthy'};
     var statusColors={'critical':'var(--cr)','degraded':'var(--wn)','busy':'var(--ac)','healthy':'var(--ok)'};
 
-    h+='<h3 data-tour="health-cards">Cluster health</h3>';
+    h+='<h3 data-tour="health-cards" id="dash-health">Cluster health</h3>';
     statusOrder.forEach(function(st){
       var group=statusGroups[st];
       if(!group||!group.length)return;
-      h+='<div style="display:flex;align-items:center;gap:6px;margin:10px 0 6px"><span style="width:8px;height:8px;border-radius:50%;background:'+statusColors[st]+'"></span><span style="font-size:12px;font-weight:600;color:'+statusColors[st]+'">'+statusLabels[st]+'</span><span style="font-size:11px;color:var(--t3)">('+group.length+')</span></div>';
+      var _chOpen=(st==='critical'||st==='degraded')?' open':'';
+      h+='<details class="chgroup"'+_chOpen+'><summary><span style="width:8px;height:8px;border-radius:50%;background:'+statusColors[st]+';display:inline-block"></span><span style="font-size:12px;font-weight:600;color:'+statusColors[st]+'">'+statusLabels[st]+'</span><span style="font-size:11px;color:var(--t3)">('+group.length+' clusters)</span></summary>';
       h+='<div class="g g3">';
       group.forEach(function(ch,i){
         var ca=capMap[ch.name]||{};
@@ -593,12 +603,12 @@ async function renderDash(){
         h+='<div style="display:flex;gap:6px;margin-top:4px"><canvas id="gc-'+ch.name.replace(/[^a-z0-9]/gi,'_')+'" width="70" height="40"></canvas><canvas id="gm-'+ch.name.replace(/[^a-z0-9]/gi,'_')+'" width="70" height="40"></canvas></div>';
         h+='</div>';
       });
-      h+='</div>';
+      h+='</div></details>';
     });
   }
 
   // Charts row.
-  h+='<h3>Resource utilization</h3><div class="g g2">';
+  h+='<h3 id="dash-util">Resource utilization</h3><div class="g g2">';
   h+='<div class="chc"><h4>CPU utilization by cluster</h4><canvas id="dashCpu"></canvas></div>';
   h+='<div class="chc"><h4>Memory utilization by cluster</h4><canvas id="dashMem"></canvas></div>';
   h+='</div>';
@@ -607,7 +617,7 @@ async function renderDash(){
   if(rpt.findings&&rpt.findings.length){
     var critFindings=rpt.findings.filter(function(f){return f.severity==='critical'});
     var warnFindings=rpt.findings.filter(function(f){return f.severity==='warning'});
-    h+='<h3>Top findings <a onclick="nav(\'findings\')" style="font-size:11px;text-transform:none;letter-spacing:0;font-weight:400">(view all '+rpt.findings.length+')</a></h3>';
+    h+='<h3 id="dash-findings">Top findings <a onclick="nav(\'findings\')" style="font-size:11px;text-transform:none;letter-spacing:0;font-weight:400">(view all '+rpt.findings.length+')</a></h3>';
     if(critFindings.length){
       h+='<div style="font-size:11px;font-weight:600;color:var(--cr);margin-bottom:4px">Critical ('+critFindings.length+')</div>';
       critFindings.slice(0,5).forEach(function(f){h+=renderFinding(f)});
@@ -626,6 +636,8 @@ async function renderDash(){
   h+='<div id="dashIntegrationsPanel"></div>';
 
   return {html:h,post:function(){
+    var _tocReduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.querySelectorAll('.toc-link').forEach(function(el){el.addEventListener('click',function(){var t=document.getElementById(el.getAttribute('data-jump'));if(t)t.scrollIntoView({behavior:_tocReduce?'auto':'smooth',block:'start'})})});
     // Mini gauges.
     if(typeof Chart!=='undefined'&&rpt.cluster_healths){
       Chart.defaults.color='#8b949e';
@@ -710,22 +722,21 @@ function renderFleetScoreHero(fs,prevScore,prevTs,forecast){
       '</div>';
   }
 
-  return '<div class="cd" style="margin-bottom:14px;background:linear-gradient(135deg,var(--c1),var(--c2));'+
-    'border:1px solid var(--bd);padding:18px 22px" data-tour="fleet-score">'+
+  var gr=42,gC=2*Math.PI*gr,gArc=Math.max(0,Math.min(100,fs.score))/100*gC;
+  var gauge='<svg width="118" height="118" viewBox="0 0 120 120" style="display:block;margin:0 auto" data-tip="Out of 100">'+
+    '<circle cx="60" cy="60" r="'+gr+'" fill="none" stroke="var(--c3)" stroke-width="9"/>'+
+    '<circle cx="60" cy="60" r="'+gr+'" fill="none" stroke="'+scoreColor+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="'+gArc.toFixed(1)+' '+(gC-gArc).toFixed(1)+'" transform="rotate(-90 60 60)"/>'+
+    '<text x="60" y="57" text-anchor="middle" fill="var(--tx)" font-size="32" font-weight="700">'+fs.score+'</text>'+
+    '<text x="60" y="78" text-anchor="middle" fill="'+gc+'" font-size="15" font-weight="700" letter-spacing="1">'+esc(fs.grade)+'</text>'+
+    '</svg>';
+  return '<div class="cd" style="margin-bottom:14px;border:1px solid var(--bd);padding:18px 22px" data-tour="fleet-score">'+
     '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">'+
-      '<div style="flex:0 0 auto">'+
+      '<div style="flex:0 0 auto;text-align:center">'+
+        gauge+
         '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--t3);'+
-          'font-weight:600;margin-bottom:2px" data-tip="Single 0-100 health score for the fleet. '+
-          'Lower is worse. Computed from finding severities, cluster health distribution, version '+
-          'skew, and worst-cluster node health.">Fleet Score</div>'+
-        '<div style="display:flex;align-items:baseline;gap:10px">'+
-          '<div style="font-size:54px;line-height:1;font-weight:700;color:'+scoreColor+
-            ';font-variant-numeric:tabular-nums" data-tip="Out of 100">'+fs.score+'</div>'+
-          '<div style="font-size:13px;color:var(--t3)">/ 100</div>'+
-          '<div style="font-size:28px;line-height:1;font-weight:700;color:'+gc+
-            ';padding:3px 12px;border-radius:8px;background:rgba(255,255,255,.03);'+
-            'border:1px solid '+gc+'" data-tip="Letter grade: A 90+, B 80+, C 70+, D 60+, F under 60">'+esc(fs.grade)+'</div>'+
-        '</div>'+
+          'font-weight:600;margin-top:2px" data-tip="Single 0-100 fleet health score. Lower is worse. '+
+          'Computed from finding severities, cluster health distribution, version skew, and '+
+          'worst-cluster node health.">Fleet score</div>'+
         deltaHTML+
       '</div>'+
       '<div style="flex:1 1 auto;min-width:240px">'+
@@ -831,36 +842,62 @@ function loadCostPanel(){
     if(!d||d.total_fleet_usd<=0)return;
     var pct=d.total_fleet_usd>0?Math.round(100*d.total_drift_usd/d.total_fleet_usd):0;
     var dc=pct>=15?'var(--cr)':pct>=5?'var(--wn)':'var(--ok)';
-    var h='<h3>Cost correlation <span style="font-size:10px;color:var(--t3);text-transform:none;letter-spacing:0">('+esc(d.period||'')+')</span></h3>';
-    h+='<div class="cd" style="padding:14px;margin-bottom:10px;background:linear-gradient(135deg,var(--c1),var(--c2))">';
-    h+='<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">';
-    h+='<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">Drift cost</div>'+
-       '<div style="font-size:28px;font-weight:700;color:'+dc+';font-variant-numeric:tabular-nums">$'+fmtUSD(d.total_drift_usd)+'</div></div>';
-    h+='<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">Fleet spend</div>'+
-       '<div style="font-size:18px;font-weight:600;color:var(--tx);font-variant-numeric:tabular-nums">$'+fmtUSD(d.total_fleet_usd)+'</div></div>';
-    h+='<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">% drift</div>'+
-       '<div style="font-size:18px;font-weight:600;color:'+dc+';font-variant-numeric:tabular-nums">'+pct+'%</div></div>';
+    var priced=d.by_cluster?d.by_cluster.length:0;
+    var missing=d.missing_cost?d.missing_cost.length:0;
+    var h='<h3 id="dash-cost">Cost correlation <span style="font-size:10px;color:var(--t3);text-transform:none;letter-spacing:0">(billing period '+esc(d.period||'n/a')+')</span></h3>';
+    // Method: spell out exactly how the number is derived.
+    h+='<div style="font-size:12px;color:var(--t2);line-height:1.5;margin:0 0 10px">Drift cost estimates the monthly spend attributable to divergence. Per cluster it is '+
+      '<span class="mono" style="color:var(--tx)">cost &times; (100 &minus; health score) / 100</span>. A cluster at score 100 attributes nothing; one at score 60 attributes 40% of its bill. The fleet figure sums every priced cluster.</div>';
+    // Summary stats.
+    h+='<div class="cd" style="padding:14px 16px;margin-bottom:10px">';
+    h+='<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end">';
+    h+=costStat('Drift cost / mo','$'+fmtUSD(d.total_drift_usd),dc,'28px');
+    h+=costStat('Fleet spend / mo','$'+fmtUSD(d.total_fleet_usd),'var(--tx)','18px');
+    h+=costStat('Share drifting',pct+'%',dc,'18px');
+    h+=costStat('Clusters priced',priced+(missing?(' of '+(priced+missing)):''),'var(--t2)','18px');
     h+='</div>';
-    if(d.missing_cost&&d.missing_cost.length){
-      h+='<div style="font-size:11px;color:var(--t3);margin-top:8px">No cost row for: '+
-         d.missing_cost.slice(0,6).map(esc).join(', ')+(d.missing_cost.length>6?' (+'+(d.missing_cost.length-6)+' more)':'')+'</div>';
-    }
+    // Share bar: drift portion vs healthy portion of spend.
+    h+='<div style="margin-top:12px;height:8px;border-radius:4px;overflow:hidden;background:var(--c3);display:flex" data-tip="Drift is '+pct+'% of fleet spend">'+
+      '<div style="width:'+pct+'%;background:'+dc+'"></div></div>';
+    h+='<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3);margin-top:3px"><span>drift $'+fmtUSD(d.total_drift_usd)+'</span><span>healthy $'+fmtUSD(Math.max(0,d.total_fleet_usd-d.total_drift_usd))+'</span></div>';
     h+='</div>';
+    // Per-cluster derivation table: every column that feeds the drift number.
     if(d.by_cluster&&d.by_cluster.length){
       h+='<div class="tw"><table>';
-      h+='<thead><tr><th>Cluster</th><th>Score</th><th>Cost</th><th>Drift cost</th></tr></thead><tbody>';
-      d.by_cluster.slice(0,10).forEach(function(c){
+      h+='<thead><tr><th>Cluster</th>'+
+        '<th data-tip="Monthly cost from the billing CSV">Cost / mo</th>'+
+        '<th data-tip="Cluster health score, 0 to 100">Score</th>'+
+        '<th data-tip="100 minus the score: the unhealthy fraction of spend">Health gap</th>'+
+        '<th data-tip="Cost times health gap: spend attributed to drift">Drift cost</th>'+
+        '<th data-tip="This cluster as a share of total drift cost">% of drift</th></tr></thead><tbody>';
+      d.by_cluster.slice(0,12).forEach(function(c){
+        var gap=100-c.score;
+        var share=d.total_drift_usd>0?Math.round(100*c.drift_usd/d.total_drift_usd):0;
+        var gc=c.score<60?'var(--cr)':c.score<80?'var(--wn)':'var(--ok)';
         h+='<tr style="cursor:pointer" onclick="nav(\'detail\',{cluster:\''+esc(c.cluster)+'\'})">';
         h+='<td style="font-weight:500">'+esc(c.cluster)+'</td>';
-        h+='<td class="mono">'+c.score+'</td>';
         h+='<td class="mono">$'+fmtUSD(c.cost_usd)+'</td>';
+        h+='<td class="mono" style="color:'+gc+'">'+c.score+'</td>';
+        h+='<td class="mono" style="color:'+gc+'">'+gap+'%</td>';
         h+='<td class="mono" style="color:'+(c.drift_usd>0?'var(--cr)':'var(--t2)')+'">$'+fmtUSD(c.drift_usd)+'</td>';
+        h+='<td class="mono">'+share+'%</td>';
         h+='</tr>';
       });
       h+='</tbody></table></div>';
+      if(d.by_cluster.length>12)h+='<div style="font-size:11px;color:var(--t3);margin-top:4px">Showing the top 12 of '+d.by_cluster.length+' clusters by drift cost.</div>';
+    }
+    if(missing){
+      h+='<div style="font-size:11px;color:var(--t3);margin-top:8px">No billing row for '+missing+' cluster(s): '+
+        d.missing_cost.slice(0,6).map(esc).join(', ')+(missing>6?' (+'+(missing-6)+' more)':'')+'. They are excluded from the totals.</div>';
     }
     el.innerHTML=h;
   }).catch(function(){});
+}
+
+// costStat renders one labeled figure in the cost panel summary row.
+function costStat(label,val,color,size){
+  return '<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">'+esc(label)+'</div>'+
+    '<div style="font-size:'+size+';font-weight:700;color:'+color+';font-variant-numeric:tabular-nums">'+val+'</div></div>';
 }
 
 // loadIntegrationsPanel populates #dashIntegrationsPanel with a compact list
@@ -1703,7 +1740,13 @@ async function renderClusters(){
 
   h+='<p class="sub">'+clusters.length+' clusters tracked across '+(rpt?rpt.clusters.length:0)+' in latest scan</p>';
 
-  // Health cards view.
+  // Health cards view, worst clusters first and capped so a large fleet stays
+  // manageable; the toggle and the search reveal the rest.
+  var _stOrder={critical:0,degraded:1,strained:1,busy:2,unknown:3,healthy:4};
+  clusters=clusters.slice().sort(function(a,b){
+    var sa=(healthMap[a.name]||{}).status||'unknown',sb=(healthMap[b.name]||{}).status||'unknown';
+    return (_stOrder[sa]==null?3:_stOrder[sa])-(_stOrder[sb]==null?3:_stOrder[sb]);
+  });
   h+='<div class="g g3">';
   clusters.forEach(function(c){
     var ch=healthMap[c.name];
@@ -1713,7 +1756,7 @@ async function renderClusters(){
       bg=ch.status==='critical'?'rgba(248,81,73,.06)':ch.status==='degraded'?'rgba(210,153,34,.06)':'rgba(63,185,80,.04)';
       status=ch.status;
     }
-    h+='<div class="cd cc" onclick="nav(\'detail\',{cluster:\''+esc(c.name)+'\'})" data-tip="Click for full cluster detail">';
+    h+='<div class="cd cc" data-cname="'+esc((c.name||'').toLowerCase())+'" onclick="nav(\'detail\',{cluster:\''+esc(c.name)+'\'})" data-tip="Click for full cluster detail">';
     h+='<div class="ind" style="background:'+color+'"></div>';
     h+='<h4 style="margin-left:6px;margin-bottom:2px">'+esc(c.name)+'</h4>';
     h+='<span class="badge" style="background:'+bg+';color:'+color+';margin-left:6px">'+status+'</span>';
@@ -1739,72 +1782,144 @@ async function renderClusters(){
     h+='</div>';
   });
   h+='</div>';
+  h+='<div style="margin:4px 0 2px"><button class="btn" id="cardsToggle" onclick="toggleClusterCards()" style="display:none">Show all</button></div>';
 
   // Comparison table: only color values that represent actual problems.
   // Counts like node_count and namespace_count are expected to vary and should not be colored.
   // Utilization percentages use threshold colors. Gap counts (unenforced, no-netpol) are colored
   // because they represent missing security posture.
   if(rpt&&rpt.cluster_healths&&rpt.cluster_healths.length>1){
-    // Use capacity analysis if available for smarter status.
-    var capMap={};
-    if(rpt.capacity){rpt.capacity.forEach(function(ca){capMap[ca.cluster]=ca})}
-
-    h+='<h3>Cluster comparison</h3>';
-    h+='<div class="tw"><table><thead><tr>';
-    h+='<th>Cluster</th>';
-    h+='<th data-tip="Correlated status: healthy, busy, degraded, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>';
-    h+='<th data-tip="'+esc(TIPS.git_version)+'">Version</th>';
-    h+='<th data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>';
-    h+='<th data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</th>';
-    h+='<th data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</th>';
-    h+='<th data-tip="Percentage of memory capacity still unused. Lower headroom means less ability to absorb traffic spikes.">Headroom</th>';
-    h+='<th data-tip="Active pressure conditions or failure events detected on this cluster">Signals</th>';
-    h+='<th data-tip="Namespaces missing PSS enforce labels. A security gap, not expected to vary.">PSS gaps</th>';
-    h+='<th data-tip="Namespaces with no NetworkPolicy. A security gap, not expected to vary.">NetPol gaps</th>';
-    h+='<th data-tip="Number of critical and warning findings for this cluster">Findings</th>';
-    h+='</tr></thead><tbody>';
-
-    rpt.cluster_healths.forEach(function(ch){
-      var ca=capMap[ch.name]||{};
-      var status=ca.status||ch.status;
-      var stColor=status==='critical'?'var(--cr)':(status==='degraded'||status==='strained')?'var(--wn)':status==='busy'?'var(--ac)':'var(--ok)';
-
-      var unenforced=0,npGaps=0;
-      if(rpt.sections.security&&rpt.sections.security.per_cluster[ch.name]){
-        unenforced=rpt.sections.security.per_cluster[ch.name].unenforced_count||0;
-      }
-      if(rpt.sections['network-policies']&&rpt.sections['network-policies'].per_cluster[ch.name]){
-        npGaps=rpt.sections['network-policies'].per_cluster[ch.name].namespaces_without_policies||0;
-      }
-
-      var headroom=ca.headroom_memory!=null?pct(ca.headroom_memory):'N/A';
-      var signals=[];
-      if(ca.has_memory_pressure)signals.push('MemPressure');
-      if(ca.has_oom_events)signals.push('OOMKill');
-      if(ca.has_scheduling_failures)signals.push('SchedFail');
-      if(ca.has_disk_pressure)signals.push('DiskPressure');
-
-      h+='<tr>';
-      h+='<td style="font-weight:500"><a onclick="nav(\'detail\',{cluster:\''+esc(ch.name)+'\'})">'+esc(ch.name)+'</a></td>';
-      h+='<td style="color:'+stColor+';font-weight:600" data-tip="'+esc(ca.recommendation||'')+'">'+status+'</td>';
-      h+='<td class="mono">'+esc(ch.kubernetes_version||'N/A')+'</td>';
-      h+='<td class="mono">'+ch.node_count+'</td>';
-      h+='<td class="mono" style="color:'+threshColor(ch.avg_cpu)+'">'+pct(ch.avg_cpu)+'</td>';
-      h+='<td class="mono" style="color:'+threshColor(ch.avg_memory)+'">'+pct(ch.avg_memory)+'</td>';
-      h+='<td class="mono" style="color:'+(ca.headroom_memory<15?'var(--cr)':ca.headroom_memory<30?'var(--wn)':'var(--ok)')+'">'+headroom+'</td>';
-      h+='<td style="font-size:11px">'+(signals.length?'<span style="color:var(--cr)">'+signals.join(', ')+'</span>':'<span style="color:var(--ok)">clean</span>')+'</td>';
-      h+='<td class="mono"'+(unenforced>0?' style="color:var(--wn)"':'')+'>'+unenforced+'</td>';
-      h+='<td class="mono"'+(npGaps>0?' style="color:var(--wn)"':'')+'>'+npGaps+'</td>';
-      var crit=ch.finding_counts.critical||0,warn=ch.finding_counts.warning||0;
-      h+='<td class="mono">'+(crit?'<span style="color:var(--cr)">'+crit+'c</span>':'0c')+' / '+(warn?'<span style="color:var(--wn)">'+warn+'w</span>':'0w')+'</td>';
-      h+='</tr>';
-    });
-    h+='</tbody></table></div>';
+    h+='<h3 id="cluster-cmp">Cluster comparison</h3>';
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px">'+
+      '<input id="cSearch" type="search" placeholder="Filter clusters..." oninput="renderClusterTable()" style="flex:1;min-width:160px">'+
+      '<select id="cSort" onchange="renderClusterTable()"><option value="status">Sort: Status</option><option value="name">Sort: Name</option><option value="cpu">Sort: CPU</option><option value="mem">Sort: Memory</option><option value="headroom">Sort: Headroom</option><option value="findings">Sort: Findings</option></select>'+
+      '<select id="cSize" onchange="window._clusterCmp&&(window._clusterCmp.page=0);renderClusterTable()"><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option><option value="all">All</option></select>'+
+      '</div>';
+    h+='<div class="tw"><table><thead><tr>'+
+      '<th>Cluster</th>'+
+      '<th data-tip="Correlated status: healthy, busy, degraded, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>'+
+      '<th data-tip="'+esc(TIPS.git_version)+'">Version</th>'+
+      '<th data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>'+
+      '<th data-tip="'+esc(TIPS.avg_cpu_percent)+'">CPU</th>'+
+      '<th data-tip="'+esc(TIPS.avg_memory_percent)+'">Memory</th>'+
+      '<th data-tip="Percentage of memory capacity still unused. Lower headroom means less ability to absorb traffic spikes.">Headroom</th>'+
+      '<th data-tip="Active pressure conditions or failure events detected on this cluster">Signals</th>'+
+      '<th data-tip="Namespaces missing PSS enforce labels. A security gap, not expected to vary.">PSS gaps</th>'+
+      '<th data-tip="Namespaces with no NetworkPolicy. A security gap, not expected to vary.">NetPol gaps</th>'+
+      '<th data-tip="Number of critical and warning findings for this cluster">Findings</th>'+
+      '</tr></thead><tbody id="clusterCmpBody"></tbody></table></div>';
+    h+='<div id="clusterPager" style="display:flex;align-items:center;gap:10px;margin-top:8px;font-size:12px;color:var(--t2)"></div>';
+    window._clusterCmp={page:0};
+    setTimeout(renderClusterTable,0);
   }
 
   window._clustersData={clusters:clusters,healthMap:healthMap,rpt:rpt};
   return h;
 }
+
+// renderClusterTable filters, sorts, and paginates the cluster comparison table
+// from window._clustersData so large fleets stay navigable. Reads the search,
+// sort, and page-size controls and rewrites the table body plus a pager.
+function renderClusterTable(){
+  var d=window._clustersData,st=window._clusterCmp;
+  if(!d||!d.rpt||!d.rpt.cluster_healths||!st)return;
+  var rpt=d.rpt;
+  var capMap={};if(rpt.capacity){rpt.capacity.forEach(function(ca){capMap[ca.cluster]=ca})}
+  var secU=(rpt.sections&&rpt.sections.security&&rpt.sections.security.per_cluster)||{};
+  var secN=(rpt.sections&&rpt.sections['network-policies']&&rpt.sections['network-policies'].per_cluster)||{};
+  var stRank={critical:0,degraded:1,strained:1,busy:2,healthy:3};
+  var rows=rpt.cluster_healths.map(function(ch){
+    var ca=capMap[ch.name]||{};
+    var status=ca.status||ch.status;
+    var signals=[];
+    if(ca.has_memory_pressure)signals.push('MemPressure');
+    if(ca.has_oom_events)signals.push('OOMKill');
+    if(ca.has_scheduling_failures)signals.push('SchedFail');
+    if(ca.has_disk_pressure)signals.push('DiskPressure');
+    return {name:ch.name,status:status,ver:ch.kubernetes_version||'N/A',nodes:ch.node_count,
+      cpu:ch.avg_cpu,mem:ch.avg_memory,headroom:ca.headroom_memory,rec:ca.recommendation||'',signals:signals,
+      unenforced:(secU[ch.name]||{}).unenforced_count||0,npGaps:(secN[ch.name]||{}).namespaces_without_policies||0,
+      crit:(ch.finding_counts||{}).critical||0,warn:(ch.finding_counts||{}).warning||0,
+      rank:stRank[status]!=null?stRank[status]:3};
+  });
+  var q=(((document.getElementById('cSearch')||{}).value)||'').toLowerCase();
+  if(q)rows=rows.filter(function(r){return r.name.toLowerCase().indexOf(q)>=0||(r.status||'').toLowerCase().indexOf(q)>=0});
+  var sort=((document.getElementById('cSort')||{}).value)||'status';
+  rows.sort(function(a,b){
+    switch(sort){
+      case 'name':return a.name<b.name?-1:a.name>b.name?1:0;
+      case 'cpu':return b.cpu-a.cpu;
+      case 'mem':return b.mem-a.mem;
+      case 'headroom':return (a.headroom==null?999:a.headroom)-(b.headroom==null?999:b.headroom);
+      case 'findings':return (b.crit*10+b.warn)-(a.crit*10+a.warn);
+      default:return (a.rank-b.rank)||((b.crit*10+b.warn)-(a.crit*10+a.warn));
+    }
+  });
+  var size=((document.getElementById('cSize')||{}).value)||'25';
+  var per=size==='all'?(rows.length||1):parseInt(size,10);
+  var pages=Math.max(1,Math.ceil(rows.length/per));
+  if(st.page>=pages)st.page=pages-1;if(st.page<0)st.page=0;
+  var pageRows=rows.slice(st.page*per,st.page*per+per);
+  var tb=document.getElementById('clusterCmpBody');if(!tb)return;
+  tb.innerHTML=pageRows.length?pageRows.map(clusterRowHTML).join(''):'<tr><td colspan="11" style="text-align:center;color:var(--t3);padding:24px">No clusters match the filter.</td></tr>';
+  var pg=document.getElementById('clusterPager');
+  if(pg){
+    pg.innerHTML='<span>'+rows.length+' clusters</span>'+(pages>1?
+      '<button class="btn" '+(st.page<=0?'disabled':'')+' onclick="clusterPage(-1)">Prev</button>'+
+      '<span>Page '+(st.page+1)+' / '+pages+'</span>'+
+      '<button class="btn" '+(st.page>=pages-1?'disabled':'')+' onclick="clusterPage(1)">Next</button>':'');
+  }
+  filterClusterCards(q);
+}
+
+// clusterPage steps the comparison table pager and re-renders.
+function clusterPage(delta){var s=window._clusterCmp;if(!s)return;s.page+=delta;renderClusterTable();}
+
+// clusterRowHTML renders one comparison-table row from a precomputed record.
+function clusterRowHTML(r){
+  var stColor=r.status==='critical'?'var(--cr)':(r.status==='degraded'||r.status==='strained')?'var(--wn)':r.status==='busy'?'var(--ac)':'var(--ok)';
+  var hrColor=r.headroom<15?'var(--cr)':r.headroom<30?'var(--wn)':'var(--ok)';
+  var hr=r.headroom!=null?pct(r.headroom):'N/A';
+  return '<tr>'+
+    '<td style="font-weight:500"><a onclick="nav(\'detail\',{cluster:\''+esc(r.name)+'\'})">'+esc(r.name)+'</a></td>'+
+    '<td style="color:'+stColor+';font-weight:600" data-tip="'+esc(r.rec)+'">'+esc(r.status)+'</td>'+
+    '<td class="mono">'+esc(r.ver)+'</td>'+
+    '<td class="mono">'+r.nodes+'</td>'+
+    '<td class="mono" style="color:'+threshColor(r.cpu)+'">'+pct(r.cpu)+'</td>'+
+    '<td class="mono" style="color:'+threshColor(r.mem)+'">'+pct(r.mem)+'</td>'+
+    '<td class="mono" style="color:'+hrColor+'">'+hr+'</td>'+
+    '<td style="font-size:11px">'+(r.signals.length?'<span style="color:var(--cr)">'+r.signals.join(', ')+'</span>':'<span style="color:var(--ok)">clean</span>')+'</td>'+
+    '<td class="mono"'+(r.unenforced>0?' style="color:var(--wn)"':'')+'>'+r.unenforced+'</td>'+
+    '<td class="mono"'+(r.npGaps>0?' style="color:var(--wn)"':'')+'>'+r.npGaps+'</td>'+
+    '<td class="mono">'+(r.crit?'<span style="color:var(--cr)">'+r.crit+'c</span>':'0c')+' / '+(r.warn?'<span style="color:var(--wn)">'+r.warn+'w</span>':'0w')+'</td>'+
+    '</tr>';
+}
+
+// filterClusterCards hides cluster health cards that do not match the search
+// and caps how many show so a large fleet does not flood the page. The toggle
+// and an active search both reveal the full set.
+function filterClusterCards(q){
+  var cards=document.querySelectorAll('.cd.cc[data-cname]');
+  var limit=12,showAll=window._clusterCardsAll,shown=0;
+  for(var i=0;i<cards.length;i++){
+    var n=cards[i].getAttribute('data-cname')||'';
+    var match=(!q||n.indexOf(q)>=0);
+    var vis=match&&(showAll||!!q||shown<limit);
+    cards[i].style.display=vis?'':'none';
+    if(vis)shown++;
+  }
+  var btn=document.getElementById('cardsToggle');
+  if(btn){
+    btn.style.display=(q||cards.length<=limit)?'none':'';
+    btn.textContent=showAll?'Show fewer':'Show all '+cards.length;
+  }
+}
+
+// toggleClusterCards flips between the capped and full cluster card view.
+window.toggleClusterCards=function(){
+  window._clusterCardsAll=!window._clusterCardsAll;
+  filterClusterCards((((document.getElementById('cSearch')||{}).value)||'').toLowerCase());
+};
 
 window.exportClustersCSV=function(){
   var d=window._clustersData;if(!d)return;
@@ -2396,6 +2511,7 @@ async function initGlobe(){
   }
 
   window._globeInstance=globe;
+  applyGlobeDayNight(globe);
   window.addEventListener('resize',function(){if(window._globeInstance)window._globeInstance.width(wrap.clientWidth)});
 
   renderGlobeSide();
@@ -2427,6 +2543,38 @@ async function initGlobe(){
       globeState.tourTimer=setInterval(step,3500);
     };
   }
+}
+
+// applyGlobeDayNight positions the globe's directional light at the current
+// sub-solar point so the hemisphere facing the sun reads as day and the far
+// side as night. It refreshes each minute while the globe is the active page.
+function applyGlobeDayNight(globe){
+  if(!globe||typeof globe.lights!=='function'||typeof globe.getCoords!=='function')return;
+  function sunLatLng(){
+    var now=new Date();
+    var utcH=now.getUTCHours()+now.getUTCMinutes()/60;
+    var lng=(12-utcH)*15; // sub-solar longitude: 0 degrees at 12:00 UTC.
+    if(lng<-180)lng+=360;if(lng>180)lng-=360;
+    var start=Date.UTC(now.getUTCFullYear(),0,0);
+    var doy=Math.floor((now-start)/86400000);
+    var decl=23.44*Math.sin(2*Math.PI*(doy-81)/365); // solar declination.
+    return {lat:decl,lng:lng};
+  }
+  function update(){
+    var lights=globe.lights();
+    if(!lights||!lights.length)return;
+    var dir=null,amb=null;
+    lights.forEach(function(l){if(l.type==='DirectionalLight')dir=l;else if(l.type==='AmbientLight')amb=l});
+    var s=sunLatLng();
+    if(dir){var c=globe.getCoords(s.lat,s.lng,1);dir.position.set(c.x,c.y,c.z);dir.intensity=1.1}
+    if(amb)amb.intensity=0.28;
+  }
+  update();
+  if(window._globeSunTimer)clearInterval(window._globeSunTimer);
+  window._globeSunTimer=setInterval(function(){
+    if(typeof P!=='undefined'&&P.page!=='globe'){clearInterval(window._globeSunTimer);window._globeSunTimer=null;return}
+    if(!document.hidden)update();
+  },60000);
 }
 
 // loadGlobeLib loads globe.gl from CDN once and resolves when window.Globe

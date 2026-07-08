@@ -5,6 +5,26 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.9.0] - 2026-07-08
+
+Dashboard and demo overhaul.
+
+### Added
+
+- Grouped, collapsible sidebar navigation (Overview, Issues, Analysis, Maps,
+  History, Manage) and a dashboard table of contents.
+- Filter, sort, and pagination on the clusters view; the health cards cap and
+  expand so large fleets stay navigable.
+- A day/night terminator on the globe that tracks the current time.
+- Demo groups and demo alerts so those pages show real content.
+
+### Changed
+
+- Redesigned the fleet score panel as a donut gauge and the cost correlation
+  panel to show its per-cluster derivation.
+- Collapsible dashboard cluster-health groups, dark styling for all form inputs,
+  and larger sidebar section headers.
+
 ## [0.8.1] - 2026-07-07
 
 Bug fix and dashboard polish.
