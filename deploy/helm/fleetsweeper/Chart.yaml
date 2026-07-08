@@ -2,8 +2,8 @@ apiVersion: v2
 name: fleetsweeper
 description: Multi-cluster Kubernetes fleet comparison and audit
 type: application
-version: 0.7.0
-appVersion: "0.7.0"
+version: 0.8.0
+appVersion: "0.8.0"
 home: https://github.com/dcadolph/fleetsweeper
 sources:
   - https://github.com/dcadolph/fleetsweeper

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Fleetsweeper API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     HTTP API for the Fleetsweeper server. Read endpoints are unauthenticated
     when --insecure is set; mutating endpoints require a bearer token unless
@@ -583,6 +583,80 @@ paths:
               schema:
                 type: array
                 items: {$ref: "#/components/schemas/AckRecord"}
+
+  /api/findings/timeline:
+    get:
+      summary: Fleet findings over recent scans for drift replay
+      parameters:
+        - in: query
+          name: scans
+          schema: {type: integer, default: 24, maximum: 60}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scans: {type: integer}
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scan_id: {type: string}
+                        timestamp: {type: string, format: date-time}
+                        total: {type: integer}
+                        critical: {type: integer}
+                        warning: {type: integer}
+                        info: {type: integer}
+                        findings:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              fingerprint: {type: string}
+                              title: {type: string}
+                              severity: {type: string}
+                              cluster: {type: string}
+                              scanner: {type: string}
+
+  /api/findings/persistence:
+    get:
+      summary: Recurrence-based persistence class per finding across recent scans
+      parameters:
+        - in: query
+          name: scans
+          schema: {type: integer, default: 24, maximum: 60}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scans: {type: integer}
+                  chronic: {type: integer}
+                  intermittent: {type: integer}
+                  transient: {type: integer}
+                  findings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        fingerprint: {type: string}
+                        cluster: {type: string}
+                        scanner: {type: string}
+                        title: {type: string}
+                        severity: {type: string}
+                        present: {type: integer}
+                        total: {type: integer}
+                        fraction: {type: number}
+                        streak: {type: integer}
+                        class: {type: string, enum: [chronic, intermittent, transient]}
+                        acked: {type: boolean}
 
   /api/findings/{fingerprint}/ack:
     post:

@@ -5,6 +5,30 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.8.0] - 2026-07-07
+
+Drift replay and finding persistence. The dashboard can now replay how findings
+appeared and resolved across recent scans, and each finding is classed by how
+persistently it recurs, an implicit signal of standing problems versus passing
+blips.
+
+### Added
+
+- Drift replay: a dashboard view that scrubs through recent scans and shows the
+  findings present at each point in time, with the counts that appeared and
+  resolved since the previous scan. Backed by a new `GET /api/findings/timeline`
+  endpoint that rebuilds fleet findings for the recent scan window.
+- Finding persistence: `GET /api/findings/persistence` classes each finding as
+  chronic, intermittent, or transient by how often it recurs across the scan
+  window, cross-referenced with acknowledgements. Surfaced in the drift replay
+  view. Recurrence is used because the data carries no explicit resolution
+  label, so it is the strongest learned severity signal available.
+
+### Changed
+
+- The finding fingerprint helper moved to `internal/util` so the store, report,
+  and server packages share one implementation.
+
 ## [0.7.0] - 2026-07-07
 
 A Go client SDK and stability fixes. Applications can now call the Fleetsweeper
