@@ -5,6 +5,23 @@ All notable changes to Fleetsweeper are documented here. The format follows
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once it
 reaches v1.0.0.
 
+## [0.8.1] - 2026-07-07
+
+Bug fix and dashboard polish.
+
+### Fixed
+
+- Demo mode no longer errors with "no such table" under concurrent dashboard
+  requests. The in-memory SQLite database is pinned to a single connection, so
+  the migrated schema is visible to every query instead of only the connection
+  that ran the migrations.
+
+### Changed
+
+- Sidebar tidy-up: the help links are grouped under a Help heading and no longer
+  spread apart by competing auto margins, and the redundant welcome link was
+  removed.
+
 ## [0.8.0] - 2026-07-07
 
 Drift replay and finding persistence. The dashboard can now replay how findings
