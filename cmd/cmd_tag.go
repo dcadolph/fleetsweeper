@@ -54,7 +54,7 @@ func runTagList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer st.Close()
-	all, err := st.ListClusterTags(cmd.Context())
+	all, err := st.ListClusterTags(cmdContext(cmd))
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func runTagSet(cmd *cobra.Command, args []string) error {
 	}
 	defer st.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	for _, p := range pairs {
 		k, v, ok := strings.Cut(p, "=")
 		if !ok || k == "" {
@@ -93,7 +93,7 @@ func runTagDel(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer st.Close()
-	if err := st.DeleteClusterTag(cmd.Context(), args[0], args[1]); err != nil {
+	if err := st.DeleteClusterTag(cmdContext(cmd), args[0], args[1]); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "deleted %s %s\n", args[0], args[1])

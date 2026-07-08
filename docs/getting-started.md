@@ -1,6 +1,32 @@
 # Getting Started
 
-Five minutes to first scan.
+The quickstart below puts a dashboard on screen in about a minute. The rest of
+this page is the full walkthrough, from a real scan to the in-cluster controller.
+
+## 60-second quickstart
+
+Install the binary and boot a demo dashboard against a synthetic fleet. No
+kubeconfig required.
+
+```shell
+go install github.com/dcadolph/fleetsweeper@latest
+fleetsweeper serve --demo --addr :8080
+```
+
+Open <http://localhost:8080>. The `--demo` fleet renders the globe, findings,
+trends, and outliers with no cluster access.
+
+Swap the synthetic fleet for your own: run a scan, then restart the server
+against the same database. `--insecure` disables auth for local viewing.
+
+```shell
+fleetsweeper scan --all-contexts --db /tmp/fleet.db
+fleetsweeper serve --db /tmp/fleet.db --insecure
+```
+
+Refresh the dashboard. The Fleet Score recomputes from your clusters and the
+demo fleet drops away. That is the whole loop; the sections below break down
+each piece.
 
 ## Prerequisites
 
@@ -137,3 +163,5 @@ See [outliers](concepts/outliers.md) for the full statistical treatment.
 - [Server mode](operator/server-mode.md). Run as a service with dashboard and API.
 - [ClusterScan CRD](operator/clusterscan.md). Full spec reference.
 - [RBAC and API keys](operator/rbac.md). Multi-tenant access control.
+- Go SDK. A standard-library client for the HTTP API lives in the `client`
+  package, with contract tests that run against a live server.

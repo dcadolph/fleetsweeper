@@ -47,7 +47,7 @@ func init() {
 
 // runExport is the cobra entrypoint for the export subcommand.
 func runExport(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	scanID, _ := cmd.Flags().GetString("scan-id")
 	output, _ := cmd.Flags().GetString("output")
 	costCSV, _ := cmd.Flags().GetString("cost-csv")

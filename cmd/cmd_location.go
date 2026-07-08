@@ -71,7 +71,7 @@ func runLocationSet(cmd *cobra.Command, args []string) error {
 	if lng < -180 || lng > 180 {
 		return fmt.Errorf("lng must be between -180 and 180, got %g", lng)
 	}
-	if err := s.SetLocation(cmd.Context(), store.LocationRecord{
+	if err := s.SetLocation(cmdContext(cmd), store.LocationRecord{
 		Cluster: args[0],
 		Lat:     lat,
 		Lng:     lng,
@@ -93,7 +93,7 @@ func runLocationList(cmd *cobra.Command, _ []string) error {
 	defer s.Close()
 
 	pretty, _ := cmd.Flags().GetBool("pretty")
-	list, err := s.ListLocations(cmd.Context())
+	list, err := s.ListLocations(cmdContext(cmd))
 	if err != nil {
 		return fmt.Errorf("list locations: %w", err)
 	}
@@ -112,7 +112,7 @@ func runLocationDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer s.Close()
-	if err := s.DeleteLocation(cmd.Context(), args[0]); err != nil {
+	if err := s.DeleteLocation(cmdContext(cmd), args[0]); err != nil {
 		return fmt.Errorf("delete location: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "deleted location for %s\n", args[0])

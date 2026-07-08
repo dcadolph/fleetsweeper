@@ -250,6 +250,13 @@ func New(cfg Config) *Server {
 	return s
 }
 
+// Handler returns the root HTTP handler. It exposes the configured mux so the
+// server can be embedded behind another router or driven in tests without
+// binding a socket.
+func (s *Server) Handler() http.Handler {
+	return s.mux
+}
+
 // routes registers all API endpoints, health checks, and the static file handler.
 func (s *Server) routes() {
 	api := http.NewServeMux()

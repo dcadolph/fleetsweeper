@@ -70,7 +70,7 @@ func runGroupCreate(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	clusters, _ := cmd.Flags().GetStringSlice("clusters")
-	if err := s.SaveGroup(cmd.Context(), args[0], clusters); err != nil {
+	if err := s.SaveGroup(cmdContext(cmd), args[0], clusters); err != nil {
 		return fmt.Errorf("create group: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "group %q created with %d cluster(s)\n", args[0], len(clusters))
@@ -86,7 +86,7 @@ func runGroupList(cmd *cobra.Command, _ []string) error {
 	defer s.Close()
 
 	pretty, _ := cmd.Flags().GetBool("pretty")
-	groups, err := s.ListGroups(cmd.Context())
+	groups, err := s.ListGroups(cmdContext(cmd))
 	if err != nil {
 		return fmt.Errorf("list groups: %w", err)
 	}
@@ -107,7 +107,7 @@ func runGroupDelete(cmd *cobra.Command, args []string) error {
 	}
 	defer s.Close()
 
-	if err := s.DeleteGroup(cmd.Context(), args[0]); err != nil {
+	if err := s.DeleteGroup(cmdContext(cmd), args[0]); err != nil {
 		return fmt.Errorf("delete group: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "group %q deleted\n", args[0])
@@ -123,7 +123,7 @@ func runGroupAddCluster(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	clusters, _ := cmd.Flags().GetStringSlice("clusters")
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	for _, c := range clusters {
 		if err := s.AddClusterToGroup(ctx, args[0], c); err != nil {
 			return fmt.Errorf("add cluster %s: %w", c, err)
@@ -142,7 +142,7 @@ func runGroupRemoveCluster(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	clusters, _ := cmd.Flags().GetStringSlice("clusters")
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	for _, c := range clusters {
 		if err := s.RemoveClusterFromGroup(ctx, args[0], c); err != nil {
 			return fmt.Errorf("remove cluster %s: %w", c, err)

@@ -85,7 +85,7 @@ type Report struct {
 
 // runDoctor invokes every check and renders the report.
 func runDoctor(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	report := Report{Generated: time.Now().UTC(), Summary: map[Status]int{}}
 

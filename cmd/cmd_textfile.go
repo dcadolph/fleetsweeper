@@ -45,7 +45,7 @@ func runExportMetrics(cmd *cobra.Command, args []string) error {
 	}
 	defer st.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	rpt, scanID, err := latestReport(ctx, st)
 	if err != nil {
 		return err

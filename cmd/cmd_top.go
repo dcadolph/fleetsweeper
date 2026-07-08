@@ -37,7 +37,7 @@ func init() {
 
 // runTop is the cobra entrypoint for the top subcommand.
 func runTop(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	server, _ := cmd.Flags().GetString("server")
 	interval, _ := cmd.Flags().GetDuration("interval")
 	limit, _ := cmd.Flags().GetInt("limit")

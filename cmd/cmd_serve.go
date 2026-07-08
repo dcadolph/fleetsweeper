@@ -74,7 +74,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer s.Close()
 
-	ctx := cmd.Context()
+	ctx := cmdContext(cmd)
 	log := logutil.UnwrapLogger(ctx)
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
 	addr, _ := cmd.Flags().GetString("addr")

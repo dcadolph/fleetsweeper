@@ -23,7 +23,7 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		ctx := logutil.WrapLogger(cmd.Context(), log)
+		ctx := logutil.WrapLogger(cmdContext(cmd), log)
 		cmd.SetContext(ctx)
 		return nil
 	},

@@ -251,10 +251,10 @@ func (p *Postgres) GetScan(ctx context.Context, id string) (*ScanRecord, error) 
 	return scanRecordFromRow(row)
 }
 
-// ListScans returns scan records ordered by timestamp descending.
+// ListScans returns scan records newest first, breaking timestamp ties by id.
 func (p *Postgres) ListScans(ctx context.Context, limit int) ([]ScanRecord, error) {
 	rows, err := p.query(ctx,
-		"SELECT id, timestamp, clusters, scanners FROM scans ORDER BY timestamp DESC LIMIT ?", limit)
+		"SELECT id, timestamp, clusters, scanners FROM scans ORDER BY timestamp DESC, id DESC LIMIT ?", limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
 	}
@@ -421,7 +421,7 @@ SELECT sr.scan_id, sr.cluster, sr.scanner, sr.data_json
 FROM scan_results sr
 JOIN scans s ON s.id = sr.scan_id
 WHERE sr.cluster = ?
-ORDER BY s.timestamp DESC
+ORDER BY s.timestamp DESC, s.id DESC
 LIMIT ?`, cluster, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
@@ -445,7 +445,7 @@ func (p *Postgres) GetScansByTimeRange(ctx context.Context, start, end time.Time
 	rows, err := p.query(ctx, `
 SELECT id, timestamp, clusters, scanners FROM scans
 WHERE timestamp >= ? AND timestamp <= ?
-ORDER BY timestamp DESC`,
+ORDER BY timestamp DESC, id DESC`,
 		start.Format(time.RFC3339), end.Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
