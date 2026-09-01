@@ -2,7 +2,7 @@
 
 This guide tracks behavior changes between releases that operators should
 know about before bumping their deployment. See `VERSIONING.md` for the
-stability contract and `CHANGELOG.md` for the full feature list.
+stability contract and the GitHub release notes for the full feature list.
 
 ## General process
 
