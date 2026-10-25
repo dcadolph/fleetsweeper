@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -68,4 +69,27 @@ func TestOpenServeStore(t *testing.T) {
 		t.Fatalf("real path: %v", err)
 	}
 	real.Close()
+}
+
+// TestServeFlagsRegistered verifies every flag runServe reads is registered on serveCmd. A flag
+// read but never registered silently yields its zero value, and a deployment that passes it
+// fails with an unknown-flag error.
+func TestServeFlagsRegistered(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("cmd_serve.go")
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	reads := regexp.MustCompile(`cmd\.Flags\(\)\.Get[A-Za-z0-9]+\("([a-z0-9-]+)"\)`).FindAllSubmatch(src, -1)
+	if len(reads) < 30 {
+		t.Fatalf("found only %d flag reads; the pattern no longer matches the source", len(reads))
+	}
+	defer lockRootCmd(t)()
+	for _, m := range reads {
+		name := string(m[1])
+		if serveCmd.Flags().Lookup(name) == nil && serveCmd.InheritedFlags().Lookup(name) == nil &&
+			rootCmd.PersistentFlags().Lookup(name) == nil {
+			t.Errorf("flag --%s is read by runServe but never registered", name)
+		}
+	}
 }
