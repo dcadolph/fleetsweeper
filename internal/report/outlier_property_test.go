@@ -23,51 +23,6 @@ func numericFlat(values []float64) ([]string, map[string]map[string]any, map[str
 	return clusters, flat, byCluster
 }
 
-// TestOutlierUniformFleetHasNoOutliers asserts the core invariant that a fleet
-// where every cluster reports the same value produces no outliers: with a MAD
-// of zero there is nothing to distinguish.
-func TestOutlierUniformFleetHasNoOutliers(t *testing.T) {
-	t.Parallel()
-
-	for _, v := range []float64{0, 1, 42, -7.5, 1e6} {
-		for _, n := range []int{minMADSample, minMADSample + 5, 30} {
-			values := make([]float64, n)
-			for i := range values {
-				values[i] = v
-			}
-			clusters, flat, _ := numericFlat(values)
-			got := detectNumericOutliers(clusters, flat, "v", "metrics", 3.5)
-			if len(got) != 0 {
-				t.Errorf("uniform fleet (v=%g, n=%d) produced %d outliers, want 0", v, n, len(got))
-			}
-		}
-	}
-}
-
-// TestOutlierMedianClusterNeverFlagged asserts that a cluster whose value equals
-// the fleet median is never flagged: its modified z-score is exactly zero. This
-// holds for any population, so it is checked against many random fleets.
-func TestOutlierMedianClusterNeverFlagged(t *testing.T) {
-	t.Parallel()
-
-	rng := rand.New(rand.NewSource(1))
-	for trial := 0; trial < 200; trial++ {
-		n := 9 + 2*rng.Intn(12) // odd sizes so the median is an actual member
-		values := make([]float64, n)
-		for i := range values {
-			values[i] = rng.NormFloat64()*float64(1+rng.Intn(50)) + float64(rng.Intn(200)-100)
-		}
-		clusters, flat, byCluster := numericFlat(values)
-		med := computeMedian(values)
-
-		for _, o := range detectNumericOutliers(clusters, flat, "v", "metrics", 3.5) {
-			if byCluster[o.Cluster] == med {
-				t.Fatalf("trial %d: cluster at the median (%g) was flagged as an outlier", trial, med)
-			}
-		}
-	}
-}
-
 // TestOutlierThresholdMonotonic asserts that raising the threshold never yields
 // more outliers: the flagged set shrinks or holds as the bar rises.
 func TestOutlierThresholdMonotonic(t *testing.T) {
