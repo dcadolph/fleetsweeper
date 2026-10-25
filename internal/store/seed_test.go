@@ -1,7 +1,10 @@
+//go:build fixtures
+
 package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,23 +14,22 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
-// TestSeedDemoDatabase creates a fully populated demo database at ~/Downloads/fleetsweeper-demo.db.
-// Run with: go test -run TestSeedDemoDatabase ./internal/store/ -v
+// TestSeedDemoDatabase creates a fully populated demo database named fleetsweeper-demo.db.
+// The output directory is FLEETSWEEPER_FIXTURE_DIR when set and a temp directory otherwise.
+// Run with: go test -tags fixtures -run TestSeedDemoDatabase ./internal/store/ -v
 func TestSeedDemoDatabase(t *testing.T) { //nolint:funlen // Test function.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("get home dir: %v", err)
+	dir := os.Getenv("FLEETSWEEPER_FIXTURE_DIR")
+	if dir == "" {
+		dir = t.TempDir()
 	}
-	downloads := filepath.Join(home, "Downloads")
-	if _, err := os.Stat(downloads); err != nil {
-		t.Skipf("skipping: %s not available (set up for local fixture generation)", downloads)
+	dbPath := filepath.Join(dir, "fleetsweeper-demo.db")
+	if err := os.Remove(dbPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("remove old fixture db: %v", err)
 	}
-	dbPath := filepath.Join(downloads, "fleetsweeper-demo.db")
-	os.Remove(dbPath)
 
 	s, err := NewSQLite(dbPath)
 	if err != nil {
-		t.Skipf("skipping: cannot open fixture db at %s: %v", dbPath, err)
+		t.Fatalf("open fixture db at %s: %v", dbPath, err)
 	}
 	defer s.Close()
 
@@ -35,8 +37,12 @@ func TestSeedDemoDatabase(t *testing.T) { //nolint:funlen // Test function.
 	clusters := []string{"prod-us-east", "prod-us-west", "prod-eu-central", "staging-us", "dev-local"}
 
 	// Create groups.
-	s.SaveGroup(ctx, "production", []string{"prod-us-east", "prod-us-west", "prod-eu-central"})
-	s.SaveGroup(ctx, "non-production", []string{"staging-us", "dev-local"})
+	if err := s.SaveGroup(ctx, "production", []string{"prod-us-east", "prod-us-west", "prod-eu-central"}); err != nil {
+		t.Fatalf("save group production: %v", err)
+	}
+	if err := s.SaveGroup(ctx, "non-production", []string{"staging-us", "dev-local"}); err != nil {
+		t.Fatalf("save group non-production: %v", err)
+	}
 
 	// Simulate 5 scans over the past week with evolving data.
 	for scanNum := range 5 {
@@ -55,13 +61,15 @@ func TestSeedDemoDatabase(t *testing.T) { //nolint:funlen // Test function.
 		// Backdate the scan timestamp so trends are visible.
 		daysAgo := (4 - scanNum) * 2
 		ts := time.Now().Add(-time.Duration(daysAgo) * 24 * time.Hour).UTC().Format(time.RFC3339)
-		s.db.ExecContext(ctx, "UPDATE scans SET timestamp = ? WHERE id = ?", ts, id)
+		if _, err := s.db.ExecContext(ctx, "UPDATE scans SET timestamp = ? WHERE id = ?", ts, id); err != nil {
+			t.Fatalf("backdate scan %d: %v", scanNum, err)
+		}
 
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	t.Logf("demo database written to %s", dbPath)
-	t.Log("start server with: go run . serve --db ~/Downloads/fleetsweeper-demo.db")
+	t.Logf("start server with: go run . serve --db %s", dbPath)
 }
 
 // buildClusterData generates realistic scanner data for a cluster at a given scan iteration.

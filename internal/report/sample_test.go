@@ -1,3 +1,5 @@
+//go:build fixtures
+
 package report
 
 import (
@@ -8,8 +10,9 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
-// TestGenerateSampleHTML writes a sample HTML report to ~/Downloads for visual inspection.
-// Run with: go test -run TestGenerateSampleHTML ./internal/report/
+// TestGenerateSampleHTML writes a sample HTML report named fleetsweeper-sample-report.html.
+// The output directory is FLEETSWEEPER_FIXTURE_DIR when set and a temp directory otherwise.
+// Run with: go test -tags fixtures -run TestGenerateSampleHTML ./internal/report/ -v
 func TestGenerateSampleHTML(t *testing.T) { //nolint:funlen // Test function.
 	clusters := []string{"prod-us-east", "prod-us-west", "staging-eu"}
 
@@ -180,17 +183,13 @@ func TestGenerateSampleHTML(t *testing.T) { //nolint:funlen // Test function.
 		t.Fatalf("render html: %v", err)
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("get home dir: %v", err)
+	dir := os.Getenv("FLEETSWEEPER_FIXTURE_DIR")
+	if dir == "" {
+		dir = t.TempDir()
 	}
-	downloads := filepath.Join(home, "Downloads")
-	if _, err := os.Stat(downloads); err != nil {
-		t.Skipf("skipping: %s not available (set up for local fixture generation)", downloads)
-	}
-	outPath := filepath.Join(downloads, "fleetsweeper-sample-report.html")
+	outPath := filepath.Join(dir, "fleetsweeper-sample-report.html")
 	if err := os.WriteFile(outPath, html, 0o644); err != nil {
-		t.Skipf("skipping: cannot write fixture to %s: %v", outPath, err)
+		t.Fatalf("write fixture to %s: %v", outPath, err)
 	}
 	t.Logf("sample report written to %s", outPath)
 }
