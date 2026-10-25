@@ -21,7 +21,9 @@ func TestWriteProm_AllSectionsRendered(t *testing.T) {
 			CriticalCount: 3,
 			WarningCount:  5,
 		},
-		FleetScore: report.FleetScore{Score: 82},
+		FleetScore: report.FleetScore{
+			Score: 82, SampleSize: 2, Dimensions: 7, ExcludedClusters: 1,
+		},
 		ClusterHealths: []report.ClusterHealth{
 			{Name: "a", Status: "healthy"},
 			{Name: "b", Status: "degraded"},
@@ -37,6 +39,9 @@ func TestWriteProm_AllSectionsRendered(t *testing.T) {
 	out := buf.String()
 	wants := []string{
 		`fleetsweeper_fleet_score{scan_id="scan-123"} 82`,
+		`fleetsweeper_fleet_score_sample_clusters{scan_id="scan-123"} 2`,
+		`fleetsweeper_fleet_score_dimensions{scan_id="scan-123"} 7`,
+		`fleetsweeper_fleet_score_excluded_clusters{scan_id="scan-123"} 1`,
 		`fleetsweeper_fleet_score_timestamp_seconds 1700000000`,
 		`fleetsweeper_findings_total{severity="critical"} 3`,
 		`fleetsweeper_findings_total{severity="warning"} 5`,

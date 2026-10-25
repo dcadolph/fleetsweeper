@@ -28,6 +28,16 @@ func TestWriteMetrics_SeededScan(t *testing.T) {
 	if !strings.Contains(out, "fleetsweeper_cluster_count ") {
 		t.Error("expected cluster count gauge")
 	}
+	// Match value lines, not the HELP/TYPE comments that share the name.
+	for _, gauge := range []string{
+		"\nfleetsweeper_fleet_score_sample_clusters ",
+		"\nfleetsweeper_fleet_score_dimensions ",
+		"\nfleetsweeper_fleet_score_excluded_clusters ",
+	} {
+		if !strings.Contains(out, gauge) {
+			t.Errorf("expected provenance gauge %q", gauge)
+		}
+	}
 
 	// A second call should hit the memoized report cache path.
 	var buf2 bytes.Buffer

@@ -205,6 +205,8 @@ func writeMetadata(tw *tar.Writer, root string, rpt *report.Report, scanID strin
 	fmt.Fprintf(&b, "Exported at:   %s\n", now.Format(time.RFC3339))
 	fmt.Fprintf(&b, "Cluster count: %d\n", len(rpt.Clusters))
 	fmt.Fprintf(&b, "Fleet score:   %d (%s)\n", rpt.FleetScore.Score, rpt.FleetScore.Grade)
+	fmt.Fprintf(&b, "Scored from:   %d cluster(s) across %d dimension(s), %d excluded for insufficient data\n",
+		rpt.FleetScore.SampleSize, rpt.FleetScore.Dimensions, rpt.FleetScore.ExcludedClusters)
 	fmt.Fprintf(&b, "Findings:      %d total (%d critical, %d warning)\n",
 		len(rpt.Findings), rpt.Summary.CriticalCount, rpt.Summary.WarningCount)
 	fmt.Fprintf(&b, "Sealed:        %t\n", sealed)

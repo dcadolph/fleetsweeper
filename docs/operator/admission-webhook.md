@@ -30,6 +30,33 @@ to avoid noisy false positives.
   a 403 with a concrete reason. Use only after you have observed the
   advisory-mode warnings for a release cycle.
 
+## Rollout: warn first, enforce on purpose
+
+Enforcement is designed as the last step of a deliberate workflow, not
+the first:
+
+1. **Run in advisory mode.** This is the default. Every check runs and
+   every warning is emitted; nothing is denied.
+2. **Read the warnings.** They are a complete preview of what enforce
+   mode would have denied, pod by pod, before enforcement has teeth.
+3. **Decide the norm is a rule you actually want.** A fleet norm is an
+   observation ("most of your fleet pins image digests"), not
+   automatically a rule. Promote it only when you agree it should be one.
+   If it should be a rule regardless of what the fleet does, write it in
+   Kyverno or Gatekeeper instead.
+4. **Opt into enforce mode.** Only then do denials start.
+
+The handler is defensive in every mode, so the workflow above is safe to
+run on a production apiserver from day one:
+
+- It defaults to allow and only ever denies under enforce mode.
+- It refuses to evaluate at all until the baseline clears the minimum
+  sample (30 containers across 10 pods), so a statistical claim needs a
+  sample before it gets teeth.
+- A pod it cannot decode is allowed with a warning, never denied.
+- Warnings are emitted in every mode, so operators see what enforcement
+  would do long before enabling it.
+
 ## Enable
 
 ```yaml

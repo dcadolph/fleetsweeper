@@ -11,8 +11,10 @@ func TestGenerateBrief(t *testing.T) {
 	t.Parallel()
 
 	r := &Report{
-		Clusters:   []string{"a", "b", "c"},
-		FleetScore: FleetScore{Score: 73, Grade: "C"},
+		Clusters: []string{"a", "b", "c"},
+		FleetScore: FleetScore{
+			Score: 73, Grade: "C", SampleSize: 3, Dimensions: 24, ExcludedClusters: 1,
+		},
 		Findings: []Finding{
 			{Title: "a webhook down", Severity: SeverityCritical, Cluster: "a", Scanner: "admission",
 				Remediation: &Remediation{Command: "kubectl get validatingwebhookconfiguration"}},
@@ -30,16 +32,22 @@ func TestGenerateBrief(t *testing.T) {
 
 	b := GenerateBrief(r)
 
-	// Test 0: headline carries the score, counts, and incident total.
-	for _, want := range []string{"score 73 (C)", "3 clusters", "1 critical", "1 warning", "1 incidents"} {
+	// Test 0: headline carries the score, provenance, counts, and incident total.
+	for _, want := range []string{
+		"score 73 (C)", "3 clusters", "24 dimensions", "1 critical", "1 warning", "1 incidents",
+	} {
 		if !strings.Contains(b.Headline, want) {
 			t.Errorf("headline missing %q: %s", want, b.Headline)
 		}
 	}
 
 	joined := strings.Join(b.Lines, "\n")
-	// Test 1: the worst incident, cohort drift, degraded coverage, and a fix all appear.
-	for _, want := range []string{"Worst incident:", "drifted from their cohort", "Coverage is partial", "Fix: a webhook down"} {
+	// Test 1: the excluded-cluster note, worst incident, cohort drift, degraded
+	// coverage, and a fix all appear.
+	for _, want := range []string{
+		"1 cluster(s) excluded from the score", "Worst incident:",
+		"drifted from their cohort", "Coverage is partial", "Fix: a webhook down",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("brief lines missing %q:\n%s", want, joined)
 		}

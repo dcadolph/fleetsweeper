@@ -21,9 +21,18 @@ func GenerateBrief(r *Report) Brief {
 
 	b := Brief{
 		Headline: fmt.Sprintf(
-			"Fleet score %d (%s). %d clusters, %d critical and %d warning findings across %d incidents.",
-			r.FleetScore.Score, r.FleetScore.Grade, len(r.Clusters), crit, warn, len(r.Incidents),
+			"Fleet score %d (%s) from %d clusters across %d dimensions. "+
+				"%d critical and %d warning findings across %d incidents.",
+			r.FleetScore.Score, r.FleetScore.Grade, r.FleetScore.SampleSize,
+			r.FleetScore.Dimensions, crit, warn, len(r.Incidents),
 		),
+	}
+
+	if r.FleetScore.ExcludedClusters > 0 {
+		b.Lines = append(b.Lines, fmt.Sprintf(
+			"%d cluster(s) excluded from the score for insufficient data.",
+			r.FleetScore.ExcludedClusters,
+		))
 	}
 
 	if len(r.Incidents) > 0 {

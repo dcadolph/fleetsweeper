@@ -43,6 +43,21 @@ func (s *Server) initOTelMetrics() error {
 	if err != nil {
 		return err
 	}
+	scoreSample, err := m.Int64ObservableGauge("fleetsweeper.fleet.score.sample.clusters",
+		metric.WithDescription("Clusters that contributed scanner data to the Fleet Score."))
+	if err != nil {
+		return err
+	}
+	scoreDimensions, err := m.Int64ObservableGauge("fleetsweeper.fleet.score.dimensions",
+		metric.WithDescription("Scan dimensions that contributed data to the Fleet Score."))
+	if err != nil {
+		return err
+	}
+	scoreExcluded, err := m.Int64ObservableGauge("fleetsweeper.fleet.score.excluded.clusters",
+		metric.WithDescription("Clusters excluded from the Fleet Score for insufficient data."))
+	if err != nil {
+		return err
+	}
 	findingsTotal, err := m.Int64ObservableGauge("fleetsweeper.findings.total",
 		metric.WithDescription("Total findings in the most recent scan by severity."))
 	if err != nil {
@@ -81,6 +96,9 @@ func (s *Server) initOTelMetrics() error {
 		}
 		obs.ObserveInt64(fleetScore, int64(r.FleetScore.Score))
 		obs.ObserveInt64(clusterCount, int64(len(r.Clusters)))
+		obs.ObserveInt64(scoreSample, int64(r.FleetScore.SampleSize))
+		obs.ObserveInt64(scoreDimensions, int64(r.FleetScore.Dimensions))
+		obs.ObserveInt64(scoreExcluded, int64(r.FleetScore.ExcludedClusters))
 
 		bySev := map[string]int{
 			report.SeverityCritical: 0,
@@ -113,8 +131,8 @@ func (s *Server) initOTelMetrics() error {
 				metric.WithAttributes(attribute.String("cluster", ch.Name)))
 		}
 		return nil
-	}, fleetScore, clusterCount, findingsTotal, clusterHealth,
-		cpuPercent, memPercent, scanDuration)
+	}, fleetScore, clusterCount, scoreSample, scoreDimensions, scoreExcluded,
+		findingsTotal, clusterHealth, cpuPercent, memPercent, scanDuration)
 	return err
 }
 

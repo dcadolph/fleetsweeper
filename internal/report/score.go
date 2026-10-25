@@ -22,6 +22,16 @@ type FleetScore struct {
 	// Drivers names the top three factors pulling the score below 100, in
 	// descending order of impact. Empty when the fleet is at 100.
 	Drivers []FleetScoreDriver `json:"drivers,omitempty"`
+	// SampleSize is the number of clusters that contributed scanner data to
+	// this score. A score from six clusters and one from sixty are different
+	// claims, so the sample travels with the number.
+	SampleSize int `json:"sample_size"`
+	// Dimensions is the number of scan dimensions that contributed data from
+	// at least one cluster.
+	Dimensions int `json:"dimensions"`
+	// ExcludedClusters is how many scanned clusters contributed no usable data
+	// and were left out of the statistical population.
+	ExcludedClusters int `json:"excluded_clusters"`
 }
 
 // FleetScoreDriver describes a single factor reducing the fleet score.
@@ -93,12 +103,40 @@ func ComputeFleetScore(r *Report) FleetScore {
 		drivers = drivers[:3]
 	}
 
+	sample, dims, excluded := scoreProvenance(r)
 	return FleetScore{
-		Score:    score,
-		Grade:    grade(score),
-		Headline: headline(score, r),
-		Drivers:  drivers,
+		Score:            score,
+		Grade:            grade(score),
+		Headline:         headline(score, r),
+		Drivers:          drivers,
+		SampleSize:       sample,
+		Dimensions:       dims,
+		ExcludedClusters: excluded,
 	}
+}
+
+// scoreProvenance derives the sample size, contributing dimension count, and
+// excluded-cluster count from the report's sections. A cluster contributes when
+// at least one scanner returned usable data for it; blind scanner runs never
+// enter PerCluster, so a fully blind cluster counts as excluded.
+func scoreProvenance(r *Report) (sample, dimensions, excluded int) {
+	contributed := make(map[string]struct{}, len(r.Clusters))
+	for _, sec := range r.Sections {
+		if sec == nil || len(sec.PerCluster) == 0 {
+			continue
+		}
+		dimensions++
+		for cluster := range sec.PerCluster {
+			contributed[cluster] = struct{}{}
+		}
+	}
+	for _, cluster := range r.Clusters {
+		if _, ok := contributed[cluster]; ok {
+			sample++
+		}
+	}
+	excluded = len(r.Clusters) - sample
+	return sample, dimensions, excluded
 }
 
 // findingCost returns the total points subtracted by findings plus a

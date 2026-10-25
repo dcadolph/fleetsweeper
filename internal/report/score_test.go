@@ -187,6 +187,83 @@ func TestFleetScore_StructJSON_StableShape(t *testing.T) {
 	}
 }
 
+func TestFleetScoreProvenance(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Name         string
+		In           *Report
+		WantSample   int
+		WantDims     int
+		WantExcluded int
+	}{
+		{ // Test 0: Nil report carries zero provenance.
+			Name: "nil report",
+			In:   nil,
+		},
+		{ // Test 1: Clusters listed but no sections means nothing contributed.
+			Name:         "no sections",
+			In:           &Report{Clusters: []string{"c1", "c2"}},
+			WantExcluded: 2,
+		},
+		{ // Test 2: Every cluster contributes to every section.
+			Name: "full coverage",
+			In: &Report{
+				Clusters: []string{"c1", "c2"},
+				Sections: map[string]*SectionReport{
+					"version":     {PerCluster: map[string]any{"c1": "v1", "c2": "v1"}},
+					"node-health": {PerCluster: map[string]any{"c1": 1, "c2": 2}},
+				},
+			},
+			WantSample: 2,
+			WantDims:   2,
+		},
+		{ // Test 3: A cluster with no usable data in any section is excluded.
+			Name: "one cluster fully blind",
+			In: &Report{
+				Clusters: []string{"c1", "c2", "c3"},
+				Sections: map[string]*SectionReport{
+					"version":     {PerCluster: map[string]any{"c1": "v1", "c2": "v1"}},
+					"node-health": {PerCluster: map[string]any{"c1": 1}},
+				},
+			},
+			WantSample:   2,
+			WantDims:     2,
+			WantExcluded: 1,
+		},
+		{ // Test 4: Empty and nil sections do not count as dimensions.
+			Name: "empty sections skipped",
+			In: &Report{
+				Clusters: []string{"c1"},
+				Sections: map[string]*SectionReport{
+					"version": {PerCluster: map[string]any{"c1": "v1"}},
+					"events":  {PerCluster: map[string]any{}},
+					"metrics": nil,
+				},
+			},
+			WantSample: 1,
+			WantDims:   1,
+		},
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			got := ComputeFleetScore(test.In)
+			want := FleetScore{
+				SampleSize:       test.WantSample,
+				Dimensions:       test.WantDims,
+				ExcludedClusters: test.WantExcluded,
+			}
+			opts := []cmp.Option{
+				cmpopts.EquateEmpty(),
+				cmpopts.IgnoreFields(FleetScore{}, "Score", "Grade", "Headline", "Drivers"),
+			}
+			if diff := cmp.Diff(want, got, opts...); diff != "" {
+				t.Errorf("provenance mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // makeFindings is a test helper returning n findings of the given severity.
 func makeFindings(sev string, n int) []Finding {
 	out := make([]Finding, n)
