@@ -198,8 +198,33 @@ func (s *Server) resolveActor(r *http.Request) (*Actor, error) {
 	if !rec.ExpiresAt.IsZero() && time.Now().After(rec.ExpiresAt) {
 		return nil, errors.New("token expired")
 	}
+	s.touchAPIKey(rec.ID)
+
+	return &Actor{
+		ID:           rec.ID,
+		Name:         rec.Name,
+		Role:         rec.Role,
+		ClusterScope: rec.ClusterScope,
+	}, nil
+}
+
+// keyTouchInterval is the minimum time between last-used writes for one API key.
+const keyTouchInterval = time.Minute
+
+// touchAPIKey records that the key was used, writing to the store in the background at most
+// once per keyTouchInterval per key so a busy client does not turn every request into a write.
+func (s *Server) touchAPIKey(id string) {
+	now := time.Now().UTC()
+	s.keyTouchMu.Lock()
+	if last, ok := s.keyTouches[id]; ok && now.Sub(last) < keyTouchInterval {
+		s.keyTouchMu.Unlock()
+		return
+	}
+	s.keyTouches[id] = now
+	s.keyTouchMu.Unlock()
+
 	s.bg.Add(1)
-	go func(id string) {
+	go func() {
 		defer s.bg.Done()
 		select {
 		case <-s.ctx.Done():
@@ -208,17 +233,10 @@ func (s *Server) resolveActor(r *http.Request) (*Actor, error) {
 		}
 		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
 		defer cancel()
-		if err := s.store.TouchAPIKey(ctx, id, time.Now().UTC()); err != nil {
+		if err := s.store.TouchAPIKey(ctx, id, now); err != nil {
 			s.log.Debug("auth: touch failed", zap.Error(err))
 		}
-	}(rec.ID)
-
-	return &Actor{
-		ID:           rec.ID,
-		Name:         rec.Name,
-		Role:         rec.Role,
-		ClusterScope: rec.ClusterScope,
-	}, nil
+	}()
 }
 
 // actorFromSessionCookie resolves the OIDC session cookie when present.

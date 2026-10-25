@@ -64,3 +64,20 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
+
+// FlushError flushes the underlying writer and reports http.ErrNotSupported when it cannot,
+// so streaming handlers behind this wrapper can tell whether their bytes reached the client.
+func (w *statusWriter) FlushError() error {
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Flush flushes the underlying writer when it supports flushing.
+func (w *statusWriter) Flush() {
+	_ = w.FlushError()
+}
+
+// Unwrap returns the wrapped writer so http.ResponseController can reach deadlines and
+// hijacking on the underlying connection.
+func (w *statusWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}

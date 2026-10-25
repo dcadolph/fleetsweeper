@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -359,5 +360,65 @@ func TestCanManageGroups(t *testing.T) {
 				t.Errorf("want %v, got %v", test.WantResult, got)
 			}
 		})
+	}
+}
+
+// touchCountingStore counts TouchAPIKey calls per key.
+type touchCountingStore struct {
+	store.Store
+	// mu guards touches.
+	mu sync.Mutex
+	// touches maps a key ID to its TouchAPIKey call count.
+	touches map[string]int
+}
+
+// TouchAPIKey counts the call and delegates to the wrapped store.
+func (s *touchCountingStore) TouchAPIKey(ctx context.Context, id string, at time.Time) error {
+	s.mu.Lock()
+	s.touches[id]++
+	s.mu.Unlock()
+	return s.Store.TouchAPIKey(ctx, id, at)
+}
+
+// TestTouchAPIKeyDebounced verifies a burst of authenticated requests writes the key's
+// last-used time once, that a different key is touched independently, and that the write
+// happens again once keyTouchInterval has passed.
+func TestTouchAPIKeyDebounced(t *testing.T) {
+	t.Parallel()
+	srv, st := newAuthTestServer(t)
+	counter := &touchCountingStore{Store: st, touches: map[string]int{}}
+	srv.store = counter
+	rawA := saveTestKey(t, st, "key_a", store.RoleViewer, store.ScopeWildcard)
+	rawB := saveTestKey(t, st, "key_b", store.RoleViewer, store.ScopeWildcard)
+
+	get := func(raw string) {
+		req := httptest.NewRequest(http.MethodGet, "/api/scans", nil)
+		req.Header.Set("Authorization", "Bearer "+raw)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", w.Code)
+		}
+	}
+	for range 5 {
+		get(rawA)
+	}
+	get(rawB)
+	srv.bg.Wait()
+	counter.mu.Lock()
+	if diff := cmp.Diff(map[string]int{"key_a": 1, "key_b": 1}, counter.touches); diff != "" {
+		t.Errorf("touches mismatch (-want +got):\n%s", diff)
+	}
+	counter.mu.Unlock()
+
+	srv.keyTouchMu.Lock()
+	srv.keyTouches["key_a"] = time.Now().UTC().Add(-keyTouchInterval - time.Second)
+	srv.keyTouchMu.Unlock()
+	get(rawA)
+	srv.bg.Wait()
+	counter.mu.Lock()
+	defer counter.mu.Unlock()
+	if got := counter.touches["key_a"]; got != 2 {
+		t.Errorf("after the interval: want 2 touches of key_a, got %d", got)
 	}
 }
