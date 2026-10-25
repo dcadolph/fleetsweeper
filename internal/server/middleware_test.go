@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -100,5 +102,44 @@ func TestJSONMiddleware_SetsContentType(t *testing.T) {
 	}
 	if !ran {
 		t.Error("next handler should run")
+	}
+}
+
+// TestWrappersForwardFlush verifies statusWriter and auditWriter flush through to a writer that
+// supports it, report http.ErrNotSupported for one that does not, and unwrap to the original.
+func TestWrappersForwardFlush(t *testing.T) {
+	t.Parallel()
+	wraps := []struct {
+		Name string
+		Wrap func(http.ResponseWriter) http.ResponseWriter
+	}{{ // Test 0: Request logging wrapper.
+		Name: "status", Wrap: func(w http.ResponseWriter) http.ResponseWriter {
+			return &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		},
+	}, { // Test 1: Audit wrapper.
+		Name: "audit", Wrap: func(w http.ResponseWriter) http.ResponseWriter {
+			return &auditWriter{ResponseWriter: w, status: http.StatusOK, body: &bytes.Buffer{}}
+		},
+	}}
+	for _, wrap := range wraps {
+		t.Run(wrap.Name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			w := wrap.Wrap(rec)
+			if err := http.NewResponseController(w).Flush(); err != nil {
+				t.Errorf("flush through a flusher: %v", err)
+			}
+			if !rec.Flushed {
+				t.Error("underlying recorder was not flushed")
+			}
+			if got := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap(); got != rec {
+				t.Error("Unwrap did not return the wrapped writer")
+			}
+
+			bare := wrap.Wrap(&noFlushWriter{header: http.Header{}})
+			if err := http.NewResponseController(bare).Flush(); !errors.Is(err, http.ErrNotSupported) {
+				t.Errorf("flush through a non-flusher: want ErrNotSupported, got %v", err)
+			}
+		})
 	}
 }

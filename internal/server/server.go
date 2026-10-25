@@ -124,9 +124,16 @@ type Server struct {
 	// when OIDC is not configured; the auth middleware falls back to
 	// bearer-only authentication in that case.
 	oidc *oidcRuntime
-	// rateLimiter throttles requests per actor (or per remote address).
-	// Nil disables limiting.
+	// rateLimiter throttles requests per client address. Nil disables limiting.
 	rateLimiter *rateLimiter
+	// trustedProxyHeader names the header a trusted reverse proxy sets to the client address.
+	// Empty keys the rate limiter by the transport's remote address.
+	trustedProxyHeader string
+	// keyTouchMu guards keyTouches.
+	keyTouchMu sync.Mutex
+	// keyTouches records when each API key's last-used time was last written, so a busy key
+	// writes at most once per keyTouchInterval.
+	keyTouches map[string]time.Time
 }
 
 // Config holds server configuration.
@@ -183,14 +190,19 @@ type Config struct {
 	// OIDC configures browser SSO. When zero-valued the server runs in
 	// bearer-only mode.
 	OIDC OIDCConfig
-	// ReadRPM is the per-actor budget for GET/HEAD/OPTIONS requests.
-	// Zero disables read limiting; recommended default is 600 (10 per
-	// second per actor).
+	// ReadRPM is the per-client budget for GET/HEAD/OPTIONS requests,
+	// keyed by client address. Zero disables read limiting; 600 (10 per
+	// second per client) is a sensible start.
 	ReadRPM int
-	// WriteRPM is the per-actor budget for mutating requests. Zero
-	// disables write limiting; recommended default is 60 (one per
-	// second per actor).
+	// WriteRPM is the per-client budget for mutating requests, keyed by
+	// client address. Zero disables write limiting; 60 (one per second
+	// per client) is a sensible start.
 	WriteRPM int
+	// TrustedProxyHeader, when set, names the header (for example X-Forwarded-For) a trusted
+	// reverse proxy uses to carry the client address. The rate limiter keys on its last entry.
+	// Leave it empty unless every request arrives through that proxy, since clients can set
+	// the header themselves.
+	TrustedProxyHeader string
 }
 
 // New creates a Server. Panics if store, registry, or log is nil.
@@ -228,6 +240,8 @@ func New(cfg Config) *Server {
 		policyReportOutputDir: cfg.PolicyReportOutputDir,
 		policyReportNamespace: cfg.PolicyReportNamespace,
 		costCSVPath:           cfg.CostCSVPath,
+		trustedProxyHeader:    cfg.TrustedProxyHeader,
+		keyTouches:            map[string]time.Time{},
 	}
 
 	s.setupWebhooks(cfg.WebhookConfigPath)
@@ -250,11 +264,11 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// Handler returns the root HTTP handler. It exposes the configured mux so the
-// server can be embedded behind another router or driven in tests without
-// binding a socket.
+// Handler returns the root HTTP handler with request logging applied, exactly as
+// ListenAndServe serves it, so the server can be embedded behind another router or
+// driven in tests without binding a socket.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return loggingMiddleware(s.log, s.mux)
 }
 
 // routes registers all API endpoints, health checks, and the static file handler.
@@ -308,9 +322,9 @@ func (s *Server) routes() {
 	api.HandleFunc("GET /events", s.handleEventsStream)
 
 	audited := s.auditMiddleware(api)
-	limited := s.rateLimitMiddleware(audited)
-	authed := s.authMiddleware(limited)
-	withCORS := corsMiddleware(s.corsOrigins, authed)
+	authed := s.authMiddleware(audited)
+	limited := s.rateLimitMiddleware(authed)
+	withCORS := corsMiddleware(s.corsOrigins, limited)
 	s.mux.Handle("/api/", http.StripPrefix("/api", jsonMiddleware(withCORS)))
 
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
@@ -356,10 +370,9 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 
 // ListenAndServe starts the HTTP server on the given address with full timeouts.
 func (s *Server) ListenAndServe(addr string) error {
-	handler := loggingMiddleware(s.log, s.mux)
 	s.httpServer = &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           s.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

@@ -1,12 +1,15 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -95,4 +98,110 @@ func newRateLimitedTestServer(t *testing.T, readRPM, writeRPM int) *Server {
 		st.Close()
 	})
 	return srv
+}
+
+// TestRateLimiterEvictsIdleBuckets verifies buckets idle past bucketIdleTTL are evicted by the
+// next sweep, so the map holds at most the keys seen within the idle window plus one sweep
+// interval, while buckets inside the window survive.
+func TestRateLimiterEvictsIdleBuckets(t *testing.T) {
+	t.Parallel()
+	rl := newRateLimiter(60, 60)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rl.now = func() time.Time { return now }
+	for i := range 1000 {
+		rl.allow(fmt.Sprintf("addr:10.0.%d.%d", i/256, i%256), false)
+	}
+	if got := rl.size(); got != 1000 {
+		t.Fatalf("want 1000 buckets, got %d", got)
+	}
+
+	now = now.Add(bucketIdleTTL - time.Second)
+	rl.allow("addr:fresh-1", false)
+	if got := rl.size(); got != 1001 {
+		t.Errorf("inside the idle window: want 1001 buckets, got %d", got)
+	}
+
+	now = now.Add(bucketSweepInterval + time.Second)
+	rl.allow("addr:fresh-2", false)
+	if got := rl.size(); got != 2 {
+		t.Errorf("past the idle window: want 2 buckets, got %d", got)
+	}
+}
+
+// TestRateLimiterSeparateClasses verifies exhausting the write budget leaves reads untouched,
+// and that each class bursts to exactly one minute of its own budget.
+func TestRateLimiterSeparateClasses(t *testing.T) {
+	t.Parallel()
+	rl := newRateLimiter(10, 3)
+	for i := range 3 {
+		if _, ok := rl.allow("k", true); !ok {
+			t.Fatalf("write %d rejected inside the budget", i)
+		}
+	}
+	if _, ok := rl.allow("k", true); ok {
+		t.Error("fourth write should be rejected")
+	}
+	for i := range 10 {
+		if _, ok := rl.allow("k", false); !ok {
+			t.Fatalf("read %d rejected after writes were exhausted", i)
+		}
+	}
+	if _, ok := rl.allow("k", false); ok {
+		t.Error("eleventh read should be rejected")
+	}
+}
+
+// TestRateLimitThrottlesBadTokens verifies the limiter runs before authentication, so a client
+// guessing tokens is throttled after its write budget even though every attempt fails auth.
+func TestRateLimitThrottlesBadTokens(t *testing.T) {
+	t.Parallel()
+	srv := newRateLimitedTestServer(t, 0, 3)
+	var codes []int
+	for range 5 {
+		req := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(`{"name":"g"}`))
+		req.Header.Set("Authorization", "Bearer wrong-guess")
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		codes = append(codes, w.Code)
+	}
+	want := []int{
+		http.StatusUnauthorized, http.StatusUnauthorized, http.StatusUnauthorized,
+		http.StatusTooManyRequests, http.StatusTooManyRequests,
+	}
+	if diff := cmp.Diff(want, codes); diff != "" {
+		t.Errorf("status sequence mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestRateLimitTrustedProxyHeader verifies clients behind one proxy get separate buckets when
+// the proxy header is trusted, and share the proxy's bucket when it is not.
+func TestRateLimitTrustedProxyHeader(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		ProxyHeader string
+		WantSecond  int
+	}{{ // Test 0: Untrusted header, both clients share the proxy address.
+		ProxyHeader: "", WantSecond: http.StatusTooManyRequests,
+	}, { // Test 1: Trusted header, each client has its own bucket.
+		ProxyHeader: "X-Forwarded-For", WantSecond: http.StatusOK,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv := newRateLimitedTestServer(t, 1, 0)
+			srv.trustedProxyHeader = test.ProxyHeader
+			var got []int
+			for _, client := range []string{"203.0.113.1", "203.0.113.2"} {
+				req := httptest.NewRequest(http.MethodGet, "/api/scans", nil)
+				req.RemoteAddr = "10.0.0.1:443"
+				req.Header.Set("X-Forwarded-For", client)
+				w := httptest.NewRecorder()
+				srv.mux.ServeHTTP(w, req)
+				got = append(got, w.Code)
+			}
+			if diff := cmp.Diff([]int{http.StatusOK, test.WantSecond}, got); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

@@ -1,44 +1,51 @@
 package server
 
 import (
-	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-// TestRateLimitKey covers actor-keyed, address-keyed, and malformed-address
-// derivations of the limiter bucket key.
+// TestRateLimitKey covers address keying, the trusted proxy header, and its fallbacks.
 func TestRateLimitKey(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		Name       string
-		Actor      *Actor
-		RemoteAddr string
-		WantResult string
-	}{{ // Test 0: Authenticated actor keys by ID.
-		Name: "actor id", Actor: &Actor{ID: "key_1"}, RemoteAddr: "1.2.3.4:9",
-		WantResult: "actor:key_1",
-	}, { // Test 1: No actor keys by remote host without the port.
-		Name: "addr with port", Actor: nil, RemoteAddr: "10.0.0.9:55555",
+		RemoteAddr  string
+		ProxyHeader string
+		Forwarded   string
+		WantResult  string
+	}{{ // Test 0: Remote host without the port.
+		RemoteAddr: "10.0.0.9:55555", WantResult: "addr:10.0.0.9",
+	}, { // Test 1: Malformed RemoteAddr falls back to the raw value.
+		RemoteAddr: "unix-socket", WantResult: "addr:unix-socket",
+	}, { // Test 2: A forwarded header is ignored unless it is trusted.
+		RemoteAddr: "10.0.0.9:1", Forwarded: "203.0.113.7", WantResult: "addr:10.0.0.9",
+	}, { // Test 3: A trusted header with one address keys on it.
+		RemoteAddr: "10.0.0.9:1", ProxyHeader: "X-Forwarded-For", Forwarded: "203.0.113.7",
+		WantResult: "addr:203.0.113.7",
+	}, { // Test 4: A trusted header keys on the last entry, the one the proxy appended.
+		RemoteAddr: "10.0.0.9:1", ProxyHeader: "X-Forwarded-For", Forwarded: "1.1.1.1, 203.0.113.7",
+		WantResult: "addr:203.0.113.7",
+	}, { // Test 5: A trusted header that is missing falls back to the remote host.
+		RemoteAddr: "10.0.0.9:1", ProxyHeader: "X-Forwarded-For", WantResult: "addr:10.0.0.9",
+	}, { // Test 6: A trusted header that is not an IP falls back to the remote host.
+		RemoteAddr: "10.0.0.9:1", ProxyHeader: "X-Forwarded-For", Forwarded: "evil, not-an-ip",
 		WantResult: "addr:10.0.0.9",
-	}, { // Test 2: Malformed RemoteAddr falls back to the raw value.
-		Name: "addr no port", Actor: nil, RemoteAddr: "unix-socket",
-		WantResult: "addr:unix-socket",
-	}, { // Test 3: Actor present but empty ID falls back to address.
-		Name: "empty actor id", Actor: &Actor{ID: ""}, RemoteAddr: "8.8.8.8:1",
-		WantResult: "addr:8.8.8.8",
+	}, { // Test 7: IPv6 entries are normalized.
+		RemoteAddr: "[::1]:80", ProxyHeader: "X-Forwarded-For", Forwarded: "2001:DB8::1",
+		WantResult: "addr:2001:db8::1",
 	}}
-	for i, test := range tests {
-		t.Run(test.Name, func(t *testing.T) {
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			req := httptest.NewRequest(http.MethodGet, "/api/scans", nil)
 			req.RemoteAddr = test.RemoteAddr
-			if test.Actor != nil {
-				req = req.WithContext(withActor(context.Background(), test.Actor))
+			if test.Forwarded != "" {
+				req.Header.Set("X-Forwarded-For", test.Forwarded)
 			}
-			if got := rateLimitKey(req); got != test.WantResult {
-				t.Errorf("test %d: want %q, got %q", i, test.WantResult, got)
+			if got := rateLimitKey(req, test.ProxyHeader); got != test.WantResult {
+				t.Errorf("want %q, got %q", test.WantResult, got)
 			}
 		})
 	}
@@ -68,26 +75,6 @@ func TestFormatRemaining(t *testing.T) {
 				t.Errorf("test %d: want %q, got %q", i, test.WantResult, got)
 			}
 		})
-	}
-}
-
-// TestItoaSimple covers the small base-10 formatter across its branches.
-func TestItoaSimple(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		In         int
-		WantResult string
-	}{
-		{In: 0, WantResult: "0"},       // Test 0: Zero.
-		{In: -3, WantResult: "0"},      // Test 1: Negative clamps.
-		{In: 7, WantResult: "7"},       // Test 2: Single digit.
-		{In: 10, WantResult: "10"},     // Test 3: Two digits.
-		{In: 2048, WantResult: "2048"}, // Test 4: Multi digit.
-	}
-	for i, test := range tests {
-		if got := itoaSimple(test.In); got != test.WantResult {
-			t.Errorf("test %d: itoaSimple(%d) want %q, got %q", i, test.In, test.WantResult, got)
-		}
 	}
 }
 

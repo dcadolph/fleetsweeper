@@ -59,6 +59,9 @@ func init() {
 	serveCmd.Flags().String("admission-key", "", "Path to the matching PEM private key.")
 	serveCmd.Flags().StringSlice("admission-dns", []string{"fleetsweeper.fleetsweeper.svc"}, "Additional DNS SANs to include on the generated certificate.")
 	serveCmd.Flags().String("admission-mode", "advisory", "advisory: warn only; enforce: deny pods that deviate from the fleet norm.")
+	serveCmd.Flags().Int("rate-limit-read-rpm", 0, "Per-client budget of read requests per minute (600 is a sensible start). 0 disables read limiting.")
+	serveCmd.Flags().Int("rate-limit-write-rpm", 0, "Per-client budget of mutating requests per minute (60 is a sensible start). 0 disables write limiting.")
+	serveCmd.Flags().String("trusted-proxy-header", "", "Header a trusted reverse proxy sets to the client address (for example X-Forwarded-For). The rate limiter keys on its last entry. Leave empty unless every request passes through that proxy.")
 	serveCmd.MarkFlagsMutuallyExclusive("all-contexts", "contexts")
 }
 
@@ -113,6 +116,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	oidcDefaultRole, _ := cmd.Flags().GetString("oidc-default-role")
 	readRPM, _ := cmd.Flags().GetInt("rate-limit-read-rpm")
 	writeRPM, _ := cmd.Flags().GetInt("rate-limit-write-rpm")
+	trustedProxyHeader, _ := cmd.Flags().GetString("trusted-proxy-header")
 
 	srv := server.New(server.Config{
 		Store:                 s,
@@ -134,6 +138,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		SealKey:               sealKey,
 		ReadRPM:               readRPM,
 		WriteRPM:              writeRPM,
+		TrustedProxyHeader:    trustedProxyHeader,
 		OIDC: server.OIDCConfig{
 			IssuerURL:       oidcIssuer,
 			ClientID:        oidcClient,

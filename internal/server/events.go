@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -92,17 +93,24 @@ func (s *Server) PublishEvent(typ string, payload any) {
 // handleEventsStream is the SSE endpoint at /api/events. It keeps the
 // connection open and writes one event per scan completion or key change
 // until either side closes.
+//
+// The server's WriteTimeout would cut the stream off, so the handler clears the write deadline
+// through http.ResponseController, which reaches the connection through every middleware
+// wrapper's Unwrap method.
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming unsupported")
-		return
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.log.Debug("events: clear write deadline", zap.Error(err))
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
+	if err := rc.Flush(); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
 
 	ch, unsub := s.events.subscribe(16)
 	defer unsub()
@@ -113,7 +121,9 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 		s.log.Debug("events: hello write failed", zap.Error(err))
 		return
 	}
-	flusher.Flush()
+	if err := rc.Flush(); err != nil {
+		return
+	}
 
 	keepalive := time.NewTicker(30 * time.Second)
 	defer keepalive.Stop()
@@ -126,7 +136,9 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
 				return
 			}
-			flusher.Flush()
+			if err := rc.Flush(); err != nil {
+				return
+			}
 		case ev, ok := <-ch:
 			if !ok {
 				return
@@ -134,7 +146,9 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			if err := writeSSE(w, ev); err != nil {
 				return
 			}
-			flusher.Flush()
+			if err := rc.Flush(); err != nil {
+				return
+			}
 		}
 	}
 }

@@ -80,6 +80,21 @@ func (w *auditWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
+// FlushError flushes the underlying writer and reports http.ErrNotSupported when it cannot.
+func (w *auditWriter) FlushError() error {
+	return http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Flush flushes the underlying writer when it supports flushing.
+func (w *auditWriter) Flush() {
+	_ = w.FlushError()
+}
+
+// Unwrap returns the wrapped writer so http.ResponseController can reach the connection.
+func (w *auditWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // extractErrorMessage pulls the "error" field from a JSON error body without
 // importing encoding/json overhead for the common case. The audit log only
 // needs a short excerpt for at-a-glance triage; the request log carries the
