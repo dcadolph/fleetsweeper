@@ -2,10 +2,15 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
@@ -15,35 +20,54 @@ import (
 // is skipped so the suite stays runnable offline.
 const envPostgresDSN = "FLEETSWEEPER_PG_TEST_DSN"
 
-// newTestPostgres opens a Postgres-backed Store against the DSN in the
-// envPostgresDSN environment variable. Returns the backend and a cleanup
-// function that drops every Fleetsweeper-managed table so the next test
-// starts from a clean slate.
+// newTestPostgres opens a Postgres-backed Store in a fresh schema of the
+// database named by the envPostgresDSN environment variable, so parallel tests
+// never see or drop each other's tables. The schema is dropped on cleanup.
 func newTestPostgres(t *testing.T) *Postgres {
+	t.Helper()
+	return newTestPostgresAt(t, testPGSchemaDSN(t))
+}
+
+// newTestPostgresAt opens a Postgres-backed Store at dsn and closes it on
+// cleanup.
+func newTestPostgresAt(t *testing.T, dsn string) *Postgres {
+	t.Helper()
+	p, err := NewPostgres(dsn)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	return p
+}
+
+// testPGSchemaDSN creates an empty schema for one test and returns a DSN whose
+// search_path points at it. Skips the test when envPostgresDSN is unset.
+func testPGSchemaDSN(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv(envPostgresDSN)
 	if dsn == "" {
 		t.Skipf("set %s to a writable Postgres DSN to run", envPostgresDSN)
 	}
-	p, err := NewPostgres(dsn)
+	admin, err := sql.Open("pgx", dsn)
 	if err != nil {
-		t.Fatalf("open postgres: %v", err)
+		t.Fatalf("open admin: %v", err)
+	}
+	schema := "fs_test_" + strings.ReplaceAll(generateID(), "-", "_")
+	if _, err := admin.Exec("CREATE SCHEMA " + schema); err != nil {
+		_ = admin.Close()
+		t.Fatalf("create schema: %v", err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		// Drop in reverse-dependency order so foreign keys are satisfied.
-		for _, tbl := range []string{
-			"audit_log", "api_keys", "finding_acks",
-			"cluster_locations", "group_clusters", "groups",
-			"scan_results", "scans", "clusters",
-			"schema_migrations",
-		} {
-			_, _ = p.db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tbl+" CASCADE")
-		}
-		_ = p.Close()
+		_, _ = admin.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE")
+		_ = admin.Close()
 	})
-	return p
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "search_path=" + schema
 }
 
 // TestPostgresScanRoundTrip exercises the headline path: save a scan with
@@ -76,6 +100,72 @@ func TestPostgresScanRoundTrip(t *testing.T) {
 	}
 	if got["prod-east"]["version"].Scanner != "version" {
 		t.Errorf("missing east version data: %+v", got)
+	}
+}
+
+// TestPostgresScanResultStateRoundTrip verifies State and Reason survive the
+// Postgres backend the same way they survive SQLite.
+func TestPostgresScanResultStateRoundTrip(t *testing.T) {
+	t.Parallel()
+	p := newTestPostgres(t)
+	ctx := context.Background()
+
+	want := map[string]scanner.Result{
+		"version": {Scanner: "version", Data: map[string]any{"minor": float64(31)}},
+		"certs":   {Scanner: "certs", State: scanner.StateErrored, Reason: "context deadline exceeded"},
+		"workloads": {
+			Scanner: "workloads", State: scanner.StateDegraded, Reason: "2 of 9 namespaces forbidden",
+			Data: map[string]any{"pods": float64(14)},
+		},
+	}
+	scanID, err := p.SaveScan(ctx, []string{"edge-1"}, map[string]map[string]scanner.Result{"edge-1": want})
+	if err != nil {
+		t.Fatalf("save scan: %v", err)
+	}
+	got, err := p.GetScanResults(ctx, scanID)
+	if err != nil {
+		t.Fatalf("get results: %v", err)
+	}
+	if diff := cmp.Diff(want, got["edge-1"]); diff != "" {
+		t.Errorf("results mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestPostgresConcurrentMigrate verifies several replicas opening an empty
+// database at once all succeed and apply each migration exactly once. It runs
+// in a private schema so the other tests' tables do not hide the race.
+func TestPostgresConcurrentMigrate(t *testing.T) {
+	t.Parallel()
+	scoped := testPGSchemaDSN(t)
+
+	const replicas = 8
+	errs := make([]error, replicas)
+	var wg sync.WaitGroup
+	for i := range replicas {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			p, err := NewPostgres(scoped)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			errs[i] = p.Close()
+		}(i)
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatalf("concurrent open: %v", err)
+	}
+
+	p := newTestPostgresAt(t, scoped)
+	var applied int
+	if err := p.db.QueryRowContext(context.Background(),
+		"SELECT COUNT(*) FROM schema_migrations").Scan(&applied); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	if diff := cmp.Diff(len(pgMigrations), applied); diff != "" {
+		t.Errorf("applied migrations mismatch (-want +got):\n%s", diff)
 	}
 }
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -300,5 +301,102 @@ func TestGetClusterHistory(t *testing.T) {
 	}
 	if diff := cmp.Diff(3, len(history)); diff != "" {
 		t.Errorf("history count mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestScanResultStateRoundTrip verifies a scanner's State and Reason survive
+// SaveScan and GetScanResults, so a report rebuilt from the store sees the same
+// coverage as the live scan that wrote it.
+func TestScanResultStateRoundTrip(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		WantResult scanner.Result
+	}{{ // Test 0: A clean result stays StateOK with no reason.
+		WantResult: scanner.Result{Scanner: "version", Data: map[string]any{"minor": float64(31)}},
+	}, { // Test 1: A degraded result keeps its state and reason alongside its data.
+		WantResult: scanner.Result{
+			Scanner: "workloads", State: scanner.StateDegraded, Reason: "2 of 9 namespaces forbidden",
+			Data: map[string]any{"pods": float64(14)},
+		},
+	}, { // Test 2: An errored result keeps its reason and a nil payload.
+		WantResult: scanner.Result{Scanner: "certs", State: scanner.StateErrored, Reason: "context deadline exceeded"},
+	}, { // Test 3: An unavailable result keeps its state.
+		WantResult: scanner.Result{
+			Scanner: "policy-reports", State: scanner.StateUnavailable, Reason: "PolicyReport CRD not installed",
+		},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			s := testStore(t)
+			ctx := context.Background()
+			name := test.WantResult.Scanner
+			id, err := s.SaveScan(ctx, []string{"edge-1"}, map[string]map[string]scanner.Result{
+				"edge-1": {name: test.WantResult},
+			})
+			if err != nil {
+				t.Fatalf("save scan: %v", err)
+			}
+			got, err := s.GetScanResults(ctx, id)
+			if err != nil {
+				t.Fatalf("get results: %v", err)
+			}
+			if diff := cmp.Diff(test.WantResult, got["edge-1"][name]); diff != "" {
+				t.Errorf("result mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestMigrateStateColumnsOnExistingRows verifies migration 8 upgrades a
+// database written before scan_results carried state, and that the rows it
+// already holds read back as StateOK.
+func TestMigrateStateColumnsOnExistingRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v7.db")
+
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	if _, err := raw.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	for _, m := range migrations {
+		if m.Version > 7 {
+			continue
+		}
+		if _, err := raw.Exec(m.SQL); err != nil {
+			t.Fatalf("apply migration %d: %v", m.Version, err)
+		}
+		if _, err := raw.Exec("INSERT INTO schema_migrations VALUES (?, ?)", m.Version, "2026-01-01T00:00:00Z"); err != nil {
+			t.Fatalf("record migration %d: %v", m.Version, err)
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO scans VALUES ('old', '2026-01-01T00:00:00Z', '["edge-1"]', '["version"]')`,
+		`INSERT INTO scan_results VALUES ('old', 'edge-1', 'version', '{"minor":30}')`,
+	} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatalf("seed v7 row: %v", err)
+		}
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw: %v", err)
+	}
+
+	s, err := NewSQLite(path)
+	if err != nil {
+		t.Fatalf("upgrade open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	got, err := s.GetScanResults(ctx, "old")
+	if err != nil {
+		t.Fatalf("get results: %v", err)
+	}
+	want := scanner.Result{Scanner: "version", Data: map[string]any{"minor": float64(30)}}
+	if diff := cmp.Diff(want, got["edge-1"]["version"]); diff != "" {
+		t.Errorf("upgraded row mismatch (-want +got):\n%s", diff)
 	}
 }

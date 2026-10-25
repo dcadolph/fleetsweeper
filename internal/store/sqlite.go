@@ -212,7 +212,7 @@ func (s *SQLite) SaveScan(ctx context.Context, clusters []string, results map[st
 	}
 
 	stmt, err := tx.PrepareContext(ctx,
-		"INSERT INTO scan_results (scan_id, cluster, scanner, data_json) VALUES (?, ?, ?, ?)")
+		"INSERT INTO scan_results (scan_id, cluster, scanner, data_json, state, reason) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return "", fmt.Errorf("%w: prepare: %w", ErrStore, err)
 	}
@@ -224,7 +224,7 @@ func (s *SQLite) SaveScan(ctx context.Context, clusters []string, results map[st
 			if err != nil {
 				return "", fmt.Errorf("%w: marshal data: %w", ErrStore, err)
 			}
-			if _, err := stmt.ExecContext(ctx, id, cluster, name, string(dataJSON)); err != nil {
+			if _, err := stmt.ExecContext(ctx, id, cluster, name, string(dataJSON), string(result.State), result.Reason); err != nil {
 				return "", fmt.Errorf("%w: insert result: %w", ErrStore, err)
 			}
 		}
@@ -277,7 +277,7 @@ func (s *SQLite) ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 // GetScanResults retrieves all per-cluster scanner results for a scan.
 func (s *SQLite) GetScanResults(ctx context.Context, scanID string) (map[string]map[string]scanner.Result, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT cluster, scanner, data_json FROM scan_results WHERE scan_id = ?", scanID)
+		"SELECT cluster, scanner, data_json, state, reason FROM scan_results WHERE scan_id = ?", scanID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
 	}
@@ -285,8 +285,8 @@ func (s *SQLite) GetScanResults(ctx context.Context, scanID string) (map[string]
 
 	results := make(map[string]map[string]scanner.Result)
 	for rows.Next() {
-		var cluster, scannerName, dataJSON string
-		if err := rows.Scan(&cluster, &scannerName, &dataJSON); err != nil {
+		var cluster, scannerName, dataJSON, state, reason string
+		if err := rows.Scan(&cluster, &scannerName, &dataJSON, &state, &reason); err != nil {
 			return nil, fmt.Errorf("%w: scan row: %w", ErrQuery, err)
 		}
 		var data any
@@ -296,7 +296,12 @@ func (s *SQLite) GetScanResults(ctx context.Context, scanID string) (map[string]
 		if results[cluster] == nil {
 			results[cluster] = make(map[string]scanner.Result)
 		}
-		results[cluster][scannerName] = scanner.Result{Scanner: scannerName, Data: data}
+		results[cluster][scannerName] = scanner.Result{
+			Scanner: scannerName,
+			State:   scanner.State(state),
+			Reason:  reason,
+			Data:    data,
+		}
 	}
 	return results, rows.Err()
 }
