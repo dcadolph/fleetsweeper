@@ -68,11 +68,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	in := &admissionv1.AdmissionReview{}
 	if _, _, err := codecs.UniversalDeserializer().Decode(body, nil, in); err != nil {
-		h.writeFailure(w, "", fmt.Errorf("decode: %w", err))
+		h.writeUnevaluated(w, "", fmt.Errorf("decode: %w", err))
 		return
 	}
 	if in.Request == nil {
-		h.writeFailure(w, "", errors.New("missing request"))
+		h.writeUnevaluated(w, "", errors.New("missing request"))
 		return
 	}
 
@@ -123,7 +123,7 @@ func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionReques
 		}
 	}
 
-	if h.Mode == ModeEnforce && len(denies) > 0 {
+	if h.Mode.enforcing() && len(denies) > 0 {
 		resp.Allowed = false
 		resp.Result = &metav1.Status{
 			Status:  metav1.StatusFailure,
@@ -134,19 +134,19 @@ func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionReques
 	return resp
 }
 
-// writeFailure writes a deny response carrying the supplied error. The
-// apiserver treats it as a webhook failure but still records the message
-// for cluster operators.
-func (h *Handler) writeFailure(w http.ResponseWriter, uid string, err error) {
+// writeUnevaluated writes an allow response carrying a warning for a review
+// the handler could not evaluate. The webhook fails open in every mode: a
+// malformed or missing AdmissionReview never blocks a pod, even under enforce.
+func (h *Handler) writeUnevaluated(w http.ResponseWriter, uid string, err error) {
 	if h.Log != nil {
-		h.Log.Warn("admission handler error", zap.Error(err))
+		h.Log.Warn("admission handler error: allowing", zap.Error(err))
 	}
 	out := admissionv1.AdmissionReview{
 		TypeMeta: metav1.TypeMeta{APIVersion: admissionReviewGVK.GroupVersion().String(), Kind: admissionReviewGVK.Kind},
 		Response: &admissionv1.AdmissionResponse{
-			UID:     types.UID(uid),
-			Allowed: false,
-			Result:  &metav1.Status{Status: metav1.StatusFailure, Message: err.Error()},
+			UID:      types.UID(uid),
+			Allowed:  true,
+			Warnings: []string{"fleetsweeper: could not evaluate request (" + err.Error() + "); allowing"},
 		},
 	}
 	body, marshalErr := json.Marshal(out)

@@ -9,6 +9,8 @@ import (
 )
 
 // Mode selects whether the webhook warns or denies on baseline deviations.
+// Any value other than ModeEnforce behaves as ModeAdvisory, so a typo in the
+// mode can never turn on denials.
 type Mode string
 
 const (
@@ -17,6 +19,11 @@ const (
 	// ModeEnforce denies admission when a check fires.
 	ModeEnforce Mode = "enforce"
 )
+
+// enforcing reports whether the mode denies pods that fail a check.
+func (m Mode) enforcing() bool {
+	return m == ModeEnforce
+}
 
 // Baseline is the fleet-derived norm the webhook checks against. The
 // numbers express the fraction of containers across the fleet's most recent

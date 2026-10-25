@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -191,13 +192,13 @@ func TestHandlerEvaluateDecodeError(t *testing.T) {
 	}
 }
 
-// TestWriteFailureNilLog verifies writeFailure emits a deny response and does
-// not panic when the handler has no logger.
-func TestWriteFailureNilLog(t *testing.T) {
+// TestWriteUnevaluatedNilLog verifies writeUnevaluated emits an allow
+// response with a warning and does not panic when the handler has no logger.
+func TestWriteUnevaluatedNilLog(t *testing.T) {
 	t.Parallel()
 	h := &Handler{}
 	rec := httptest.NewRecorder()
-	h.writeFailure(rec, "abc", context.DeadlineExceeded)
+	h.writeUnevaluated(rec, "abc", context.DeadlineExceeded)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -205,14 +206,14 @@ func TestWriteFailureNilLog(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.Response == nil || out.Response.Allowed {
-		t.Fatalf("writeFailure should deny, got %+v", out.Response)
+	if out.Response == nil || !out.Response.Allowed {
+		t.Fatalf("writeUnevaluated should allow, got %+v", out.Response)
 	}
 	if string(out.Response.UID) != "abc" {
 		t.Errorf("uid = %q, want abc", out.Response.UID)
 	}
-	if out.Response.Result == nil || out.Response.Result.Message == "" {
-		t.Error("failure response should carry a message")
+	if len(out.Response.Warnings) != 1 {
+		t.Errorf("want one warning, got %v", out.Response.Warnings)
 	}
 }
 
@@ -230,6 +231,7 @@ func TestHandlerServeHTTPCases(t *testing.T) {
 		WantAllowed bool
 		WantWarn    bool
 		WantResult  bool
+		WantUID     string
 	}{
 		{ // Test 0: Advisory mode warns but allows an offending pod.
 			Name: "advisory-dirty", Body: reviewBody(t, dirtyPod()), Baseline: sufficientBaseline,
@@ -248,13 +250,13 @@ func TestHandlerServeHTTPCases(t *testing.T) {
 			Baseline: Baseline{SamplePods: 1, SampleContainers: 2, DigestPinFraction: 1},
 			Mode:     ModeEnforce, WantStatus: 200, WantAllowed: true, WantWarn: true, WantResult: false,
 		},
-		{ // Test 4: Invalid JSON produces a deny failure response.
-			Name: "invalid-json", Body: []byte("{ not valid json "), Baseline: sufficientBaseline,
-			Mode: ModeEnforce, WantStatus: 200, WantAllowed: false, WantResult: true,
+		{ // Test 4: Invalid JSON is allowed with a warning in enforce mode.
+			Name: "invalid-json-enforce", Body: []byte("{ not valid json "), Baseline: sufficientBaseline,
+			Mode: ModeEnforce, WantStatus: 200, WantAllowed: true, WantWarn: true, WantUID: "-",
 		},
-		{ // Test 5: A missing request payload produces a deny failure response.
-			Name: "nil-request", Body: nilRequestBody(t), Baseline: sufficientBaseline,
-			Mode: ModeEnforce, WantStatus: 200, WantAllowed: false, WantResult: true,
+		{ // Test 5: A missing request payload is allowed with a warning in enforce mode.
+			Name: "nil-request-enforce", Body: nilRequestBody(t), Baseline: sufficientBaseline,
+			Mode: ModeEnforce, WantStatus: 200, WantAllowed: true, WantWarn: true, WantUID: "-",
 		},
 		{ // Test 6: A non-Pod object is allowed with a decode warning.
 			Name: "non-pod-kind", Body: reviewBodyKind(t, "Deployment", []byte(`{"kind":"Deployment"}`)),
@@ -264,6 +266,18 @@ func TestHandlerServeHTTPCases(t *testing.T) {
 		{ // Test 7: A body past the size cap is rejected before decoding.
 			Name: "too-large", Body: reviewBody(t, dirtyPod()), Baseline: sufficientBaseline,
 			Mode: ModeEnforce, MaxBytes: 8, WantStatus: http.StatusBadRequest,
+		},
+		{ // Test 8: Invalid JSON is allowed with a warning in advisory mode.
+			Name: "invalid-json-advisory", Body: []byte("{ not valid json "), Baseline: sufficientBaseline,
+			Mode: ModeAdvisory, WantStatus: 200, WantAllowed: true, WantWarn: true, WantUID: "-",
+		},
+		{ // Test 9: A missing request payload is allowed with a warning in advisory mode.
+			Name: "nil-request-advisory", Body: nilRequestBody(t), Baseline: sufficientBaseline,
+			Mode: ModeAdvisory, WantStatus: 200, WantAllowed: true, WantWarn: true, WantUID: "-",
+		},
+		{ // Test 10: An unrecognized mode behaves as advisory: warn, never deny.
+			Name: "unknown-mode", Body: reviewBody(t, dirtyPod()), Baseline: sufficientBaseline,
+			Mode: Mode("Enforce"), WantStatus: 200, WantAllowed: true, WantWarn: true, WantResult: false,
 		},
 	}
 	for testNum, test := range tests {
@@ -304,6 +318,73 @@ func TestHandlerServeHTTPCases(t *testing.T) {
 			if gotResult != test.WantResult {
 				t.Errorf("test %d (%s): result = %v, want %v", testNum, test.Name, gotResult, test.WantResult)
 			}
+			// A review with a request echoes its UID; one without has none to echo.
+			wantUID := "u"
+			if test.WantUID == "-" {
+				wantUID = ""
+			}
+			if string(out.Response.UID) != wantUID {
+				t.Errorf("test %d (%s): uid = %q, want %q", testNum, test.Name, out.Response.UID, wantUID)
+			}
 		})
+	}
+}
+
+// TestBaselineSufficient pins the sample gate at 30 containers and 10 pods.
+func TestBaselineSufficient(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Containers int
+		Pods       int
+		WantResult bool
+	}{
+		{Containers: 29, Pods: 10, WantResult: false}, // Test 0: One container short.
+		{Containers: 30, Pods: 9, WantResult: false},  // Test 1: One pod short.
+		{Containers: 30, Pods: 10, WantResult: true},  // Test 2: Exactly at both floors.
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			b := Baseline{SampleContainers: test.Containers, SamplePods: test.Pods}
+			if diff := cmp.Diff(test.WantResult, b.Sufficient()); diff != "" {
+				t.Errorf("sufficient mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestCheckThresholdBoundary verifies every default check stays silent at a
+// fleet fraction of 0.69 and fires at 0.70 against a pod that violates it.
+func TestCheckThresholdBoundary(t *testing.T) {
+	t.Parallel()
+	set := map[string]func(*Baseline, float64){
+		"named-service-account":   func(b *Baseline, f float64) { b.NamedServiceAccountFraction = f },
+		"read-only-root-fs":       func(b *Baseline, f float64) { b.ReadOnlyRootFSFraction = f },
+		"digest-pin":              func(b *Baseline, f float64) { b.DigestPinFraction = f },
+		"non-root":                func(b *Baseline, f float64) { b.NonRootFraction = f },
+		"no-privilege-escalation": func(b *Baseline, f float64) { b.NoPrivilegeEscalationFraction = f },
+	}
+	pod := dirtyPod()
+	testNum := 0
+	for _, chk := range DefaultChecks() {
+		setter, ok := set[chk.Name()]
+		if !ok {
+			t.Fatalf("no fraction setter for check %q", chk.Name())
+		}
+		for _, row := range []struct {
+			Fraction float64
+			WantFire bool
+		}{{Fraction: 0.69, WantFire: false}, {Fraction: 0.70, WantFire: true}} {
+			t.Run(fmt.Sprintf("test %d %s %.2f", testNum, chk.Name(), row.Fraction), func(t *testing.T) {
+				t.Parallel()
+				b := Baseline{SamplePods: 50, SampleContainers: 100}
+				setter(&b, row.Fraction)
+				warnings, deny := chk.Evaluate(&pod, b)
+				if gotFire := len(warnings) > 0 && deny != ""; gotFire != row.WantFire {
+					t.Errorf("fire = %v, want %v (warnings %v, deny %q)", gotFire, row.WantFire, warnings, deny)
+				}
+			})
+			testNum++
+		}
 	}
 }
