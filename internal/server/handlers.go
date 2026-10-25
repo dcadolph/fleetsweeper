@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -257,8 +256,9 @@ type triggerScanResponse struct {
 }
 
 // handleTriggerScan starts a scan asynchronously under the server-scoped
-// context. The scan ID is generated synchronously and returned immediately so
-// clients can correlate the eventual record. Concurrent triggers receive 429.
+// context. The scan ID is allocated before the scan starts and returned
+// immediately, so a client can poll GET /api/scans/{id} until it resolves.
+// Concurrent triggers receive 429.
 func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 	var req triggerScanRequest
 	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
@@ -288,58 +288,31 @@ func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.scanBusy.CompareAndSwap(false, true) {
+	scanID, ok := s.startBackgroundScan(scanSourceTriggered, contexts)
+	if !ok {
 		writeError(w, http.StatusTooManyRequests, "scan in progress; retry later")
 		return
 	}
+	writeJSON(w, http.StatusAccepted, triggerScanResponse{ScanID: scanID, Status: "running"})
+}
 
-	go func(contexts []string) {
+// startBackgroundScan claims the trigger slot and runs one scan of contexts in the background
+// under the server context, tracked by s.bg so Close waits for it. It returns the ID the scan
+// will be saved under, or ok=false when another triggered scan still holds the slot.
+func (s *Server) startBackgroundScan(source string, contexts []string) (scanID string, ok bool) {
+	if !s.scanBusy.CompareAndSwap(false, true) {
+		return "", false
+	}
+	scanID = store.NewScanID()
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
 		defer s.scanBusy.Store(false)
-		s.scanMu.Lock()
-		defer s.scanMu.Unlock()
-
-		ctx := s.ctx
-		s.log.Info("triggered scan starting", zap.Int("contexts", len(contexts)))
-		started := time.Now()
-
-		clients := kube.ConnectAll(ctx, s.kubeconfigPath, contexts, s.workers)
-		if len(clients) == 0 {
-			s.scansErr.Add(1)
-			s.log.Warn("triggered scan: no clusters reachable")
-			return
-		}
-
-		results := runScanners(ctx, clients, s.registry.All(), s.workers, s.log)
-		clusterNames := make([]string, len(clients))
-		for i, c := range clients {
-			clusterNames[i] = c.Context
-		}
-
-		scanID, err := s.store.SaveScan(ctx, clusterNames, results)
-		if err != nil {
-			s.scansErr.Add(1)
-			s.recordScanCompletion(false)
-			s.log.Error("triggered scan: save failed", zap.Error(err))
-			return
-		}
-		s.scansOK.Add(1)
-		s.recordScanDuration(time.Since(started))
-		s.recordScanCompletion(true)
-		s.log.Info("triggered scan complete", zap.String("scan_id", scanID))
-		rpt := report.Build(clusterNames, results)
-		s.notifySlackForReport(ctx, rpt)
-		s.writeFleetDriftIfConfigured(rpt, scanID)
-		s.writePolicyReportIfConfigured(rpt, scanID)
-		s.dispatchWebhooksIfConfigured(ctx, rpt)
-		s.PublishEvent(EventScanComplete, map[string]any{
-			"scan_id":  scanID,
-			"clusters": len(clusterNames),
-			"score":    rpt.FleetScore.Score,
-			"grade":    rpt.FleetScore.Grade,
+		_, _, _ = s.executeScan(s.ctx, scanRequest{
+			Source: source, ScanID: scanID, Contexts: contexts, Emit: emitAll,
 		})
-	}(contexts)
-
-	writeJSON(w, http.StatusAccepted, triggerScanResponse{Status: "running"})
+	}()
+	return scanID, true
 }
 
 // resolveContexts determines which kubeconfig contexts to scan for a trigger request.

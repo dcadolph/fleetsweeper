@@ -78,6 +78,12 @@ type Store interface {
 	// the generated scan ID.
 	SaveScan(ctx context.Context, clusters []string, results map[string]map[string]scanner.Result) (string, error)
 
+	// SaveScanRecord persists a scan under rec.ID and rec.Timestamp so a caller can hand out the
+	// ID before the scan finishes, or carry an existing scan across stores. An empty ID is
+	// generated and a zero Timestamp means now. rec.Clusters lists the scanned clusters and
+	// rec.Scanners is ignored in favor of the scanners present in results. Returns the scan ID.
+	SaveScanRecord(ctx context.Context, rec ScanRecord, results map[string]map[string]scanner.Result) (string, error)
+
 	// GetScan retrieves a scan record by ID.
 	GetScan(ctx context.Context, id string) (*ScanRecord, error)
 
@@ -210,4 +216,10 @@ type Store interface {
 
 	// Close releases database resources.
 	Close() error
+}
+
+// NewScanID returns a fresh, time-sortable scan identifier in the format SaveScan generates.
+// Callers use it to name a scan before it runs, then save it with SaveScanRecord.
+func NewScanID() string {
+	return generateID()
 }

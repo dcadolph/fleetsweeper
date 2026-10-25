@@ -1,16 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/dcadolph/fleetsweeper/internal/fleetdrift"
 	"github.com/dcadolph/fleetsweeper/internal/jsonutil"
@@ -43,7 +38,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/vulnerabilities"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadcoverage"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadsec"
-	"github.com/dcadolph/fleetsweeper/internal/tracing"
+	"github.com/dcadolph/fleetsweeper/internal/server"
 )
 
 var scanCmd = &cobra.Command{
@@ -145,7 +140,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	registry := buildRegistry()
 	selected := selectScanners(registry, scannerNames)
 
-	results := runScanners(ctx, clients, selected, workers, scannerTimeout)
+	results := server.RunScanners(ctx, clients, selected, workers, scannerTimeout, logutil.UnwrapLogger(ctx))
 
 	clusterNames := make([]string, len(clients))
 	for i, c := range clients {
@@ -281,72 +276,4 @@ func selectScanners(registry *scanner.Registry, names []string) map[string]scann
 		}
 	}
 	return selected
-}
-
-// runScanners executes all selected scanners against all clients concurrently.
-// A root "fleetsweeper.scan" span wraps the fan-out and one child span per
-// scanner-cluster pair records timing and success. When no OTel exporter is
-// configured the spans drop silently.
-func runScanners(ctx context.Context, clients []*kube.Client, scanners map[string]scanner.Scanner, workers int, timeout time.Duration) map[string]map[string]scanner.Result {
-	log := logutil.UnwrapLogger(ctx)
-
-	ctx, rootSpan := tracing.Tracer().Start(ctx, "fleetsweeper.scan",
-		trace.WithAttributes(
-			attribute.Int("fleetsweeper.cluster_count", len(clients)),
-			attribute.Int("fleetsweeper.scanner_count", len(scanners)),
-		),
-	)
-	defer rootSpan.End()
-
-	var mu sync.Mutex
-	results := make(map[string]map[string]scanner.Result)
-	for _, c := range clients {
-		results[c.Context] = make(map[string]scanner.Result)
-	}
-
-	sem := make(chan struct{}, workers)
-	var wg sync.WaitGroup
-
-	for _, client := range clients {
-		for name, s := range scanners {
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				continue
-			}
-			wg.Add(1)
-			go func(c *kube.Client, scanName string, sc scanner.Scanner) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				spanCtx, span := tracing.Tracer().Start(ctx, "fleetsweeper.scanner."+scanName,
-					trace.WithAttributes(
-						attribute.String("fleetsweeper.cluster", c.Context),
-						attribute.String("fleetsweeper.scanner", scanName),
-					),
-				)
-				defer span.End()
-
-				res, err := scanner.RunWithTimeout(spanCtx, sc, c, timeout)
-				if err != nil {
-					span.RecordError(err)
-					span.SetStatus(codes.Error, "scanner failed")
-					log.Warn("scanner failed",
-						logutil.ContextField(c.Context),
-						logutil.ErrorField(err),
-					)
-					res = scanner.ErroredResult(scanName, err)
-				} else {
-					span.SetStatus(codes.Ok, "")
-				}
-
-				mu.Lock()
-				results[c.Context][scanName] = res
-				mu.Unlock()
-			}(client, name, s)
-		}
-	}
-
-	wg.Wait()
-	return results
 }

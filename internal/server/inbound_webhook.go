@@ -10,12 +10,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 
-	"github.com/dcadolph/fleetsweeper/internal/kube"
-	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 // webhookSignatureHeader is the HTTP header inbound callers must use to
@@ -58,71 +56,31 @@ func (s *Server) handleWebhookScanTrigger(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// An empty request scans every available context.
+	if len(req.Contexts) == 0 && req.Group == "" {
+		req.AllContexts = true
+	}
 	contexts, err := s.resolveContexts(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, safeMessage(err, "invalid contexts"))
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusBadRequest, safeMessage(err, "group not found"))
+			return
+		}
+		s.log.Error("inbound webhook: resolve contexts", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "resolve contexts failed")
 		return
 	}
 	if len(contexts) == 0 {
-		// Default behavior for an empty body: scan every available context.
-		contexts, err = kube.AvailableContexts(s.kubeconfigPath)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, safeMessage(err, "no contexts available"))
-			return
-		}
+		writeError(w, http.StatusBadRequest, "no contexts available")
+		return
 	}
 
-	if !s.scanBusy.CompareAndSwap(false, true) {
+	scanID, ok := s.startBackgroundScan(scanSourceInbound, contexts)
+	if !ok {
 		writeError(w, http.StatusTooManyRequests, "scan in progress; retry later")
 		return
 	}
-
-	go s.runInboundScan(contexts)
-	writeJSON(w, http.StatusAccepted, triggerScanResponse{Status: "running"})
-}
-
-// runInboundScan mirrors the goroutine path in handleTriggerScan. Lives
-// here so the inbound webhook flow does not have to duplicate scan
-// completion plumbing (acks, slack, fleetdrift, policyreport, webhooks).
-func (s *Server) runInboundScan(contexts []string) {
-	defer s.scanBusy.Store(false)
-	s.scanMu.Lock()
-	defer s.scanMu.Unlock()
-
-	ctx := s.ctx
-	started := time.Now()
-	s.log.Info("inbound webhook scan starting", zap.Int("contexts", len(contexts)))
-
-	clients := kube.ConnectAll(ctx, s.kubeconfigPath, contexts, s.workers)
-	if len(clients) == 0 {
-		s.scansErr.Add(1)
-		s.recordScanCompletion(false)
-		s.log.Warn("inbound webhook scan: no clusters reachable")
-		return
-	}
-
-	results := runScanners(ctx, clients, s.registry.All(), s.workers, s.log)
-	clusterNames := make([]string, len(clients))
-	for i, c := range clients {
-		clusterNames[i] = c.Context
-	}
-
-	scanID, err := s.store.SaveScan(ctx, clusterNames, results)
-	if err != nil {
-		s.scansErr.Add(1)
-		s.recordScanCompletion(false)
-		s.log.Error("inbound webhook scan: save failed", zap.Error(err))
-		return
-	}
-	s.scansOK.Add(1)
-	s.recordScanDuration(time.Since(started))
-	s.recordScanCompletion(true)
-	s.log.Info("inbound webhook scan complete", zap.String("scan_id", scanID))
-	rpt := report.Build(clusterNames, results)
-	s.notifySlackForReport(ctx, rpt)
-	s.writeFleetDriftIfConfigured(rpt, scanID)
-	s.writePolicyReportIfConfigured(rpt, scanID)
-	s.dispatchWebhooksIfConfigured(ctx, rpt)
+	writeJSON(w, http.StatusAccepted, triggerScanResponse{ScanID: scanID, Status: "running"})
 }
 
 // verifyWebhookSignature constant-time-compares the HMAC-SHA256 of body

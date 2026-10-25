@@ -3,15 +3,19 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 
+	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -222,5 +226,61 @@ func TestStaticIndex(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Fleetsweeper") {
 		t.Error("index missing Fleetsweeper title")
+	}
+}
+
+// TestRunScanners covers an empty client list, a scanner that fails, and a canceled context,
+// checking every pair is accounted for and failures are recorded as errored, never dropped.
+func TestRunScanners(t *testing.T) {
+	t.Parallel()
+	failing := scanner.ScannerFunc(func(context.Context, *kube.Client) (scanner.Result, error) {
+		return scanner.Result{}, errors.New("api unavailable")
+	})
+	scanners := map[string]scanner.Scanner{"node-health": pressureScanner, "broken": failing}
+	kubeconfig := writeTestKubeconfig(t, "east", "west")
+	clients := kube.ConnectAll(context.Background(), kubeconfig, []string{"east", "west"}, 2)
+	if len(clients) != 2 {
+		t.Fatalf("want 2 clients, got %d", len(clients))
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		Ctx        context.Context
+		Clients    []*kube.Client
+		WantStates map[string]map[string]scanner.State
+	}{{ // Test 0: No clients yields an empty, non-nil map.
+		Ctx: context.Background(), WantStates: map[string]map[string]scanner.State{},
+	}, { // Test 1: A failing scanner is errored and the healthy one is OK on every cluster.
+		Ctx: context.Background(), Clients: clients,
+		WantStates: map[string]map[string]scanner.State{
+			"east": {"node-health": scanner.StateOK, "broken": scanner.StateErrored},
+			"west": {"node-health": scanner.StateOK, "broken": scanner.StateErrored},
+		},
+	}, { // Test 2: A canceled context records every pair as errored instead of omitting it.
+		Ctx: canceled, Clients: clients,
+		WantStates: map[string]map[string]scanner.State{
+			"east": {"node-health": scanner.StateErrored, "broken": scanner.StateErrored},
+			"west": {"node-health": scanner.StateErrored, "broken": scanner.StateErrored},
+		},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := RunScanners(test.Ctx, test.Clients, scanners, 2, time.Second, zap.NewNop())
+			if got == nil {
+				t.Fatal("RunScanners returned nil")
+			}
+			states := make(map[string]map[string]scanner.State, len(got))
+			for cluster, byScanner := range got {
+				states[cluster] = make(map[string]scanner.State, len(byScanner))
+				for name, res := range byScanner {
+					states[cluster][name] = res.State
+				}
+			}
+			if diff := cmp.Diff(test.WantStates, states); diff != "" {
+				t.Errorf("states mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
