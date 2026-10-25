@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -493,4 +497,229 @@ func TestSafeMessage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestQueryLimit covers defaulting, rejection of non-positive values, and the ceiling.
+func TestQueryLimit(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Query      string
+		WantResult int
+	}{{ // Test 0: Absent uses the default.
+		Query: "", WantResult: 10,
+	}, { // Test 1: A value inside the range is used as is.
+		Query: "n=42", WantResult: 42,
+	}, { // Test 2: The ceiling itself is allowed.
+		Query: "n=100", WantResult: 100,
+	}, { // Test 3: One over the ceiling is capped.
+		Query: "n=101", WantResult: 100,
+	}, { // Test 4: A huge value is capped.
+		Query: "n=99999999", WantResult: 100,
+	}, { // Test 5: Zero uses the default.
+		Query: "n=0", WantResult: 10,
+	}, { // Test 6: A negative value uses the default.
+		Query: "n=-5", WantResult: 10,
+	}, { // Test 7: A non-integer uses the default.
+		Query: "n=ten", WantResult: 10,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/?"+test.Query, nil)
+			if got := queryLimit(req, "n", 10, 100); got != test.WantResult {
+				t.Errorf("want %d, got %d", test.WantResult, got)
+			}
+		})
+	}
+}
+
+// TestScanWindowCaps verifies /scans?limit= and the trend endpoints' ?scans= never load more
+// than maxScanWindow scans, however large the request.
+func TestScanWindowCaps(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	ctx := context.Background()
+	for i := range maxScanWindow + 5 {
+		c := fmt.Sprintf("c-%d", i)
+		if _, err := ss.SaveScan(ctx, []string{c}, map[string]map[string]scanner.Result{
+			c: {"version": {Scanner: "version", Data: map[string]any{"minor": 31}}},
+		}); err != nil {
+			t.Fatalf("seed scan %d: %v", i, err)
+		}
+	}
+	counter := &countingStore{Store: ss}
+	srv.store = counter
+
+	tests := []struct {
+		Path      string
+		WantLimit int
+	}{{ // Test 0: List scans with a huge limit.
+		Path: "/api/scans?limit=100000", WantLimit: maxScanWindow,
+	}, { // Test 1: List scans with no limit uses the default.
+		Path: "/api/scans", WantLimit: 50,
+	}, { // Test 2: Fleet trends with a huge window.
+		Path: "/api/trends?scans=100000", WantLimit: maxScanWindow,
+	}, { // Test 3: Cluster trends with a huge window.
+		Path: "/api/trends/c-1?scans=100000", WantLimit: maxScanWindow,
+	}}
+	for testNum, test := range tests {
+		req := httptest.NewRequest(http.MethodGet, test.Path, nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("test %d: want 200, got %d body=%.200s", testNum, w.Code, w.Body.String())
+		}
+		if got := counter.lastLimit.Load(); int(got) != test.WantLimit {
+			t.Errorf("test %d: want ListScans limit %d, got %d", testNum, test.WantLimit, got)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scans?limit=100000", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	var scans []store.ScanRecord
+	if err := json.Unmarshal(w.Body.Bytes(), &scans); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(scans) != maxScanWindow {
+		t.Errorf("want %d scans returned, got %d", maxScanWindow, len(scans))
+	}
+}
+
+// countingStore records the limit of the most recent ListScans call.
+type countingStore struct {
+	store.Store
+	// lastLimit is the limit passed to the most recent ListScans call.
+	lastLimit atomic.Int64
+}
+
+// ListScans records limit and delegates to the wrapped store.
+func (c *countingStore) ListScans(ctx context.Context, limit int) ([]store.ScanRecord, error) {
+	c.lastLimit.Store(int64(limit))
+	return c.Store.ListScans(ctx, limit)
+}
+
+// TestStoreErrorsAre500 verifies a failing store yields a logged 500 rather than a 404, an empty
+// list, or demo data, while a genuinely missing record still yields 404.
+func TestStoreErrorsAre500(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Method string
+		Path   string
+		Body   string
+	}{{ // Test 0: Get scan.
+		Method: http.MethodGet, Path: "/api/scans/s-1",
+	}, { // Test 1: Get scan report.
+		Method: http.MethodGet, Path: "/api/scans/s-1/report",
+	}, { // Test 2: List clusters.
+		Method: http.MethodGet, Path: "/api/clusters",
+	}, { // Test 3: Cluster detail.
+		Method: http.MethodGet, Path: "/api/clusters/east/detail",
+	}, { // Test 4: Fleet trends.
+		Method: http.MethodGet, Path: "/api/trends",
+	}, { // Test 5: Cluster trends.
+		Method: http.MethodGet, Path: "/api/trends/east",
+	}, { // Test 6: Outliers.
+		Method: http.MethodGet, Path: "/api/outliers",
+	}, { // Test 7: Cohorts.
+		Method: http.MethodGet, Path: "/api/cohorts",
+	}, { // Test 8: Capacity.
+		Method: http.MethodGet, Path: "/api/capacity",
+	}, { // Test 9: Geo.
+		Method: http.MethodGet, Path: "/api/geo",
+	}, { // Test 10: Delete group.
+		Method: http.MethodDelete, Path: "/api/groups/prod",
+	}, { // Test 11: Ack an alert.
+		Method: http.MethodPost, Path: "/api/alerts/fp-1/ack", Body: `{"reason":"known"}`,
+	}, { // Test 12: Trigger a scan of a group.
+		Method: http.MethodPost, Path: "/api/scans", Body: `{"group":"prod"}`,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv, _ := testServer(t)
+			srv.demo = true
+			core, logs := observer.New(zap.ErrorLevel)
+			srv.log = zap.New(core)
+			srv.store = brokenStore{Store: srv.store}
+
+			req := httptest.NewRequest(test.Method, test.Path, strings.NewReader(test.Body))
+			w := httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, req)
+			if w.Code != http.StatusInternalServerError {
+				t.Errorf("want 500, got %d body=%.200s", w.Code, w.Body.String())
+			}
+			if logs.Len() == 0 {
+				t.Error("want an error log line, got none")
+			}
+		})
+	}
+}
+
+// TestMissingRecordsAre404 verifies not-found store results still map to 404.
+func TestMissingRecordsAre404(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Method string
+		Path   string
+	}{{ // Test 0: Unknown scan.
+		Method: http.MethodGet, Path: "/api/scans/nope",
+	}, { // Test 1: Unknown scan report.
+		Method: http.MethodGet, Path: "/api/scans/nope/report",
+	}, { // Test 2: Unknown group.
+		Method: http.MethodDelete, Path: "/api/groups/nope",
+	}, { // Test 3: Unknown alert.
+		Method: http.MethodPost, Path: "/api/alerts/nope/ack",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv, _ := testServer(t)
+			req := httptest.NewRequest(test.Method, test.Path, nil)
+			w := httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, req)
+			if w.Code != http.StatusNotFound {
+				t.Errorf("want 404, got %d body=%s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// errBrokenStore is the failure every brokenStore read returns.
+var errBrokenStore = errors.New("disk on fire")
+
+// brokenStore fails every read and group delete the handlers under test make, while audit
+// writes still succeed so the request reaches its handler.
+type brokenStore struct {
+	store.Store
+}
+
+// GetScan fails.
+func (brokenStore) GetScan(context.Context, string) (*store.ScanRecord, error) {
+	return nil, errBrokenStore
+}
+
+// ListScans fails.
+func (brokenStore) ListScans(context.Context, int) ([]store.ScanRecord, error) {
+	return nil, errBrokenStore
+}
+
+// ListClusters fails.
+func (brokenStore) ListClusters(context.Context) ([]store.ClusterRecord, error) {
+	return nil, errBrokenStore
+}
+
+// GetGroup fails.
+func (brokenStore) GetGroup(context.Context, string) (*store.GroupRecord, error) {
+	return nil, errBrokenStore
+}
+
+// DeleteGroup fails.
+func (brokenStore) DeleteGroup(context.Context, string) error {
+	return errBrokenStore
+}
+
+// GetAlert fails.
+func (brokenStore) GetAlert(context.Context, string) (*store.AlertRecord, error) {
+	return nil, errBrokenStore
 }

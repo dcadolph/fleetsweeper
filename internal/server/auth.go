@@ -34,6 +34,12 @@ func (a *Actor) HasWildcardScope() bool {
 	return slices.Contains(a.ClusterScope, store.ScopeWildcard)
 }
 
+// CanManageGroups reports whether the actor may create or delete groups. A group widens every
+// key scoped to it, so only an admin or an actor that already reaches every cluster may define one.
+func (a *Actor) CanManageGroups() bool {
+	return a.Role == store.RoleAdmin || a.HasWildcardScope()
+}
+
 // AllowsCluster reports whether the actor may act on the given cluster.
 // groupLookup, when non-nil, resolves "group:<name>" scope entries to their
 // member cluster names so a group-scoped key authorises any current member.
@@ -276,11 +282,19 @@ func pathIsAdmin(path string) bool {
 
 // groupLookup returns a function that resolves a group name to its current
 // member clusters by consulting the store. The closure is intended for use
-// with Actor.AllowsCluster and similar helpers.
+// with Actor.AllowsCluster and similar helpers. A failed lookup resolves to no
+// members, so scope checks deny rather than allow, and is logged unless the
+// group simply does not exist.
 func (s *Server) groupLookup(ctx context.Context) func(string) []string {
 	return func(name string) []string {
 		g, err := s.store.GetGroup(ctx, name)
-		if err != nil || g == nil {
+		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				s.log.Error("auth: group lookup", zap.String("group", name), zap.Error(err))
+			}
+			return nil
+		}
+		if g == nil {
 			return nil
 		}
 		return g.Clusters

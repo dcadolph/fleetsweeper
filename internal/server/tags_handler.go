@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"go.uber.org/zap"
@@ -29,8 +28,7 @@ func (s *Server) handleSetClusterTag(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var req tagRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 		return
 	}
 	if err := s.store.SetClusterTag(r.Context(), cluster, key, req.Value); err != nil {
@@ -78,6 +76,7 @@ func (s *Server) handleListClusterTags(w http.ResponseWriter, r *http.Request) {
 	}
 	tags, err := s.store.GetClusterTags(r.Context(), cluster)
 	if err != nil {
+		s.log.Error("tags: get", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "get tags failed")
 		return
 	}
@@ -90,6 +89,7 @@ func (s *Server) handleListClusterTags(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListAllTags(w http.ResponseWriter, r *http.Request) {
 	tags, err := s.store.ListClusterTags(r.Context())
 	if err != nil {
+		s.log.Error("tags: list", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "list tags failed")
 		return
 	}

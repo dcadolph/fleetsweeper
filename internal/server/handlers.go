@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -72,6 +73,79 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, errorResponse{Error: msg, Code: status})
 }
 
+// maxJSONBody is the largest JSON request body an API handler accepts.
+const maxJSONBody = 1 << 20
+
+// maxScanWindow caps how many scans one list or trend request may load.
+const maxScanWindow = 100
+
+// decodeJSON reads exactly one JSON value from the request body into v. It rejects bodies over
+// maxBytes with 413, and empty bodies, unknown fields, malformed JSON, and trailing data with 400.
+// On failure the response is already written, so the caller only returns.
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any, maxBytes int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
+	dec.DisallowUnknownFields()
+	err := dec.Decode(v)
+	if err == nil {
+		if extra := dec.Decode(&struct{}{}); !errors.Is(extra, io.EOF) {
+			err = errors.Join(fmt.Errorf("%w: data after the JSON value", ErrBadRequest), extra)
+		}
+	}
+	if err == nil {
+		return nil
+	}
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("request body exceeds %d bytes", tooLarge.Limit))
+	case errors.Is(err, io.EOF):
+		writeError(w, http.StatusBadRequest, "request body required")
+	case strings.HasPrefix(err.Error(), "json: unknown field "):
+		writeError(w, http.StatusBadRequest,
+			"invalid JSON body: unknown field "+strings.TrimPrefix(err.Error(), "json: unknown field "))
+	default:
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	}
+	return err
+}
+
+// queryLimit returns the positive integer query parameter key, def when it is absent or not a
+// positive integer, and ceiling when it is larger than ceiling.
+func queryLimit(r *http.Request, key string, def, ceiling int) int {
+	n, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil || n <= 0 {
+		return def
+	}
+	return min(n, ceiling)
+}
+
+// writeStoreError answers a failed store call: 404 with notFound when the record does not
+// exist, otherwise a logged 500 naming the operation.
+func (s *Server) writeStoreError(w http.ResponseWriter, err error, op, notFound string) {
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, notFound)
+		return
+	}
+	s.log.Error(op, zap.Error(err))
+	writeError(w, http.StatusInternalServerError, op+" failed")
+}
+
+// latestScan returns the newest stored scan. On a store error it writes a 500 and returns
+// ok=false. When no scan exists it returns a nil record with ok=true so the caller can choose
+// its demo fallback or 404.
+func (s *Server) latestScan(w http.ResponseWriter, r *http.Request, op string) (*store.ScanRecord, bool) {
+	scans, err := s.store.ListScans(r.Context(), 1)
+	if err != nil {
+		s.writeStoreError(w, err, op, "no scans available")
+		return nil, false
+	}
+	if len(scans) == 0 {
+		return nil, true
+	}
+	return &scans[0], true
+}
+
 // safeMessage strips potentially sensitive substrings (filesystem paths, home
 // directories) from an error message before returning it to clients.
 func safeMessage(err error, fallback string) string {
@@ -87,13 +161,7 @@ func safeMessage(err error, fallback string) string {
 
 // handleListScans returns recent scans.
 func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
-	limit := 50
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-
+	limit := queryLimit(r, "limit", 50, maxScanWindow)
 	scans, err := s.store.ListScans(r.Context(), limit)
 	if err != nil {
 		s.log.Error("list scans", zap.Error(err))
@@ -117,8 +185,7 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	}
 	scan, err := s.store.GetScan(r.Context(), id)
 	if err != nil {
-		s.log.Info("get scan", zap.String("id", id), zap.Error(err))
-		writeError(w, http.StatusNotFound, "scan not found")
+		s.writeStoreError(w, err, "get scan", "scan not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, scan)
@@ -136,7 +203,7 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 
 	scan, err := s.store.GetScan(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "scan not found")
+		s.writeStoreError(w, err, "get scan", "scan not found")
 		return
 	}
 
@@ -194,14 +261,18 @@ type triggerScanResponse struct {
 // clients can correlate the eventual record. Concurrent triggers receive 429.
 func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 	var req triggerScanRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 		return
 	}
 
 	contexts, err := s.resolveContexts(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, safeMessage(err, "invalid contexts"))
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusBadRequest, safeMessage(err, "group not found"))
+			return
+		}
+		s.log.Error("trigger scan: resolve contexts", zap.Error(err))
+		writeError(w, http.StatusInternalServerError, "resolve contexts failed")
 		return
 	}
 
@@ -307,12 +378,12 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 	}
 	tags, err := s.store.ListClusterTags(r.Context())
 	if err != nil {
-		s.log.Warn("list cluster tags", zap.Error(err))
-	} else {
-		for i := range clusters {
-			if t, ok := tags[clusters[i].Name]; ok {
-				clusters[i].Tags = t
-			}
+		s.writeStoreError(w, err, "list cluster tags", "cluster tags not found")
+		return
+	}
+	for i := range clusters {
+		if t, ok := tags[clusters[i].Name]; ok {
+			clusters[i].Tags = t
 		}
 	}
 	writeJSON(w, http.StatusOK, clusters)
@@ -324,8 +395,11 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 	cluster := r.PathValue("name")
 	ctx := r.Context()
 
-	scans, err := s.store.ListScans(ctx, 1)
-	if err != nil || len(scans) == 0 {
+	latest, ok := s.latestScan(w, r, "cluster detail: list scans")
+	if !ok {
+		return
+	}
+	if latest == nil {
 		if s.demo {
 			s.writeDemoClusterDetail(w, cluster)
 			return
@@ -334,7 +408,7 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	results, err := s.store.GetScanResults(ctx, scans[0].ID)
+	results, err := s.store.GetScanResults(ctx, latest.ID)
 	if err != nil {
 		s.log.Error("cluster detail: get results", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "get scan results failed")
@@ -347,7 +421,7 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	rpt := report.Build(scans[0].Clusters, results)
+	rpt := report.Build(latest.Clusters, results)
 
 	var clusterHealth *report.ClusterHealth
 	for i := range rpt.ClusterHealths {
@@ -371,8 +445,8 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"cluster":      cluster,
-		"scan_id":      scans[0].ID,
-		"scan_time":    scans[0].Timestamp,
+		"scan_id":      latest.ID,
+		"scan_time":    latest.Timestamp,
 		"health":       clusterHealth,
 		"findings":     clusterFindings,
 		"scanner_data": scannerData,
@@ -401,11 +475,15 @@ type createGroupRequest struct {
 	Clusters []string `json:"clusters"`
 }
 
-// handleCreateGroup creates a new group.
+// handleCreateGroup creates or replaces a group. Only an actor that can manage groups may call
+// it, because a group-scoped key gains whatever clusters its group lists.
 func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
+	if !actorFromContext(r.Context()).CanManageGroups() {
+		writeError(w, http.StatusForbidden, "admin role or wildcard scope required")
+		return
+	}
 	var req createGroupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 		return
 	}
 	if req.Name == "" {
@@ -421,11 +499,16 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
 }
 
-// handleDeleteGroup deletes a group.
+// handleDeleteGroup deletes a group. It carries the same scope requirement as
+// handleCreateGroup, since deleting a group revokes every key scoped to it.
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	if !actorFromContext(r.Context()).CanManageGroups() {
+		writeError(w, http.StatusForbidden, "admin role or wildcard scope required")
+		return
+	}
 	name := r.PathValue("name")
 	if err := s.store.DeleteGroup(r.Context(), name); err != nil {
-		writeError(w, http.StatusNotFound, "group not found")
+		s.writeStoreError(w, err, "delete group", "group not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -433,13 +516,7 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTrends returns fleet-wide trend analysis from the last N scans.
 func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
-	limit := 10
-	if v := r.URL.Query().Get("scans"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-
+	limit := queryLimit(r, "scans", 10, maxScanWindow)
 	scans, err := s.store.ListScans(r.Context(), limit)
 	if err != nil {
 		s.log.Error("list scans for trends", zap.Error(err))
@@ -466,8 +543,8 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 		scanMetas[i] = report.ScanMeta{ID: scan.ID, Timestamp: scan.Timestamp}
 		raw, err := s.store.GetScanResults(r.Context(), scan.ID)
 		if err != nil {
-			s.log.Warn("trends: skipping scan", zap.String("id", scan.ID), zap.Error(err))
-			continue
+			s.writeStoreError(w, err, "trends: get scan results", "scan results not found")
+			return
 		}
 		clusterData := make(map[string]map[string]any)
 		for cluster, scanners := range raw {
@@ -499,13 +576,7 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 // handleGetClusterTrends returns trends for a specific cluster.
 func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) {
 	cluster := r.PathValue("cluster")
-	limit := 10
-	if v := r.URL.Query().Get("scans"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			limit = n
-		}
-	}
-
+	limit := queryLimit(r, "scans", 10, maxScanWindow)
 	scans, err := s.store.ListScans(r.Context(), limit)
 	if err != nil {
 		s.log.Error("list scans for cluster trends", zap.Error(err))
@@ -520,8 +591,8 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 		scanMetas[i] = report.ScanMeta{ID: scan.ID, Timestamp: scan.Timestamp}
 		raw, err := s.store.GetScanResults(r.Context(), scan.ID)
 		if err != nil {
-			s.log.Warn("cluster trends: skipping scan", zap.String("id", scan.ID), zap.Error(err))
-			continue
+			s.writeStoreError(w, err, "cluster trends: get scan results", "scan results not found")
+			return
 		}
 		if clusterScanners, ok := raw[cluster]; ok {
 			scannerData := make(map[string]map[string]any)
@@ -554,8 +625,11 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 
 // handleGetOutliers runs outlier detection on the most recent scan.
 func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
-	scans, err := s.store.ListScans(r.Context(), 1)
-	if err != nil || len(scans) == 0 {
+	latest, ok := s.latestScan(w, r, "outliers: list scans")
+	if !ok {
+		return
+	}
+	if latest == nil {
 		if s.demo {
 			rpt := demoReport()
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -569,7 +643,6 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	latest := scans[0]
 	results, err := s.store.GetScanResults(r.Context(), latest.ID)
 	if err != nil {
 		s.log.Error("outliers: get results", zap.Error(err))
@@ -598,8 +671,11 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 // the outliers that show up within its own baseline, which is the signal that
 // the fleet-level view washes out.
 func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
-	scans, err := s.store.ListScans(r.Context(), 1)
-	if err != nil || len(scans) == 0 {
+	latest, ok := s.latestScan(w, r, "cohorts: list scans")
+	if !ok {
+		return
+	}
+	if latest == nil {
 		if s.demo {
 			rpt := demoReport()
 			writeJSON(w, http.StatusOK, map[string]any{
@@ -612,7 +688,6 @@ func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	latest := scans[0]
 	results, err := s.store.GetScanResults(r.Context(), latest.ID)
 	if err != nil {
 		s.log.Error("cohorts: get results", zap.Error(err))
@@ -620,7 +695,11 @@ func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tags := projectCohortTags(r.Context(), s, cohortTagKey)
+	tags, err := projectCohortTags(r.Context(), s, cohortTagKey)
+	if err != nil {
+		s.writeStoreError(w, err, "cohorts: list tags", "cluster tags not found")
+		return
+	}
 
 	threshold := 3.5
 	if v := r.URL.Query().Get("threshold"); v != "" {
@@ -643,13 +722,12 @@ func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
 const cohortTagKey = "cohort"
 
 // projectCohortTags pulls every cluster's value for the given tag key from the
-// store. Errors degrade to nil so cohort detection falls back to fully
-// automatic assignment instead of failing the request.
-func projectCohortTags(ctx context.Context, s *Server, key string) map[string]string {
+// store. A store error is returned rather than hidden, because silently falling
+// back to automatic cohorts would answer with a different partition.
+func projectCohortTags(ctx context.Context, s *Server, key string) (map[string]string, error) {
 	all, err := s.store.ListClusterTags(ctx)
 	if err != nil {
-		s.log.Warn("cohorts: list tags", zap.Error(err))
-		return nil
+		return nil, err
 	}
 	out := make(map[string]string, len(all))
 	for cluster, kv := range all {
@@ -657,13 +735,16 @@ func projectCohortTags(ctx context.Context, s *Server, key string) map[string]st
 			out[cluster] = v
 		}
 	}
-	return out
+	return out, nil
 }
 
 // handleGetCapacity returns capacity analysis with correlated signals.
 func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
-	scans, err := s.store.ListScans(r.Context(), 1)
-	if err != nil || len(scans) == 0 {
+	latest, ok := s.latestScan(w, r, "capacity: list scans")
+	if !ok {
+		return
+	}
+	if latest == nil {
 		if s.demo {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"scan_id":  demoScanID,
@@ -675,22 +756,26 @@ func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.store.GetScanResults(r.Context(), scans[0].ID)
+	results, err := s.store.GetScanResults(r.Context(), latest.ID)
 	if err != nil {
 		s.log.Error("capacity: get results", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "get scan results failed")
 		return
 	}
 
-	groups, _ := s.store.ListGroups(r.Context())
+	groups, err := s.store.ListGroups(r.Context())
+	if err != nil {
+		s.writeStoreError(w, err, "capacity: list groups", "groups not found")
+		return
+	}
 	groupMap := make(map[string][]string, len(groups))
 	for _, g := range groups {
 		groupMap[g.Name] = g.Clusters
 	}
 
-	rpt := report.Build(scans[0].Clusters, results, report.BuildOptions{Groups: groupMap})
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Groups: groupMap})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"scan_id":  scans[0].ID,
+		"scan_id":  latest.ID,
 		"capacity": rpt.Capacity,
 	})
 }
@@ -728,7 +813,11 @@ func (s *Server) handleListContexts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []contextInfo{})
 		return
 	}
-	known, _ := s.store.ListClusters(r.Context())
+	known, err := s.store.ListClusters(r.Context())
+	if err != nil {
+		s.writeStoreError(w, err, "list contexts: list clusters", "clusters not found")
+		return
+	}
 	knownSet := make(map[string]struct{}, len(known))
 	for _, c := range known {
 		knownSet[c.Name] = struct{}{}
@@ -740,11 +829,3 @@ func (s *Server) handleListContexts(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
-
-// errFault is a sentinel error returned by handlers that have already
-// logged the underlying cause. Kept for future use by callers that need
-// to differentiate transport errors from policy errors. Not currently
-// emitted directly.
-var errFault = errors.New("internal fault")
-
-var _ = errFault

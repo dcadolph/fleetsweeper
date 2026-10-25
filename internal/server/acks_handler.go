@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -50,8 +49,7 @@ func (s *Server) handleCreateAck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req ackRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 		return
 	}
 	if req.Cluster != "" && req.Cluster != "fleet" {
@@ -111,7 +109,7 @@ func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	alert, err := s.store.GetAlert(r.Context(), fp)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "alert not found: "+err.Error())
+		s.writeStoreError(w, err, "acks: get alert", "alert not found")
 		return
 	}
 	if alert.Cluster != "" {
@@ -121,9 +119,8 @@ func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var req alertAckRequest
-	if r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if r.ContentLength != 0 {
+		if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 			return
 		}
 	}

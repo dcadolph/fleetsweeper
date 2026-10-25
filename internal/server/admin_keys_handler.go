@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -37,8 +36,7 @@ type createAPIKeyResponse struct {
 // handleAdminCreateKey mints a new API key under the calling admin's authority.
 func (s *Server) handleAdminCreateKey(w http.ResponseWriter, r *http.Request) {
 	var req createAPIKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 		return
 	}
 	if req.Name == "" {
