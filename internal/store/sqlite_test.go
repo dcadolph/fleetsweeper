@@ -400,3 +400,57 @@ func TestMigrateStateColumnsOnExistingRows(t *testing.T) {
 		t.Errorf("upgraded row mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// checkSaveScanRecord verifies a store saves a scan under a caller-chosen ID and timestamp,
+// generates both when unset, and refuses a second scan with the same ID.
+func checkSaveScanRecord(t *testing.T, st Store) {
+	t.Helper()
+	ctx := context.Background()
+	results := map[string]map[string]scanner.Result{
+		"east": {"version": {Scanner: "version", Data: map[string]any{"minor": 31}}},
+	}
+	at := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	id := NewScanID()
+
+	got, err := st.SaveScanRecord(ctx, ScanRecord{ID: id, Timestamp: at, Clusters: []string{"east"}}, results)
+	if err != nil {
+		t.Fatalf("save with id: %v", err)
+	}
+	if got != id {
+		t.Errorf("want returned id %q, got %q", id, got)
+	}
+	rec, err := st.GetScan(ctx, id)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+	want := ScanRecord{ID: id, Timestamp: at, Clusters: []string{"east"}, Scanners: []string{"version"}}
+	if diff := cmp.Diff(want, *rec); diff != "" {
+		t.Errorf("record mismatch (-want +got):\n%s", diff)
+	}
+
+	if _, err := st.SaveScanRecord(ctx, ScanRecord{ID: id, Clusters: []string{"east"}}, results); err == nil {
+		t.Error("want an error saving a second scan under the same id")
+	}
+
+	before := time.Now().UTC().Truncate(time.Second)
+	gen, err := st.SaveScanRecord(ctx, ScanRecord{Clusters: []string{"east"}}, results)
+	if err != nil {
+		t.Fatalf("save without id: %v", err)
+	}
+	if gen == "" || gen == id {
+		t.Errorf("want a fresh generated id, got %q", gen)
+	}
+	rec, err = st.GetScan(ctx, gen)
+	if err != nil {
+		t.Fatalf("get generated scan: %v", err)
+	}
+	if rec.Timestamp.Before(before) {
+		t.Errorf("zero timestamp should mean now: got %v, want at or after %v", rec.Timestamp, before)
+	}
+}
+
+// TestSaveScanRecord runs the SaveScanRecord contract against SQLite.
+func TestSaveScanRecord(t *testing.T) {
+	t.Parallel()
+	checkSaveScanRecord(t, testStore(t))
+}

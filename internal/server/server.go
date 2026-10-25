@@ -13,16 +13,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"github.com/dcadolph/fleetsweeper/internal/kube"
-	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
-	"github.com/dcadolph/fleetsweeper/internal/tracing"
 )
 
 //go:embed static
@@ -66,6 +60,8 @@ type Server struct {
 
 	// scanMu serializes scan execution; only one scan may run at a time.
 	scanMu sync.Mutex
+	// dispatchSem bounds concurrent Slack and webhook deliveries to dispatchWorkers.
+	dispatchSem chan struct{}
 	// scanBusy is set while a scan is in flight; used to short-circuit trigger
 	// requests with a 429 instead of unbounded queueing.
 	scanBusy atomic.Bool
@@ -242,6 +238,7 @@ func New(cfg Config) *Server {
 		costCSVPath:           cfg.CostCSVPath,
 		trustedProxyHeader:    cfg.TrustedProxyHeader,
 		keyTouches:            map[string]time.Time{},
+		dispatchSem:           make(chan struct{}, dispatchWorkers),
 	}
 
 	s.setupWebhooks(cfg.WebhookConfigPath)
@@ -477,112 +474,9 @@ func (s *Server) StartScheduler(_ context.Context, interval time.Duration, conte
 	}
 }
 
-// runScheduledScan executes a full scan and stores the results under the
-// server-scoped context.
+// runScheduledScan executes one scheduled scan of every registered scanner.
 func (s *Server) runScheduledScan(ctx context.Context, contexts []string) {
-	s.scanMu.Lock()
-	defer s.scanMu.Unlock()
-
-	s.log.Info("scheduled scan starting", zap.Int("contexts", len(contexts)))
-	started := time.Now()
-
-	clients := kube.ConnectAll(ctx, s.kubeconfigPath, contexts, s.workers)
-	if len(clients) == 0 {
-		s.log.Warn("scheduled scan: no clusters reachable")
-		return
-	}
-
-	results := runScanners(ctx, clients, s.registry.All(), s.workers, s.log)
-
-	clusterNames := make([]string, len(clients))
-	for i, c := range clients {
-		clusterNames[i] = c.Context
-	}
-
-	scanID, err := s.store.SaveScan(ctx, clusterNames, results)
-	if err != nil {
-		s.scansErr.Add(1)
-		s.recordScanCompletion(false)
-		s.log.Error("scheduled scan: save failed", zap.Error(err))
-		return
-	}
-	s.scansOK.Add(1)
-	s.recordScanDuration(time.Since(started))
-	s.recordScanCompletion(true)
-	s.log.Info("scheduled scan complete", zap.String("scan_id", scanID))
-	rpt := report.Build(clusterNames, results)
-	s.notifySlackForReport(ctx, rpt)
-	s.writeFleetDriftIfConfigured(rpt, scanID)
-	s.writePolicyReportIfConfigured(rpt, scanID)
-	s.dispatchWebhooksIfConfigured(ctx, rpt)
-	s.PublishEvent(EventScanComplete, map[string]any{
-		"scan_id":  scanID,
-		"clusters": len(clusterNames),
-		"score":    rpt.FleetScore.Score,
-		"grade":    rpt.FleetScore.Grade,
-	})
-}
-
-// runScanners executes all scanners against all clients concurrently. Each
-// scanner-cluster pair gets a child span under the caller's parent so OTel
-// traces show the per-scanner fan-out, including which scanners failed.
-func runScanners(ctx context.Context, clients []*kube.Client, scanners map[string]scanner.Scanner, workers int, log *zap.Logger) map[string]map[string]scanner.Result {
-	ctx, rootSpan := tracing.Tracer().Start(ctx, "fleetsweeper.scan",
-		trace.WithAttributes(
-			attribute.Int("fleetsweeper.cluster_count", len(clients)),
-			attribute.Int("fleetsweeper.scanner_count", len(scanners)),
-		),
-	)
-	defer rootSpan.End()
-
-	var mu sync.Mutex
-	results := make(map[string]map[string]scanner.Result)
-	for _, c := range clients {
-		results[c.Context] = make(map[string]scanner.Result)
-	}
-
-	sem := make(chan struct{}, workers)
-	var wg sync.WaitGroup
-
-	for _, client := range clients {
-		for name, sc := range scanners {
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				continue
-			}
-			wg.Add(1)
-			go func(c *kube.Client, scanName string, s scanner.Scanner) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				spanCtx, span := tracing.Tracer().Start(ctx, "fleetsweeper.scanner."+scanName,
-					trace.WithAttributes(
-						attribute.String("fleetsweeper.cluster", c.Context),
-						attribute.String("fleetsweeper.scanner", scanName),
-					),
-				)
-				defer span.End()
-
-				res, err := scanner.RunWithTimeout(spanCtx, s, c, scanner.DefaultScanTimeout)
-				if err != nil {
-					span.RecordError(err)
-					span.SetStatus(codes.Error, "scanner failed")
-					log.Warn("scanner failed", zap.String("context", c.Context), zap.Error(err))
-					res = scanner.ErroredResult(scanName, err)
-				} else {
-					span.SetStatus(codes.Ok, "")
-				}
-
-				mu.Lock()
-				results[c.Context][scanName] = res
-				mu.Unlock()
-			}(client, name, sc)
-		}
-	}
-
-	wg.Wait()
-	return results
+	_, _, _ = s.executeScan(ctx, scanRequest{Source: scanSourceScheduled, Contexts: contexts, Emit: emitAll})
 }
 
 // handleMetrics emits the full Prometheus exposition. The implementation

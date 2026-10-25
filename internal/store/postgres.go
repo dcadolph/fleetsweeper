@@ -187,10 +187,23 @@ func (p *Postgres) DeleteLocation(ctx context.Context, cluster string) error {
 	return nil
 }
 
-// SaveScan persists a complete scan with all per-cluster results.
+// SaveScan persists a complete scan with all per-cluster results under a new ID.
 func (p *Postgres) SaveScan(ctx context.Context, clusters []string, results map[string]map[string]scanner.Result) (string, error) {
-	id := generateID()
-	now := time.Now().UTC().Format(time.RFC3339)
+	return p.SaveScanRecord(ctx, ScanRecord{Clusters: clusters}, results)
+}
+
+// SaveScanRecord persists a scan under rec.ID and rec.Timestamp, generating whichever is unset.
+func (p *Postgres) SaveScanRecord(ctx context.Context, rec ScanRecord, results map[string]map[string]scanner.Result) (string, error) {
+	id := rec.ID
+	if id == "" {
+		id = generateID()
+	}
+	ts := rec.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	now := ts.UTC().Format(time.RFC3339)
+	clusters := rec.Clusters
 
 	scannerNames := collectScannerNames(results)
 	clustersJSON, _ := json.Marshal(clusters)

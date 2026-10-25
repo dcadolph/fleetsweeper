@@ -291,3 +291,9 @@ func TestRebindParameters(t *testing.T) {
 		})
 	}
 }
+
+// TestPostgresSaveScanRecord runs the SaveScanRecord contract against Postgres.
+func TestPostgresSaveScanRecord(t *testing.T) {
+	t.Parallel()
+	checkSaveScanRecord(t, newTestPostgres(t))
+}
