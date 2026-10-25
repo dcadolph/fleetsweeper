@@ -30,6 +30,10 @@ to avoid noisy false positives.
   a 403 with a concrete reason. Use only after you have observed the
   advisory-mode warnings for a release cycle.
 
+Any mode value other than `enforce` behaves as advisory, and a malformed or
+missing AdmissionReview is allowed with a warning in every mode, enforce
+included.
+
 ## Rollout: warn first, enforce on purpose
 
 Enforcement is designed as the last step of a deliberate workflow, not
