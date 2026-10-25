@@ -104,6 +104,18 @@ func writeProm(w io.Writer, rpt *report.Report, scanID string, now time.Time) er
 	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score gauge")
 	fmt.Fprintf(w, "fleetsweeper_fleet_score{scan_id=%q} %d\n", scanID, rpt.FleetScore.Score)
 
+	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score_sample_clusters Clusters that contributed scanner data to the Fleet Score.")
+	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score_sample_clusters gauge")
+	fmt.Fprintf(w, "fleetsweeper_fleet_score_sample_clusters{scan_id=%q} %d\n", scanID, rpt.FleetScore.SampleSize)
+
+	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score_dimensions Scan dimensions that contributed data to the Fleet Score.")
+	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score_dimensions gauge")
+	fmt.Fprintf(w, "fleetsweeper_fleet_score_dimensions{scan_id=%q} %d\n", scanID, rpt.FleetScore.Dimensions)
+
+	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score_excluded_clusters Clusters excluded from the Fleet Score for insufficient data.")
+	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score_excluded_clusters gauge")
+	fmt.Fprintf(w, "fleetsweeper_fleet_score_excluded_clusters{scan_id=%q} %d\n", scanID, rpt.FleetScore.ExcludedClusters)
+
 	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score_timestamp_seconds When the scan was emitted.")
 	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score_timestamp_seconds gauge")
 	fmt.Fprintf(w, "fleetsweeper_fleet_score_timestamp_seconds %d\n", now.Unix())

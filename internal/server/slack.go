@@ -190,9 +190,14 @@ func buildSlackPayload(fresh []report.Finding, r *report.Report) slackPayload {
 		len(fresh), plural(len(fresh)))
 	score := ""
 	if r != nil {
-		score = fmt.Sprintf("Fleet Score: %d/%s ; %d cluster%s scanned.",
+		score = fmt.Sprintf("Fleet Score: %d/%s ; scored from %d cluster%s across %d dimension%s.",
 			r.FleetScore.Score, r.FleetScore.Grade,
-			len(r.Clusters), plural(len(r.Clusters)))
+			r.FleetScore.SampleSize, plural(r.FleetScore.SampleSize),
+			r.FleetScore.Dimensions, plural(r.FleetScore.Dimensions))
+		if r.FleetScore.ExcludedClusters > 0 {
+			score += fmt.Sprintf(" %d cluster%s excluded for insufficient data.",
+				r.FleetScore.ExcludedClusters, plural(r.FleetScore.ExcludedClusters))
+		}
 	}
 
 	blocks := []slackBlock{

@@ -34,8 +34,39 @@ across your own clusters does the work.
 - A **Fleet Score** from 0 to 100 with a one-line headline you can put on a status TV.
 - The cluster that is most unlike the rest, plus the exact fields that flagged it.
 - **Ranked, leverage-weighted recommendations**. The fix that takes ten clusters from drifted to clean ranks ahead of the same fix on one.
-- An optional **admission webhook** that denies pods deviating from your fleet's actual norm, not from a static checklist.
+- An optional **admission webhook** that flags pods deviating from your fleet's actual norm, not from a static checklist. It warns by default and never denies until you have read the warnings and opted into enforcement; the [rollout path](docs/operator/admission-webhook.md) is warn first, enforce on purpose.
 - One unified stream for inbound signal: scan findings, AlertManager, Falco, Trivy CVEs, Kyverno and Gatekeeper [PolicyReports](https://github.com/kubernetes-sigs/wg-policy-prototypes).
+
+## Consistency is not correctness
+
+The Fleet Score measures one thing: how much your clusters deviate from
+each other. It is a consistency number, not a correctness number.
+
+That has a specific failure mode, and you should know it before you put
+the number on a TV. If all fifty of your clusters allow privileged pods,
+skip resource limits, and run the same end-of-life Kubernetes version,
+there is no deviation to find. The fleet agrees with itself, so it scores
+well. A uniformly misconfigured fleet looks the same as a uniformly
+well-configured one, because the baseline is the fleet, not a standard.
+
+So a Fleet Score of 87 means your clusters mostly agree with each other,
+and the drivers name the few places they do not. It does not mean they
+are secure, patched, or compliant with anything. Every score also carries
+its provenance: how many clusters and scan dimensions produced it, and
+how many clusters were excluded for insufficient data. A score built from
+six clusters is a weaker claim than one built from sixty, and the report
+says which one you are looking at.
+
+Fleetsweeper is therefore not a replacement for policy engines, CIS
+benchmarks, or vulnerability scanning. Those check clusters against
+absolute rules, and they are the tools that catch the failure mode above.
+What they cannot catch is the drift and the one-off snowflake cluster
+that fleetsweeper exists to find, because nobody wrote a rule for it.
+Run both: Kyverno or Gatekeeper for the rules you can write down,
+Fleetsweeper for the anomalies you did not know to write a rule for. The
+[PolicyReport integration](docs/integrations/policyreport.md) feeds their
+violations into the same finding stream, so the pairing is already wired
+in.
 
 ## See it in 30 seconds
 

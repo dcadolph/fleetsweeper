@@ -48,6 +48,12 @@ type FleetScore struct {
 	Headline string `json:"headline"`
 	// Drivers lists the largest contributions to the score.
 	Drivers []ScoreDriver `json:"drivers"`
+	// SampleSize is the number of clusters that contributed scanner data.
+	SampleSize int `json:"sample_size"`
+	// Dimensions is the number of scan dimensions that contributed data.
+	Dimensions int `json:"dimensions"`
+	// ExcludedClusters is how many clusters were excluded for insufficient data.
+	ExcludedClusters int `json:"excluded_clusters"`
 }
 
 // FleetScoreForecast projects a future fleet score from history.

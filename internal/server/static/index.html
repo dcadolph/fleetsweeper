@@ -689,6 +689,21 @@ function renderFleetScoreHero(fs,prevScore,prevTs,forecast){
       '<span>'+sign+d+' pts'+esc(since)+'</span></div>';
   }
 
+  // Provenance line: how much data the score rests on. A score from six
+  // clusters and one from sixty are different claims, so say which this is.
+  var provHTML='';
+  if(typeof fs.sample_size==='number'&&fs.sample_size>0){
+    var prov='Scored from '+fs.sample_size+' cluster'+(fs.sample_size===1?'':'s')+
+      ' across '+(fs.dimensions||0)+' dimension'+(fs.dimensions===1?'':'s')+'.';
+    if(fs.excluded_clusters>0){
+      prov+=' '+fs.excluded_clusters+' cluster'+(fs.excluded_clusters===1?'':'s')+
+        ' excluded for insufficient data.';
+    }
+    provHTML='<div style="font-size:11px;color:var(--t2);margin-top:4px"'+
+      ' data-tip="A score is only as strong as its sample. Clusters with no usable scanner data are excluded.">'+
+      prov+'</div>';
+  }
+
   // Driver chips.
   var driversHTML='';
   if(fs.drivers&&fs.drivers.length){
@@ -741,6 +756,7 @@ function renderFleetScoreHero(fs,prevScore,prevTs,forecast){
       '</div>'+
       '<div style="flex:1 1 auto;min-width:240px">'+
         '<div style="font-size:14px;color:var(--tx);line-height:1.45">'+esc(fs.headline||'')+'</div>'+
+        provHTML+
         driversHTML+
       '</div>'+
     '</div>'+

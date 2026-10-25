@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -68,9 +69,12 @@ func TestBuildSlackPayload_Shape(t *testing.T) {
 	r := &report.Report{
 		Clusters: []string{"a", "b"},
 		FleetScore: report.FleetScore{
-			Score:    73,
-			Grade:    "C",
-			Headline: "two clusters",
+			Score:            73,
+			Grade:            "C",
+			Headline:         "two clusters",
+			SampleSize:       2,
+			Dimensions:       5,
+			ExcludedClusters: 1,
 		},
 	}
 	findings := []report.Finding{
@@ -83,6 +87,19 @@ func TestBuildSlackPayload_Shape(t *testing.T) {
 	}
 	if len(p.Blocks) < 4 {
 		t.Errorf("expected at least header+score+divider+finding blocks; got %d", len(p.Blocks))
+	}
+	// The score block carries the score's provenance, not just its value.
+	scoreText := ""
+	if len(p.Blocks) > 1 && p.Blocks[1].Text != nil {
+		scoreText = p.Blocks[1].Text.Text
+	}
+	for _, want := range []string{
+		"scored from 2 clusters across 5 dimensions",
+		"1 cluster excluded for insufficient data",
+	} {
+		if !strings.Contains(scoreText, want) {
+			t.Errorf("score block missing %q: %s", want, scoreText)
+		}
 	}
 	// Round-trip through JSON to confirm encodability.
 	b, err := json.Marshal(p)

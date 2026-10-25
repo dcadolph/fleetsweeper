@@ -93,6 +93,18 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 	emit(w, "# TYPE fleetsweeper_fleet_score gauge")
 	emit(w, fmt.Sprintf("fleetsweeper_fleet_score %d", r.FleetScore.Score))
 
+	emit(w, "# HELP fleetsweeper_fleet_score_sample_clusters Clusters that contributed scanner data to the Fleet Score.")
+	emit(w, "# TYPE fleetsweeper_fleet_score_sample_clusters gauge")
+	emit(w, fmt.Sprintf("fleetsweeper_fleet_score_sample_clusters %d", r.FleetScore.SampleSize))
+
+	emit(w, "# HELP fleetsweeper_fleet_score_dimensions Scan dimensions that contributed data to the Fleet Score.")
+	emit(w, "# TYPE fleetsweeper_fleet_score_dimensions gauge")
+	emit(w, fmt.Sprintf("fleetsweeper_fleet_score_dimensions %d", r.FleetScore.Dimensions))
+
+	emit(w, "# HELP fleetsweeper_fleet_score_excluded_clusters Clusters excluded from the Fleet Score for insufficient data.")
+	emit(w, "# TYPE fleetsweeper_fleet_score_excluded_clusters gauge")
+	emit(w, fmt.Sprintf("fleetsweeper_fleet_score_excluded_clusters %d", r.FleetScore.ExcludedClusters))
+
 	emit(w, "# HELP fleetsweeper_findings_total Total findings in the most recent scan by severity.")
 	emit(w, "# TYPE fleetsweeper_findings_total gauge")
 	var crit, warn, info int
