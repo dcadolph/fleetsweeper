@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
@@ -113,5 +114,266 @@ func TestDetectNumericOutliers(t *testing.T) {
 	}
 	if nodeOutliers < 2 {
 		t.Errorf("expected at least 2 node_count outliers, got %d", nodeOutliers)
+	}
+}
+
+// goldenFlat builds the flat per-cluster shape the detectors consume, one
+// cluster per value under the field "f".
+func goldenFlat(values []any) ([]string, map[string]map[string]any) {
+	clusters := make([]string, len(values))
+	flat := make(map[string]map[string]any, len(values))
+	for i, v := range values {
+		c := fmt.Sprintf("c%02d", i)
+		clusters[i] = c
+		flat[c] = map[string]any{"f": v}
+	}
+	return clusters, flat
+}
+
+// floats converts numbers to the any slice goldenFlat takes.
+func floats(vs ...float64) []any {
+	out := make([]any, len(vs))
+	for i, v := range vs {
+		out[i] = v
+	}
+	return out
+}
+
+// repeat returns n copies of v.
+func repeat(v any, n int) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = v
+	}
+	return out
+}
+
+// join concatenates value slices.
+func join(parts ...[]any) []any {
+	var out []any
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
+}
+
+// TestDetectNumericOutliersGolden checks hand-computed medians, MADs, and
+// modified z-scores against the numeric detector.
+func TestDetectNumericOutliersGolden(t *testing.T) {
+	t.Parallel()
+
+	// Runtime values so the boundary threshold matches the code's float math.
+	boundary := 0.6745 * (40.0 - 11.5) / 1.0
+
+	tests := []struct {
+		Name        string
+		Values      []any
+		Threshold   float64
+		WantResults []OutlierResult
+	}{{ // Test 0: Median 11.5, MAD 1.0, only the 40 is flagged.
+		Name:      "classic single outlier",
+		Values:    floats(10, 10, 11, 11, 12, 12, 13, 40),
+		Threshold: 3.5,
+		WantResults: []OutlierResult{{
+			Cluster: "c07", Field: "f", Value: "40", FleetNorm: "11.5",
+			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
+		}},
+	}, { // Test 1: Modified z exactly at the threshold is not flagged.
+		Name:      "z equal to threshold",
+		Values:    floats(10, 10, 11, 11, 12, 12, 13, 40),
+		Threshold: boundary,
+	}, { // Test 2: Threshold just below the modified z flags the value.
+		Name:      "z just above threshold",
+		Values:    floats(10, 10, 11, 11, 12, 12, 13, 40),
+		Threshold: boundary - 0.01,
+		WantResults: []OutlierResult{{
+			Cluster: "c07", Field: "f", Value: "40", FleetNorm: "11.5",
+			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
+		}},
+	}, { // Test 3: Median 100, MAD 10, value 151.5 gives z 3.47, not flagged.
+		Name:      "z 3.47 below 3.5",
+		Values:    floats(90, 90, 90, 100, 100, 110, 110, 110, 151.5),
+		Threshold: 3.5,
+	}, { // Test 4: Median 100, MAD 10, value 152.04 gives z 3.51, flagged.
+		Name:      "z 3.51 above 3.5",
+		Values:    floats(90, 90, 90, 100, 100, 110, 110, 110, 152.04),
+		Threshold: 3.5,
+		WantResults: []OutlierResult{{
+			Cluster: "c08", Field: "f", Value: "152.0", FleetNorm: "100",
+			Deviation: 3.51, Scanner: "metrics", Severity: SeverityInfo,
+		}},
+	}, { // Test 5: Seven values are below the sample floor.
+		Name:      "n equals 7",
+		Values:    floats(10, 10, 11, 11, 12, 12, 40),
+		Threshold: 3.5,
+	}, { // Test 6: Eight values reach the sample floor and emit.
+		Name:      "n equals 8",
+		Values:    floats(10, 10, 11, 11, 12, 12, 13, 40),
+		Threshold: 3.5,
+		WantResults: []OutlierResult{{
+			Cluster: "c07", Field: "f", Value: "40", FleetNorm: "11.5",
+			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
+		}},
+	}, { // Test 7: 49 identical and 1 different has MAD 0, so nothing emits.
+		Name:      "zero MAD guard",
+		Values:    join(repeat(float64(5), 49), floats(500)),
+		Threshold: 3.5,
+	}, { // Test 8: Even n averages the middle pair, 20 vs median 5.5 is flagged.
+		Name:      "even n median",
+		Values:    floats(4, 4, 5, 5, 6, 6, 7, 20),
+		Threshold: 3.5,
+		WantResults: []OutlierResult{{
+			Cluster: "c07", Field: "f", Value: "20", FleetNorm: "5.5",
+			Deviation: 0.6745 * 14.5 / 1.0, Scanner: "metrics", Severity: SeverityInfo,
+		}},
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			clusters, flat := goldenFlat(test.Values)
+			got := detectNumericOutliers(clusters, flat, "f", "metrics", test.Threshold)
+			opts := []cmp.Option{
+				cmpopts.EquateApprox(0, 0.01),
+				cmpopts.EquateEmpty(),
+				cmpopts.SortSlices(func(a, b OutlierResult) bool { return a.Cluster < b.Cluster }),
+			}
+			if diff := cmp.Diff(test.WantResults, got, opts...); diff != "" {
+				t.Errorf("results mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestComputeMedianMAD checks the median and MAD helpers on hand-computed data.
+func TestComputeMedianMAD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Values     []float64
+		WantMedian float64
+		WantMAD    float64
+	}{{ // Test 0: Even count averages the middle pair.
+		Values: []float64{10, 10, 11, 11, 12, 12, 13, 40}, WantMedian: 11.5, WantMAD: 1.0,
+	}, { // Test 1: Odd count takes the middle value.
+		Values: []float64{1, 2, 3, 4, 100}, WantMedian: 3, WantMAD: 1,
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			med := computeMedian(test.Values)
+			if diff := cmp.Diff(test.WantMedian, med, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
+				t.Errorf("median mismatch (-want +got):\n%s", diff)
+			}
+			mad := computeMAD(test.Values, med)
+			if diff := cmp.Diff(test.WantMAD, mad, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
+				t.Errorf("MAD mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestDetectStringOutliersGolden checks the mode-mass guard and flagging.
+func TestDetectStringOutliersGolden(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Name         string
+		Values       []any
+		WantClusters []string
+	}{{ // Test 0: A three-way tie emits nothing.
+		Name:   "three-way tie",
+		Values: join(repeat("a", 4), repeat("b", 4), repeat("c", 4)),
+	}, { // Test 1: A 59/41 split is under the 60% mode mass and emits nothing.
+		Name:   "59/41 split",
+		Values: join(repeat("a", 59), repeat("b", 41)),
+	}, { // Test 2: A 70/30 split flags the 30 minority clusters.
+		Name:   "70/30 split",
+		Values: join(repeat("a", 70), repeat("b", 30)),
+		WantClusters: func() []string {
+			var cs []string
+			for i := 70; i < 100; i++ {
+				cs = append(cs, fmt.Sprintf("c%02d", i))
+			}
+			return cs
+		}(),
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			clusters, flat := goldenFlat(test.Values)
+			got := detectStringOutliers(clusters, flat, "f", "version")
+			var gotClusters []string
+			for _, o := range got {
+				if o.Value != "b" || o.FleetNorm != "a" {
+					t.Errorf("unexpected finding %+v", o)
+				}
+				gotClusters = append(gotClusters, o.Cluster)
+			}
+			opts := []cmp.Option{
+				cmpopts.EquateEmpty(),
+				cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+			}
+			if diff := cmp.Diff(test.WantClusters, gotClusters, opts...); diff != "" {
+				t.Errorf("clusters mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestDetectSetOutliersGolden checks the 60% consensus rule for array fields.
+func TestDetectSetOutliersGolden(t *testing.T) {
+	t.Parallel()
+
+	with := []any{"x"}
+	without := []any{"y"}
+
+	tests := []struct {
+		Name        string
+		Values      []any
+		WantResults []OutlierResult
+	}{{ // Test 0: 8 of 10 hold x, so the 2 without it are flagged.
+		Name:   "8 of 10 consensus",
+		Values: join(repeat(with, 8), repeat(without, 2)),
+		WantResults: []OutlierResult{{
+			Cluster: "c08", Field: "f", Value: "missing 1: [x]",
+			FleetNorm: "1 consensus items", Scanner: "pods", Severity: SeverityInfo,
+		}, {
+			Cluster: "c09", Field: "f", Value: "missing 1: [x]",
+			FleetNorm: "1 consensus items", Scanner: "pods", Severity: SeverityInfo,
+		}},
+	}, { // Test 1: 6 of 10 meets the 60% consensus, so the other 4 are flagged.
+		Name:   "6 of 10 is consensus",
+		Values: join(repeat(with, 6), repeat(without, 4)),
+		WantResults: []OutlierResult{
+			{Cluster: "c06", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
+				Scanner: "pods", Severity: SeverityInfo},
+			{Cluster: "c07", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
+				Scanner: "pods", Severity: SeverityInfo},
+			{Cluster: "c08", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
+				Scanner: "pods", Severity: SeverityInfo},
+			{Cluster: "c09", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
+				Scanner: "pods", Severity: SeverityInfo},
+		},
+	}, { // Test 2: 5 of 10 is below consensus, so nothing is flagged.
+		Name:   "5 of 10 is not consensus",
+		Values: join(repeat(with, 5), repeat(without, 5)),
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			clusters, flat := goldenFlat(test.Values)
+			got := detectSetOutliers(clusters, flat, "f", "pods")
+			opts := []cmp.Option{
+				cmpopts.EquateEmpty(),
+				cmpopts.SortSlices(func(a, b OutlierResult) bool { return a.Cluster < b.Cluster }),
+			}
+			if diff := cmp.Diff(test.WantResults, got, opts...); diff != "" {
+				t.Errorf("results mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
