@@ -3,6 +3,7 @@ package admission
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,19 +27,37 @@ type fakeStore struct {
 	results map[string]map[string]scanner.Result
 	// resultsErr is returned alongside results.
 	resultsErr error
+	// delay makes ListScans slow so concurrent callers overlap.
+	delay time.Duration
+	// mu guards every field above and listCalls.
+	mu sync.Mutex
 	// listCalls counts ListScans invocations so cache behavior is observable.
 	listCalls int
 }
 
 // ListScans returns the canned scan records and increments the call counter.
 func (f *fakeStore) ListScans(_ context.Context, _ int) ([]store.ScanRecord, error) {
+	f.mu.Lock()
 	f.listCalls++
-	return f.scans, f.scansErr
+	delay := f.delay
+	scans, err := f.scans, f.scansErr
+	f.mu.Unlock()
+	time.Sleep(delay)
+	return scans, err
 }
 
 // GetScanResults returns the canned per-cluster scanner results.
 func (f *fakeStore) GetScanResults(_ context.Context, _ string) (map[string]map[string]scanner.Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.results, f.resultsErr
+}
+
+// calls returns the ListScans call count.
+func (f *fakeStore) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listCalls
 }
 
 // imageAuditData builds an image-audit scanner Data payload.
@@ -195,6 +214,7 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 	tests := []struct {
 		WantBaseline Baseline
 		Store        *fakeStore
+		WantErr      bool
 	}{
 		{ // Test 0: Both scanners present produce every fraction.
 			Store: &fakeStore{
@@ -234,24 +254,109 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 			Store:        &fakeStore{scans: oneScan, results: map[string]map[string]scanner.Result{}},
 			WantBaseline: Baseline{SourceScanID: "scan-1"},
 		},
-		{ // Test 3: ListScans error yields the zero baseline.
-			Store:        &fakeStore{scansErr: errBoom},
-			WantBaseline: Baseline{},
+		{ // Test 3: ListScans error is returned.
+			Store:   &fakeStore{scansErr: errBoom},
+			WantErr: true,
 		},
 		{ // Test 4: No scans yields the zero baseline.
 			Store:        &fakeStore{scans: nil},
 			WantBaseline: Baseline{},
 		},
-		{ // Test 5: GetScanResults error yields the zero baseline.
-			Store:        &fakeStore{scans: oneScan, resultsErr: errBoom},
-			WantBaseline: Baseline{},
+		{ // Test 5: GetScanResults error is returned.
+			Store:   &fakeStore{scans: oneScan, resultsErr: errBoom},
+			WantErr: true,
+		},
+		{ // Test 6: Two clusters aggregate per-cluster counts. A has 40 containers
+			// (4 unpinned, 8 root, 10 priv-esc, 12 writable root) and 20 pods (5
+			// default SA). B has 10 containers (0 unpinned, 10 root, 0 priv-esc,
+			// 10 writable root) and 10 pods (0 default SA). Digest (36+10)/50=0.92,
+			// non-root (32+0)/50=0.64, no-priv-esc (30+10)/50=0.8, read-only
+			// (28+0)/50=0.56, named SA (15+10)/30.
+			Store: &fakeStore{
+				scans: oneScan,
+				results: map[string]map[string]scanner.Result{
+					"clusterA": {
+						"image-audit":       imageAuditData(40, 4),
+						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+					},
+					"clusterB": {
+						"image-audit":       imageAuditData(10, 0),
+						"workload-security": workloadSecData(10, 10, 0, 10, 0),
+					},
+				},
+			},
+			WantBaseline: Baseline{
+				SampleContainers:              50,
+				SamplePods:                    30,
+				DigestPinFraction:             0.92,
+				NonRootFraction:               0.64,
+				NoPrivilegeEscalationFraction: 0.8,
+				ReadOnlyRootFSFraction:        0.56,
+				NamedServiceAccountFraction:   25.0 / 30.0,
+				SourceScanID:                  "scan-1",
+			},
+		},
+		{ // Test 7: A degraded workload-security result on B is skipped, so B adds
+			// containers to the digest fraction only. Container fractions use A's 40.
+			Store: &fakeStore{
+				scans: oneScan,
+				results: map[string]map[string]scanner.Result{
+					"clusterA": {
+						"image-audit":       imageAuditData(40, 4),
+						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+					},
+					"clusterB": {
+						"image-audit":       imageAuditData(10, 0),
+						"workload-security": degraded(workloadSecData(10, 10, 0, 10, 0)),
+					},
+				},
+			},
+			WantBaseline: Baseline{
+				SampleContainers:              50,
+				SamplePods:                    20,
+				DigestPinFraction:             0.92,
+				NonRootFraction:               0.8,
+				NoPrivilegeEscalationFraction: 0.75,
+				ReadOnlyRootFSFraction:        0.7,
+				NamedServiceAccountFraction:   0.75,
+				SourceScanID:                  "scan-1",
+			},
+		},
+		{ // Test 8: An errored image-audit result on B removes B's containers
+			// entirely; B's pods still count toward the service account fraction.
+			Store: &fakeStore{
+				scans: oneScan,
+				results: map[string]map[string]scanner.Result{
+					"clusterA": {
+						"image-audit":       imageAuditData(40, 4),
+						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+					},
+					"clusterB": {
+						"image-audit":       errored(imageAuditData(10, 0)),
+						"workload-security": workloadSecData(10, 10, 0, 10, 0),
+					},
+				},
+			},
+			WantBaseline: Baseline{
+				SampleContainers:              40,
+				SamplePods:                    30,
+				DigestPinFraction:             0.9,
+				NonRootFraction:               0.8,
+				NoPrivilegeEscalationFraction: 0.75,
+				ReadOnlyRootFSFraction:        0.7,
+				NamedServiceAccountFraction:   25.0 / 30.0,
+				SourceScanID:                  "scan-1",
+			},
 		},
 	}
 	for testNum, test := range tests {
 		t.Run("test", func(t *testing.T) {
 			t.Parallel()
 			p := NewStoreBaselineProvider(test.Store, time.Minute)
-			got := p.recompute(context.Background())
+			got, err := p.recompute(context.Background())
+			if (err != nil) != test.WantErr {
+				t.Fatalf("test %d: err = %v, wantErr %v", testNum, err, test.WantErr)
+			}
 			opts := cmp.Options{cmpopts.EquateEmpty(), cmpopts.EquateApprox(0, 1e-9)}
 			if diff := cmp.Diff(test.WantBaseline, got, opts); diff != "" {
 				t.Errorf("test %d mismatch (-want +got):\n%s", testNum, diff)
@@ -278,16 +383,16 @@ func TestStoreBaselineProviderCurrentCaches(t *testing.T) {
 	if first.SourceScanID != "scan-1" {
 		t.Fatalf("first Current: source = %q, want scan-1", first.SourceScanID)
 	}
-	if fs.listCalls != 1 {
-		t.Fatalf("cold cache: listCalls = %d, want 1", fs.listCalls)
+	if got := fs.calls(); got != 1 {
+		t.Fatalf("cold cache: listCalls = %d, want 1", got)
 	}
 
 	// Second call inside the TTL is served from cache without touching the store.
 	if got := p.Current(ctx); got.SourceScanID != "scan-1" {
 		t.Errorf("cached Current: source = %q, want scan-1", got.SourceScanID)
 	}
-	if fs.listCalls != 1 {
-		t.Errorf("warm cache: listCalls = %d, want 1", fs.listCalls)
+	if got := fs.calls(); got != 1 {
+		t.Errorf("warm cache: listCalls = %d, want 1", got)
 	}
 
 	// Force the cache stale and confirm the next call recomputes.
@@ -297,7 +402,127 @@ func TestStoreBaselineProviderCurrentCaches(t *testing.T) {
 	if got := p.Current(ctx); got.SourceScanID != "scan-1" {
 		t.Errorf("recomputed Current: source = %q, want scan-1", got.SourceScanID)
 	}
-	if fs.listCalls != 2 {
-		t.Errorf("stale cache: listCalls = %d, want 2", fs.listCalls)
+	if got := fs.calls(); got != 2 {
+		t.Errorf("stale cache: listCalls = %d, want 2", got)
+	}
+}
+
+// degraded marks a scanner result as degraded.
+func degraded(r scanner.Result) scanner.Result {
+	r.State, r.Reason = scanner.StateDegraded, "partial list"
+	return r
+}
+
+// errored marks a scanner result as errored.
+func errored(r scanner.Result) scanner.Result {
+	r.State, r.Reason = scanner.StateErrored, "timeout"
+	return r
+}
+
+// expire marks the provider's cache stale.
+func expire(p *StoreBaselineProvider) {
+	p.mu.Lock()
+	p.cachedAt = time.Now().Add(-2 * time.Hour)
+	p.mu.Unlock()
+}
+
+// TestStoreBaselineProviderKeepsLastGood verifies a failing store serves the
+// last good baseline instead of caching an empty one.
+func TestStoreBaselineProviderKeepsLastGood(t *testing.T) {
+	t.Parallel()
+	fs := &fakeStore{
+		scans: []store.ScanRecord{{ID: "scan-1"}},
+		results: map[string]map[string]scanner.Result{
+			"clusterA": {"image-audit": imageAuditData(40, 4)},
+		},
+	}
+	p := NewStoreBaselineProvider(fs, time.Hour)
+	ctx := context.Background()
+	good := p.Current(ctx)
+	if good.SourceScanID != "scan-1" || good.SampleContainers != 40 {
+		t.Fatalf("first Current = %+v", good)
+	}
+
+	fs.mu.Lock()
+	fs.scansErr = errors.New("db down")
+	fs.mu.Unlock()
+	expire(p)
+
+	got := p.Current(ctx)
+	if diff := cmp.Diff(good, got); diff != "" {
+		t.Errorf("failed recompute should serve last good (-want +got):\n%s", diff)
+	}
+	if got := fs.calls(); got != 2 {
+		t.Errorf("listCalls = %d, want 2", got)
+	}
+	// The failure refreshes cachedAt, so the next call inside the TTL does not
+	// retry the failing store.
+	p.Current(ctx)
+	if got := fs.calls(); got != 2 {
+		t.Errorf("listCalls after failure = %d, want 2", got)
+	}
+}
+
+// TestStoreBaselineProviderSingleflight verifies 50 concurrent callers after
+// the TTL expires trigger exactly one store read.
+func TestStoreBaselineProviderSingleflight(t *testing.T) {
+	t.Parallel()
+	fs := &fakeStore{
+		scans: []store.ScanRecord{{ID: "scan-1"}},
+		results: map[string]map[string]scanner.Result{
+			"clusterA": {"image-audit": imageAuditData(40, 4)},
+		},
+		delay: 100 * time.Millisecond,
+	}
+	p := NewStoreBaselineProvider(fs, time.Hour)
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	got := make([]Baseline, 50)
+	for i := range got {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			got[i] = p.Current(context.Background())
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	if n := fs.calls(); n != 1 {
+		t.Errorf("listCalls = %d, want 1", n)
+	}
+	for i, b := range got {
+		if b.SourceScanID != "scan-1" {
+			t.Errorf("caller %d got %+v", i, b)
+		}
+	}
+}
+
+// TestStoreBaselineProviderCallerCancel verifies a caller whose context ends
+// gets the cached baseline without waiting, while the recompute completes for
+// everyone else.
+func TestStoreBaselineProviderCallerCancel(t *testing.T) {
+	t.Parallel()
+	fs := &fakeStore{
+		scans: []store.ScanRecord{{ID: "scan-1"}},
+		results: map[string]map[string]scanner.Result{
+			"clusterA": {"image-audit": imageAuditData(40, 4)},
+		},
+		delay: 200 * time.Millisecond,
+	}
+	p := NewStoreBaselineProvider(fs, time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	if got := p.Current(ctx); got.SourceScanID != "" {
+		t.Errorf("canceled caller should get the empty cache, got %+v", got)
+	}
+	if got := p.Current(context.Background()); got.SourceScanID != "scan-1" {
+		t.Errorf("waiting caller should get the recomputed baseline, got %+v", got)
+	}
+	if n := fs.calls(); n != 1 {
+		t.Errorf("listCalls = %d, want 1", n)
 	}
 }

@@ -3,9 +3,14 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
+
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -20,15 +25,32 @@ type BaselineProvider interface {
 	Current(ctx context.Context) Baseline
 }
 
+// recomputeTimeout bounds one baseline recompute. It is independent of any
+// admission request so a canceled request cannot abort a recompute that other
+// requests are waiting on.
+const recomputeTimeout = 10 * time.Second
+
 // StoreBaselineProvider derives the Baseline from the most recent scan
 // stored in the Fleetsweeper database. The provider caches the result so
 // admission traffic does not re-derive the baseline more than once per
-// cacheTTL window.
+// cacheTTL window, collapses concurrent recomputes into one store read, and
+// keeps serving the last good baseline when a recompute fails.
 type StoreBaselineProvider struct {
-	store    store.Store
-	ttl      time.Duration
-	mu       sync.Mutex
-	cached   Baseline
+	// Log receives recompute failures. Defaults to a no-op logger.
+	Log *zap.Logger
+	// store is the scan database the baseline is derived from.
+	store store.Store
+	// ttl is how long a computed baseline is served before recomputing.
+	ttl time.Duration
+	// timeout bounds a single recompute.
+	timeout time.Duration
+	// group collapses concurrent recomputes into one.
+	group singleflight.Group
+	// mu guards cached and cachedAt.
+	mu sync.Mutex
+	// cached is the last good baseline.
+	cached Baseline
+	// cachedAt is when the cache was last refreshed or last failed to refresh.
 	cachedAt time.Time
 }
 
@@ -38,77 +60,103 @@ func NewStoreBaselineProvider(s store.Store, ttl time.Duration) *StoreBaselinePr
 	if ttl <= 0 {
 		ttl = 60 * time.Second
 	}
-	return &StoreBaselineProvider{store: s, ttl: ttl}
+	return &StoreBaselineProvider{Log: zap.NewNop(), store: s, ttl: ttl, timeout: recomputeTimeout}
 }
 
 // Current returns the latest baseline, recomputing it when the cache is stale.
+// When the caller's context ends before a recompute finishes, the last good
+// baseline is returned instead of waiting.
 func (p *StoreBaselineProvider) Current(ctx context.Context) Baseline {
 	p.mu.Lock()
-	if time.Since(p.cachedAt) < p.ttl {
-		out := p.cached
-		p.mu.Unlock()
-		return out
+	cached := p.cached
+	fresh := time.Since(p.cachedAt) < p.ttl
+	p.mu.Unlock()
+	if fresh {
+		return cached
 	}
-	p.mu.Unlock()
 
-	b := p.recompute(ctx)
+	ch := p.group.DoChan("baseline", func() (any, error) {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), p.timeout)
+		defer cancel()
+		b, err := p.recompute(rctx)
 
-	p.mu.Lock()
-	p.cached = b
-	p.cachedAt = time.Now()
-	p.mu.Unlock()
-	return b
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.cachedAt = time.Now()
+		if err != nil {
+			p.Log.Warn("admission baseline recompute failed: serving last good baseline", zap.Error(err))
+			return p.cached, nil
+		}
+		p.cached = b
+		return b, nil
+	})
+	select {
+	case res := <-ch:
+		b, _ := res.Val.(Baseline)
+		return b
+	case <-ctx.Done():
+		return cached
+	}
 }
 
-// recompute pulls the most recent scan, walks its image-audit and
-// workload-sec outputs, and tallies the fractions the built-in checks rely on.
-func (p *StoreBaselineProvider) recompute(ctx context.Context) Baseline {
+// recompute pulls the most recent scan and tallies the fractions the built-in
+// checks rely on. Each cluster contributes its own counts: container fractions
+// from workload-security are measured against that cluster's image-audit
+// container count, and a scanner result whose State is not OK contributes
+// nothing. A store error is returned so the caller can keep the last good
+// baseline; an empty store is not an error.
+func (p *StoreBaselineProvider) recompute(ctx context.Context) (Baseline, error) {
 	scans, err := p.store.ListScans(ctx, 1)
-	if err != nil || len(scans) == 0 {
-		return Baseline{}
+	if err != nil {
+		return Baseline{}, fmt.Errorf("list scans: %w", err)
+	}
+	if len(scans) == 0 {
+		return Baseline{}, nil
 	}
 	results, err := p.store.GetScanResults(ctx, scans[0].ID)
 	if err != nil {
-		return Baseline{}
+		return Baseline{}, fmt.Errorf("get scan results: %w", err)
 	}
 
-	b := Baseline{SourceScanID: scans[0].ID}
-	totalContainers := 0
-	withDigest := 0
-	withNonRoot := 0
-	noPrivEsc := 0
-	readOnlyFS := 0
-	totalPods := 0
-	defaultSAPods := 0
-
+	var (
+		totalContainers, withDigest              int
+		wsContainers, nonRoot, noPrivEsc, readRO int
+		totalPods, defaultSAPods                 int
+	)
 	for _, perScanner := range results {
-		if raw, ok := perScanner["image-audit"]; ok {
+		clusterContainers := 0
+		if raw, ok := perScanner["image-audit"]; ok && raw.State == scanner.StateOK {
 			c, d := tallyImageAudit(raw.Data)
+			clusterContainers = c
 			totalContainers += c
 			withDigest += d
 		}
-		if raw, ok := perScanner["workload-security"]; ok {
-			t := tallyWorkloadSec(raw.Data)
-			totalPods += t.totalPods
-			withNonRoot += (totalContainers - t.runAsRoot)
-			noPrivEsc += (totalContainers - t.allowPrivEsc)
-			readOnlyFS += (totalContainers - t.noReadOnlyRoot)
-			defaultSAPods += t.defaultSA
+		raw, ok := perScanner["workload-security"]
+		if !ok || raw.State != scanner.StateOK {
+			continue
 		}
+		t := tallyWorkloadSec(raw.Data)
+		totalPods += t.totalPods
+		defaultSAPods += t.defaultSA
+		if clusterContainers == 0 {
+			continue
+		}
+		wsContainers += clusterContainers
+		nonRoot += max(clusterContainers-t.runAsRoot, 0)
+		noPrivEsc += max(clusterContainers-t.allowPrivEsc, 0)
+		readRO += max(clusterContainers-t.noReadOnlyRoot, 0)
 	}
 
-	b.SampleContainers = totalContainers
-	b.SamplePods = totalPods
-	if totalContainers > 0 {
-		b.DigestPinFraction = floatRatio(withDigest, totalContainers)
-		b.NonRootFraction = floatRatio(withNonRoot, totalContainers)
-		b.NoPrivilegeEscalationFraction = floatRatio(noPrivEsc, totalContainers)
-		b.ReadOnlyRootFSFraction = floatRatio(readOnlyFS, totalContainers)
-	}
-	if totalPods > 0 {
-		b.NamedServiceAccountFraction = floatRatio(totalPods-defaultSAPods, totalPods)
-	}
-	return b
+	return Baseline{
+		SourceScanID:                  scans[0].ID,
+		SampleContainers:              totalContainers,
+		SamplePods:                    totalPods,
+		DigestPinFraction:             floatRatio(withDigest, totalContainers),
+		NonRootFraction:               floatRatio(nonRoot, wsContainers),
+		NoPrivilegeEscalationFraction: floatRatio(noPrivEsc, wsContainers),
+		ReadOnlyRootFSFraction:        floatRatio(readRO, wsContainers),
+		NamedServiceAccountFraction:   floatRatio(totalPods-defaultSAPods, totalPods),
+	}, nil
 }
 
 // floatRatio returns numerator/denominator as a fraction, clamped to [0, 1].
