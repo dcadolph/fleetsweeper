@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -250,4 +252,112 @@ func newAuthTestServer(t *testing.T) (*Server, *store.SQLite) {
 		s.Close()
 	})
 	return srv, s
+}
+
+// saveTestKey stores an API key with the given role and scope and returns its raw bearer token.
+func saveTestKey(t *testing.T, st *store.SQLite, id, role string, scope ...string) string {
+	t.Helper()
+	raw, err := store.GenerateToken()
+	if err != nil {
+		t.Fatalf("gen token: %v", err)
+	}
+	rec := store.APIKeyRecord{
+		ID:           id,
+		TokenHash:    store.HashToken(raw),
+		Name:         id,
+		Role:         role,
+		ClusterScope: scope,
+	}
+	if err := st.SaveAPIKey(context.Background(), rec); err != nil {
+		t.Fatalf("save api key: %v", err)
+	}
+	return raw
+}
+
+// TestGroupWritesRequireFleetScope verifies only an admin or a wildcard-scoped actor may create
+// or delete a group, and that a refused write leaves the group untouched.
+func TestGroupWritesRequireFleetScope(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Role             string
+		Scope            []string
+		WantCreateStatus int
+		WantDeleteStatus int
+	}{{ // Test 0: A group-scoped operator cannot widen its own group.
+		Role: store.RoleOperator, Scope: []string{"group:edge"},
+		WantCreateStatus: http.StatusForbidden, WantDeleteStatus: http.StatusForbidden,
+	}, { // Test 1: A cluster-scoped operator cannot define groups.
+		Role: store.RoleOperator, Scope: []string{"edge-a"},
+		WantCreateStatus: http.StatusForbidden, WantDeleteStatus: http.StatusForbidden,
+	}, { // Test 2: A wildcard operator may manage groups.
+		Role: store.RoleOperator, Scope: []string{store.ScopeWildcard},
+		WantCreateStatus: http.StatusCreated, WantDeleteStatus: http.StatusNoContent,
+	}, { // Test 3: An admin may manage groups even with a narrow scope.
+		Role: store.RoleAdmin, Scope: []string{"group:edge"},
+		WantCreateStatus: http.StatusCreated, WantDeleteStatus: http.StatusNoContent,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv, st := newAuthTestServer(t)
+			ctx := context.Background()
+			if err := st.SaveGroup(ctx, "edge", []string{"edge-a"}); err != nil {
+				t.Fatalf("seed group: %v", err)
+			}
+			raw := saveTestKey(t, st, "key_scope", test.Role, test.Scope...)
+
+			body := `{"name":"edge","clusters":["edge-a","core-1","core-2"]}`
+			req := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+raw)
+			w := httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, req)
+			if w.Code != test.WantCreateStatus {
+				t.Fatalf("create: want %d, got %d body=%s", test.WantCreateStatus, w.Code, w.Body.String())
+			}
+			if test.WantCreateStatus == http.StatusForbidden {
+				g, err := st.GetGroup(ctx, "edge")
+				if err != nil {
+					t.Fatalf("get group: %v", err)
+				}
+				if diff := cmp.Diff([]string{"edge-a"}, g.Clusters); diff != "" {
+					t.Errorf("refused create changed the group (-want +got):\n%s", diff)
+				}
+			}
+
+			req = httptest.NewRequest(http.MethodDelete, "/api/groups/edge", nil)
+			req.Header.Set("Authorization", "Bearer "+raw)
+			w = httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, req)
+			if w.Code != test.WantDeleteStatus {
+				t.Fatalf("delete: want %d, got %d body=%s", test.WantDeleteStatus, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestCanManageGroups covers the role and scope combinations directly.
+func TestCanManageGroups(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Actor      Actor
+		WantResult bool
+	}{{ // Test 0: Admin with wildcard scope.
+		Actor: Actor{Role: store.RoleAdmin, ClusterScope: []string{store.ScopeWildcard}}, WantResult: true,
+	}, { // Test 1: Admin with a narrow scope.
+		Actor: Actor{Role: store.RoleAdmin, ClusterScope: []string{"east"}}, WantResult: true,
+	}, { // Test 2: Operator with wildcard scope.
+		Actor: Actor{Role: store.RoleOperator, ClusterScope: []string{"east", store.ScopeWildcard}}, WantResult: true,
+	}, { // Test 3: Operator with a group scope.
+		Actor: Actor{Role: store.RoleOperator, ClusterScope: []string{"group:prod"}}, WantResult: false,
+	}, { // Test 4: Anonymous viewer with no scope.
+		Actor: Actor{Role: store.RoleViewer}, WantResult: false,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if got := test.Actor.CanManageGroups(); got != test.WantResult {
+				t.Errorf("want %v, got %v", test.WantResult, got)
+			}
+		})
+	}
 }

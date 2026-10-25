@@ -49,8 +49,11 @@ type geoPoint struct {
 // real scans exist yet, a synthetic fleet is returned so operators can
 // preview the globe.
 func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
-	scans, err := s.store.ListScans(r.Context(), 1)
-	if err != nil || len(scans) == 0 {
+	latest, ok := s.latestScan(w, r, "geo: list scans")
+	if !ok {
+		return
+	}
+	if latest == nil {
 		if s.demo {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"scan_id":   demoScanID,
@@ -64,7 +67,7 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
-	results, err := s.store.GetScanResults(r.Context(), scans[0].ID)
+	results, err := s.store.GetScanResults(r.Context(), latest.ID)
 	if err != nil {
 		s.log.Error("geo: get results", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "get scan results failed")
@@ -73,23 +76,24 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 
 	manual, err := s.store.ListLocations(r.Context())
 	if err != nil {
-		s.log.Warn("geo: list locations", zap.Error(err))
+		s.writeStoreError(w, err, "geo: list locations", "locations not found")
+		return
 	}
 	manualByCluster := make(map[string]store.LocationRecord, len(manual))
 	for _, m := range manual {
 		manualByCluster[m.Cluster] = m
 	}
 
-	rpt := report.Build(scans[0].Clusters, results)
+	rpt := report.Build(latest.Clusters, results)
 	statusByCluster := make(map[string]report.ClusterHealth, len(rpt.ClusterHealths))
 	for _, h := range rpt.ClusterHealths {
 		statusByCluster[h.Name] = h
 	}
 
-	points := make([]geoPoint, 0, len(scans[0].Clusters))
+	points := make([]geoPoint, 0, len(latest.Clusters))
 	unlocated := []string{}
 
-	for _, cluster := range scans[0].Clusters {
+	for _, cluster := range latest.Clusters {
 		health := statusByCluster[cluster]
 		critical := health.FindingCounts[report.SeverityCritical]
 		warning := health.FindingCounts[report.SeverityWarning]
@@ -137,8 +141,8 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(unlocated)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"scan_id":   scans[0].ID,
-		"timestamp": scans[0].Timestamp,
+		"scan_id":   latest.ID,
+		"timestamp": latest.Timestamp,
 		"points":    points,
 		"unlocated": unlocated,
 	})
@@ -240,8 +244,7 @@ func (s *Server) handleSetLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req setLocationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeJSON(w, r, &req, maxJSONBody); err != nil {
 		return
 	}
 	if req.Lat < -90 || req.Lat > 90 {
@@ -277,6 +280,7 @@ func (s *Server) handleDeleteLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.DeleteLocation(r.Context(), cluster); err != nil {
+		s.log.Error("delete location", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "delete location failed")
 		return
 	}
