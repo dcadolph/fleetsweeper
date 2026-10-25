@@ -177,16 +177,6 @@ func TestGrade_Boundaries(t *testing.T) {
 	}
 }
 
-func TestFleetScore_StructJSON_StableShape(t *testing.T) {
-	t.Parallel()
-	// Sanity: zero-value FleetScore should compare equal under cmp with EquateEmpty.
-	a := FleetScore{}
-	b := FleetScore{Drivers: []FleetScoreDriver{}}
-	if diff := cmp.Diff(a, b, cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("zero-value mismatch (-want +got):\n%s", diff)
-	}
-}
-
 func TestFleetScoreProvenance(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -271,4 +261,164 @@ func makeFindings(sev string, n int) []Finding {
 		out[i].Severity = sev
 	}
 	return out
+}
+
+// TestComputeFleetScoreGolden pins each weight, cap, and rounding rule with
+// expectations computed by hand from the constants in score.go.
+func TestComputeFleetScoreGolden(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+
+	flat := func(names ...string) []ClusterHealth {
+		out := make([]ClusterHealth, len(names))
+		for i, n := range names {
+			out[i] = ClusterHealth{Name: n}
+		}
+		return out
+	}
+	withStatus := func(healths []ClusterHealth, status ...string) []ClusterHealth {
+		for i, s := range status {
+			healths[i].Status = s
+		}
+		return healths
+	}
+
+	tests := []struct {
+		Name        string
+		In          *Report
+		WantScore   int
+		WantGrade   string
+		WantDrivers []FleetScoreDriver
+	}{{ // Test 0: 4 warnings cost 4*1.5=6, so 100-6=94.
+		Name:        "warnings under cap",
+		In:          &Report{Findings: makeFindings(SeverityWarning, 4)},
+		WantScore:   94,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "4 warning findings", Impact: 6}},
+	}, { // Test 1: 30 warnings cost 30*1.5=45, capped at 24, so 100-24=76.
+		Name:        "warning cap",
+		In:          &Report{Findings: makeFindings(SeverityWarning, 30)},
+		WantScore:   76,
+		WantGrade:   "C",
+		WantDrivers: []FleetScoreDriver{{Reason: "30 warning findings", Impact: 24}},
+	}, { // Test 2: 8 infos cost 8*0.25=2, so 100-2=98.
+		Name:        "infos under cap",
+		In:          &Report{Findings: makeFindings(SeverityInfo, 8)},
+		WantScore:   98,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "8 info findings", Impact: 2}},
+	}, { // Test 3: 40 infos cost 40*0.25=10, capped at 5, so 100-5=95.
+		Name:        "info cap",
+		In:          &Report{Findings: makeFindings(SeverityInfo, 40)},
+		WantScore:   95,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "40 info findings", Impact: 5}},
+	}, { // Test 4: One degraded of four costs 10*1/4=2.5, 97.5 rounds to 98, impact rounds to 3.
+		Name:        "one degraded of four",
+		In:          &Report{ClusterHealths: withStatus(flat("a", "b", "c", "d"), "degraded")},
+		WantScore:   98,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "1 of 4 clusters degraded", Impact: 3}},
+	}, { // Test 5: Strained counts as degraded, 10*1/4=2.5, so 98.
+		Name:        "strained counts as degraded",
+		In:          &Report{ClusterHealths: withStatus(flat("a", "b", "c", "d"), "strained")},
+		WantScore:   98,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "1 of 4 clusters degraded", Impact: 3}},
+	}, { // Test 6: Minors 30 and 31 differ by one, a warning skew costing 3, so 97.
+		Name: "one minor skew",
+		In: &Report{ClusterHealths: []ClusterHealth{
+			{Name: "a", KubernetesVersion: "v1.30.1"},
+			{Name: "b", KubernetesVersion: "v1.31.0"},
+		}},
+		WantScore:   97,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "Kubernetes version skew across the fleet", Impact: 3}},
+	}, { // Test 7: Minors 29 and 31 differ by two, a critical skew costing 10, so 90.
+		Name: "two minor skew",
+		In: &Report{ClusterHealths: []ClusterHealth{
+			{Name: "a", KubernetesVersion: "v1.29.0"},
+			{Name: "b", KubernetesVersion: "v1.31.0"},
+		}},
+		WantScore:   90,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "Kubernetes version skew exceeds one minor", Impact: 10}},
+	}, { // Test 8: Patch-only differences cost nothing, so 100.
+		Name: "patch only skew",
+		In: &Report{ClusterHealths: []ClusterHealth{
+			{Name: "a", KubernetesVersion: "v1.31.1"},
+			{Name: "b", KubernetesVersion: "v1.31.2"},
+		}},
+		WantScore: 100,
+		WantGrade: "A",
+	}, { // Test 9: Unhealthy ratios 0.1, 0.3, 0.5; only the worst counts, 10*0.5=5, so 95.
+		// An average would cost 10*0.3=3 and score 97.
+		Name: "worst node ratio only",
+		In: &Report{ClusterHealths: []ClusterHealth{
+			{Name: "a", NodeCount: 10, HealthyNodes: 9},
+			{Name: "b", NodeCount: 10, HealthyNodes: 7},
+			{Name: "c", NodeCount: 4, HealthyNodes: 2},
+		}},
+		WantScore:   95,
+		WantGrade:   "A",
+		WantDrivers: []FleetScoreDriver{{Reason: "c has 50% unhealthy nodes", Impact: 5}},
+	}, { // Test 10: Five drivers keep the top three. Costs: 2 crit 12, 4 warn 6, 4 info 1,
+		// 1 of 4 critical 20/4=5, 1 of 4 degraded 10/4=2.5. Total 26.5, 73.5 rounds to 74.
+		Name: "five drivers truncated to three",
+		In: &Report{
+			Findings: append(append(makeFindings(SeverityCritical, 2),
+				makeFindings(SeverityWarning, 4)...), makeFindings(SeverityInfo, 4)...),
+			ClusterHealths: withStatus(flat("a", "b", "c", "d"), "critical", "degraded"),
+		},
+		WantScore: 74,
+		WantGrade: "C",
+		WantDrivers: []FleetScoreDriver{
+			{Reason: "2 critical findings", Impact: 12},
+			{Reason: "4 warning findings", Impact: 6},
+			{Reason: "1 of 4 clusters critical", Impact: 5},
+		},
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			got := ComputeFleetScore(test.In)
+			want := FleetScore{Score: test.WantScore, Grade: test.WantGrade, Drivers: test.WantDrivers}
+			opts := []cmp.Option{
+				cmpopts.EquateEmpty(),
+				cmpopts.IgnoreFields(FleetScore{}, "Headline", "SampleSize", "Dimensions", "ExcludedClusters"),
+			}
+			if diff := cmp.Diff(want, got, opts...); diff != "" {
+				t.Errorf("score mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestHeadlineThresholds pins the headline bands at 95, 85, 70, and 50.
+func TestHeadlineThresholds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Score        int
+		Clusters     int
+		WantHeadline string
+	}{
+		{Score: 100, Clusters: 3, WantHeadline: "3 clusters, no meaningful drift."},               // Test 0: Score 100.
+		{Score: 95, Clusters: 1, WantHeadline: "1 cluster, no meaningful drift."},                 // Test 1: Score 95.
+		{Score: 94, Clusters: 3, WantHeadline: "3 clusters, light drift worth a glance."},         // Test 2: Score 94.
+		{Score: 85, Clusters: 3, WantHeadline: "3 clusters, light drift worth a glance."},         // Test 3: Score 85.
+		{Score: 84, Clusters: 3, WantHeadline: "3 clusters, real drift to investigate."},          // Test 4: Score 84.
+		{Score: 70, Clusters: 3, WantHeadline: "3 clusters, real drift to investigate."},          // Test 5: Score 70.
+		{Score: 69, Clusters: 3, WantHeadline: "3 clusters, significant drift across the fleet."}, // Test 6: Score 69.
+		{Score: 50, Clusters: 3, WantHeadline: "3 clusters, significant drift across the fleet."}, // Test 7: Score 50.
+		{Score: 49, Clusters: 3, WantHeadline: "3 clusters, fleet health is degraded."},           // Test 8: Score 49.
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := &Report{Clusters: make([]string, test.Clusters)}
+			if diff := cmp.Diff(test.WantHeadline, headline(test.Score, r)); diff != "" {
+				t.Errorf("headline mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

@@ -213,3 +213,177 @@ func isSorted(s []string) bool {
 	}
 	return true
 }
+
+// oneHot returns a vector of length dims with 1 at index hot and off added at
+// the last index, so group members sit a tiny, distinct distance apart.
+func oneHot(dims, hot int, off float64) []float64 {
+	v := make([]float64, dims)
+	v[hot] = 1
+	v[dims-1] += off
+	return v
+}
+
+// nineGroups builds 27 profiles in nine groups of three. Groups g0 to g7 sit on
+// unit axes 0 to 7, pairwise sqrt(2) apart. Group g8 sits at axis 7 plus axis 8,
+// one unit from g7 and sqrt(3) from the rest, so g7 and g8 merge first.
+func nineGroups() []ClusterProfile {
+	const dims = 10
+	offs := []float64{0, 0.001, 0.003}
+	var out []ClusterProfile
+	for g := range 9 {
+		for m, off := range offs {
+			hot := g
+			if g == 8 {
+				hot = 7
+			}
+			v := oneHot(dims, hot, off)
+			if g == 8 {
+				v[8] = 1
+			}
+			out = append(out, ClusterProfile{Name: fmt.Sprintf("g%d-%d", g, m), Features: v})
+		}
+	}
+	return out
+}
+
+// groupNames returns the three member names of nine-group fleet group g.
+func groupNames(gs ...int) []string {
+	var out []string
+	for _, g := range gs {
+		for m := range 3 {
+			out = append(out, fmt.Sprintf("g%d-%d", g, m))
+		}
+	}
+	return out
+}
+
+// TestAssignGolden pins exact cohort membership at the size and count
+// boundaries. Merge distances in each comment are average-linkage values
+// computed by hand.
+func TestAssignGolden(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+
+	// Two groups of three on a line: a at 0, 0.01, 0.03 and b at 1, 1.02, 1.05.
+	// Merges: a1a2 0.01, b1b2 0.02, a3 0.025, b3 0.04, a-b 1.01. The largest
+	// gap precedes the last merge, so K is 2.
+	sixLine := []ClusterProfile{
+		{Name: "a1", Features: []float64{0}},
+		{Name: "a2", Features: []float64{0.01}},
+		{Name: "a3", Features: []float64{0.03}},
+		{Name: "b1", Features: []float64{1}},
+		{Name: "b2", Features: []float64{1.02}},
+		{Name: "b3", Features: []float64{1.05}},
+	}
+
+	autoNine := make([]Cohort, 0, 9)
+	for g := range 9 {
+		autoNine = append(autoNine, Cohort{
+			Name: fmt.Sprintf("auto-%d", g+1), Source: SourceAuto, Clusters: groupNames(g),
+		})
+	}
+	autoEight := append([]Cohort(nil), autoNine[:7]...)
+	autoEight = append(autoEight, Cohort{Name: "auto-8", Source: SourceAuto, Clusters: groupNames(7, 8)})
+
+	tests := []struct {
+		Name        string
+		Profiles    []ClusterProfile
+		Opts        Options
+		WantCohorts []Cohort
+	}{{ // Test 0: Five clusters are under the six-cluster floor, so one fleet cohort.
+		Name:     "n=5 is one fleet cohort",
+		Profiles: sixLine[1:],
+		WantCohorts: []Cohort{
+			{Name: "fleet", Source: SourceFleet, Clusters: []string{"a2", "a3", "b1", "b2", "b3"}},
+		},
+	}, { // Test 1: Six clusters reach the floor and split into the two groups.
+		Name:     "n=6 splits",
+		Profiles: sixLine,
+		WantCohorts: []Cohort{
+			{Name: "auto-1", Source: SourceAuto, Clusters: []string{"a1", "a2", "a3"}},
+			{Name: "auto-2", Source: SourceAuto, Clusters: []string{"b1", "b2", "b3"}},
+		},
+	}, { // Test 2: A singleton s at (0.6,1.2) is cut out at K=3. Merges: a within
+		// 0.01 and 0.021, b within 0.03 and 0.045, a-b about 1.01, s last at about
+		// 1.3. The gap before a-b (0.965) beats the gap before s (0.29), so K=3 and
+		// s stands alone. Its nearest member is b3 at 1.227 against a3 at 1.324,
+		// so s folds into b.
+		Name: "singleton folds into nearest cohort",
+		Profiles: []ClusterProfile{
+			{Name: "a1", Features: []float64{0, 0}},
+			{Name: "a2", Features: []float64{0.01, 0}},
+			{Name: "a3", Features: []float64{0, 0.02}},
+			{Name: "b1", Features: []float64{1, 0}},
+			{Name: "b2", Features: []float64{1.03, 0}},
+			{Name: "b3", Features: []float64{1, 0.04}},
+			{Name: "s", Features: []float64{0.6, 1.2}},
+		},
+		WantCohorts: []Cohort{
+			{Name: "auto-1", Source: SourceAuto, Clusters: []string{"a1", "a2", "a3"}},
+			{Name: "auto-2", Source: SourceAuto, Clusters: []string{"b1", "b2", "b3", "s"}},
+		},
+	}, { // Test 3: Nine groups want K=9 (gap 1.0 before the g7-g8 merge), the cap
+		// of 8 forces the cut after it, so g7 and g8 share a cohort. The gap at K=8
+		// is 1.414-1.0=0.414 and every later gap is under 0.16.
+		Name:        "nine groups capped at eight",
+		Profiles:    nineGroups(),
+		WantCohorts: autoEight,
+	}, { // Test 4: With the cap raised to nine, the same fleet keeps all nine groups.
+		Name:        "nine groups with cap nine",
+		Profiles:    nineGroups(),
+		Opts:        Options{MaxCohorts: 9},
+		WantCohorts: autoNine,
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			got := Assign(test.Profiles, test.Opts)
+			if diff := cmp.Diff(test.WantCohorts, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("cohorts mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestProfilesGolden pins exact imputed and normalized feature vectors. Feature
+// order follows featureSpecs: node_count, namespace_count, service_count,
+// ingress_count, cluster_role_count, crd_count, avg_cpu_percent,
+// avg_memory_percent, enforced_count, network_policy_count, quota_count,
+// minor_version.
+func TestProfilesGolden(t *testing.T) {
+	t.Parallel()
+
+	// node_count 6, 3, 9 normalizes over span 6 to 0.5, 0, 1. namespace count
+	// 12, 8, missing imputes the median 10, then normalizes over span 4 to 1, 0,
+	// 0.5. services only on a (5) imputes 5 everywhere, a zero span, so 0. minor
+	// 31, 30, 31+ normalizes to 1, 0, 1. Every other feature is absent and 0.
+	lookup := stubLookup{
+		"resources": {
+			"a": map[string]any{"node_count": 6.0},
+			"b": map[string]any{"node_count": 3.0},
+			"c": map[string]any{"node_count": 9.0},
+		},
+		"namespaces": {
+			"a": map[string]any{"count": 12.0},
+			"b": map[string]any{"count": 8.0},
+		},
+		"services": {
+			"a": map[string]any{"count": 5.0},
+		},
+		"version": {
+			"a": map[string]any{"minor": "31"},
+			"b": map[string]any{"minor": "30"},
+			"c": map[string]any{"minor": "31+"},
+		},
+	}
+
+	got := Profiles([]string{"a", "b", "c"}, lookup, map[string]string{"a": "prod"})
+	want := []ClusterProfile{
+		{Name: "a", Tag: "prod", Features: []float64{0.5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}},
+		{Name: "b", Features: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+		{Name: "c", Features: []float64{1, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}},
+	}
+	if diff := cmp.Diff(want, got, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
+		t.Errorf("profiles mismatch (-want +got):\n%s", diff)
+	}
+}
