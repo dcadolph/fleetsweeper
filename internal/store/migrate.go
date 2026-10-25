@@ -166,6 +166,13 @@ CREATE TABLE IF NOT EXISTS cluster_tags (
 CREATE INDEX IF NOT EXISTS idx_cluster_tags_key_value ON cluster_tags(key, value);
 `,
 	},
+	{
+		Version: 8,
+		SQL: `
+ALTER TABLE scan_results ADD COLUMN state TEXT NOT NULL DEFAULT '';
+ALTER TABLE scan_results ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // migrate ensures the schema is at the latest version. It is safe to call

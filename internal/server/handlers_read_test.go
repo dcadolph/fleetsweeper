@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -113,6 +116,45 @@ func TestHandleGetScanReport_TagFilter(t *testing.T) {
 	}
 	if _, ok := obj["sections"]; !ok {
 		t.Error("report missing sections key")
+	}
+}
+
+// TestHandleGetScanReport_DegradedSurvivesStore verifies a scanner that
+// errored during a stored scan is listed as degraded in the rebuilt report,
+// exactly as the live scan reported it, rather than read as a clean result.
+func TestHandleGetScanReport_DegradedSurvivesStore(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	clusters := []string{"east", "west"}
+	results := make(map[string]map[string]scanner.Result, len(clusters))
+	for _, c := range clusters {
+		results[c] = map[string]scanner.Result{
+			"version": {Scanner: "version", Data: map[string]any{"git_version": "v1.31.2", "minor": 31}},
+		}
+	}
+	results["west"]["certs"] = scanner.ErroredResult("certs", errors.New("context deadline exceeded"))
+	id, err := ss.SaveScan(context.Background(), clusters, results)
+	if err != nil {
+		t.Fatalf("seed scan: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/scans/"+id+"/report", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Degraded []report.ScannerStatus `json:"degraded"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	want := []report.ScannerStatus{{
+		Cluster: "west", Scanner: "certs", State: "errored", Reason: "context deadline exceeded",
+	}}
+	if diff := cmp.Diff(want, got.Degraded); diff != "" {
+		t.Errorf("degraded mismatch (-want +got):\n%s", diff)
 	}
 }
 
