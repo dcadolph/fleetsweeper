@@ -16,7 +16,7 @@ import (
 // process log and would balloon the table.
 func (s *Server) auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !requiresWrite(r) {
+		if !mutates(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -380,3 +380,84 @@ func (c *Client) Cohorts(ctx context.Context, threshold float64, opts ...ReadOpt
 	}
 	return &out, nil
 }
+
+// Distributions returns the distributions behind the fleet norm for one scan.
+func (c *Client) Distributions(ctx context.Context, query DistributionQuery, opts ...ReadOption) (*DistributionsResponse, error) {
+	q := url.Values{}
+	for k, v := range map[string]string{"scope": query.Scope, "scanner": query.Scanner, "field": query.Field} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	var out DistributionsResponse
+	if err := c.do(ctx, http.MethodGet, "/api/distributions", readQuery(q, opts), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DistributionHistory returns one field's distribution across the most
+// recent scans, oldest first. An empty scope means fleet and a non-positive
+// scans count uses the server default.
+func (c *Client) DistributionHistory(ctx context.Context, scanner, field, scope string, scans int) (*HistoryResponse, error) {
+	q := url.Values{"scanner": []string{scanner}, "field": []string{field}}
+	if scope != "" {
+		q.Set("scope", scope)
+	}
+	if scans > 0 {
+		q.Set("scans", strconv.Itoa(scans))
+	}
+	var out HistoryResponse
+	if err := c.do(ctx, http.MethodGet, "/api/distributions/history", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ScoreAttribution returns the fleet score of one scan and the ledger behind
+// it.
+func (c *Client) ScoreAttribution(ctx context.Context, opts ...ReadOption) (*AttributionResponse, error) {
+	var out AttributionResponse
+	if err := c.do(ctx, http.MethodGet, "/api/score/attribution", readQuery(nil, opts), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Drift returns the drift ledger over the window query selects.
+func (c *Client) Drift(ctx context.Context, query DriftQuery) (*DriftLedger, error) {
+	q := url.Values{}
+	if query.Scans > 0 {
+		q.Set("scans", strconv.Itoa(query.Scans))
+	}
+	if !query.Since.IsZero() {
+		q.Set("since", query.Since.UTC().Format(time.RFC3339))
+	}
+	if !query.Until.IsZero() {
+		q.Set("until", query.Until.UTC().Format(time.RFC3339))
+	}
+	var out DriftLedger
+	if err := c.do(ctx, http.MethodGet, "/api/drift", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CohortMap returns the two-dimensional cohort map of one scan.
+func (c *Client) CohortMap(ctx context.Context, opts ...ReadOption) (*CohortMapResponse, error) {
+	var out CohortMapResponse
+	if err := c.do(ctx, http.MethodGet, "/api/cohorts/map", readQuery(nil, opts), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// WhatIf projects the score and norm if one cluster's field were fixed. The
+// server writes nothing.
+func (c *Client) WhatIf(ctx context.Context, req WhatIfRequest) (*WhatIfResponse, error) {
+	var out WhatIfResponse
+	if err := c.do(ctx, http.MethodPost, "/api/whatif", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

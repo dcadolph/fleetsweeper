@@ -3,6 +3,7 @@ package client_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -356,5 +357,86 @@ func TestContractWithScan(t *testing.T) {
 		if err := call(); !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
 			t.Errorf("%s with an unknown scan: want a 404 APIError, got %v", label, err)
 		}
+	}
+}
+
+// TestContractNorm drives the distribution, history, attribution, drift,
+// cohort map, and what-if methods against stored scans where c04 steps far
+// from the fleet at the fourth scan.
+func TestContractNorm(t *testing.T) {
+	t.Parallel()
+	c, st, _ := newContractServer(t, true, "")
+	ctx := context.Background()
+	start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	base := []float64{20, 22, 23, 24, 24, 25, 26, 26, 28, 30}
+	for n := 1; n <= 5; n++ {
+		clusters := make([]string, 0, len(base))
+		results := map[string]map[string]scanner.Result{}
+		for i, v := range base {
+			cl := fmt.Sprintf("c%02d", i)
+			if cl == "c04" && n >= 4 {
+				v = 80
+			}
+			clusters = append(clusters, cl)
+			results[cl] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+		}
+		rec := store.ScanRecord{ID: fmt.Sprintf("scan-%d", n), Timestamp: start.Add(time.Duration(n) * time.Hour), Clusters: clusters}
+		if _, err := st.SaveScanRecord(ctx, rec, results); err != nil {
+			t.Fatalf("save: %v", err)
+		}
+	}
+
+	dists, err := c.Distributions(ctx, client.DistributionQuery{Field: "enforced_count"})
+	if err != nil || dists.ScanID != "scan-5" || len(dists.Distributions) != 1 {
+		t.Fatalf("distributions: %+v, %v", dists, err)
+	}
+	flagged := 0
+	for _, v := range dists.Distributions[0].Values {
+		if v.Outlier {
+			flagged++
+		}
+	}
+	if flagged != 1 {
+		t.Errorf("want one flagged cluster, got %d", flagged)
+	}
+
+	hist, err := c.DistributionHistory(ctx, "security", "enforced_count", "", 5)
+	if err != nil || len(hist.Points) != 5 || hist.Points[0].ScanID != "scan-1" {
+		t.Errorf("history: %+v, %v", hist, err)
+	}
+
+	attr, err := c.ScoreAttribution(ctx, client.WithScan("scan-1"))
+	if err != nil || attr.ScanID != "scan-1" || attr.Attribution == nil {
+		t.Errorf("attribution: %+v, %v", attr, err)
+	}
+
+	drift, err := c.Drift(ctx, client.DriftQuery{Scans: 5})
+	if err != nil || len(drift.Clusters) == 0 || drift.Clusters[0].Cluster != "c04" {
+		t.Fatalf("drift: %+v, %v", drift, err)
+	}
+	if g := drift.Clusters[0].Gained; len(g) != 1 || g[0].Scan != "scan-4" {
+		t.Errorf("drift gained: %+v", g)
+	}
+	window, err := c.Drift(ctx, client.DriftQuery{Since: start.Add(150 * time.Minute)})
+	if err != nil || len(window.Scans) != 3 {
+		t.Errorf("drift window: %+v, %v", window, err)
+	}
+
+	m, err := c.CohortMap(ctx)
+	if err != nil || len(m.Map.Points) != 10 {
+		t.Errorf("cohort map: %+v, %v", m, err)
+	}
+
+	out, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "enforced_count"})
+	if err != nil {
+		t.Fatalf("whatif: %v", err)
+	}
+	if out.Outcome.Fix.Kind != "median" || out.Outcome.ScoreAfter <= out.Outcome.ScoreBefore {
+		t.Errorf("whatif outcome: %+v", out.Outcome)
+	}
+	var apiErr *client.APIError
+	if _, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "nope"}); !errors.As(err, &apiErr) ||
+		apiErr.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("whatif on an unknown field: want 422, got %v", err)
 	}
 }

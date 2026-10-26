@@ -125,7 +125,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if requiresWrite(r) {
+		if mutates(r) {
 			if actor.ID == "" {
 				writeError(w, http.StatusUnauthorized, "missing bearer token")
 				return
@@ -290,6 +290,17 @@ func requiresWrite(r *http.Request) bool {
 	default:
 		return true
 	}
+}
+
+// readOnlyPosts lists POST endpoints, relative to /api, that compute an answer from stored data
+// and write nothing. Auth and audit treat them as reads; the rate limiter still charges them to
+// the write budget because they cost as much as one.
+var readOnlyPosts = map[string]bool{"/whatif": true}
+
+// mutates reports whether the request changes state: a write method on a path that is not a
+// read-only POST.
+func mutates(r *http.Request) bool {
+	return requiresWrite(r) && !(r.Method == http.MethodPost && readOnlyPosts[r.URL.Path])
 }
 
 // pathIsAdmin reports whether the request path is one of the admin-only

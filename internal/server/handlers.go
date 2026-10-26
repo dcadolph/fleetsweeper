@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/dcadolph/fleetsweeper/internal/cohort"
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/store"
@@ -39,13 +40,16 @@ func (s *Server) writeDemoClusterDetail(ctx context.Context, w http.ResponseWrit
 		}
 	}
 	s.markAcked(ctx, findings)
+	peers, dists := clusterPlacement(rpt, cluster)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"cluster":      cluster,
-		"scan_id":      demoScanID,
-		"scan_time":    demoTimestamp(),
-		"health":       health,
-		"findings":     findings,
-		"scanner_data": map[string]any{},
+		"cluster":       cluster,
+		"scan_id":       demoScanID,
+		"scan_time":     demoTimestamp(),
+		"health":        health,
+		"findings":      findings,
+		"scanner_data":  map[string]any{},
+		"peers":         peers,
+		"distributions": dists,
 	})
 }
 
@@ -394,20 +398,17 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	results, err := s.store.GetScanResults(ctx, latest.ID)
-	if err != nil {
-		s.log.Error("cluster detail: get results", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "get scan results failed")
+	in, ok := s.scanInputFor(w, r, *latest, "cluster detail")
+	if !ok {
 		return
 	}
-
-	clusterData, ok := results[cluster]
+	clusterData, ok := in.Results[cluster]
 	if !ok {
 		writeError(w, http.StatusNotFound, "cluster not found in latest scan")
 		return
 	}
 
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
+	rpt := in.build()
 
 	var clusterHealth *report.ClusterHealth
 	for i := range rpt.ClusterHealths {
@@ -429,15 +430,39 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 		scannerData[name] = result.Data
 	}
 	s.markAcked(ctx, clusterFindings)
+	peers, dists := clusterPlacement(rpt, cluster)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"cluster":      cluster,
-		"scan_id":      latest.ID,
-		"scan_time":    latest.Timestamp,
-		"health":       clusterHealth,
-		"findings":     clusterFindings,
-		"scanner_data": scannerData,
+		"cluster":       cluster,
+		"scan_id":       latest.ID,
+		"scan_time":     latest.Timestamp,
+		"health":        clusterHealth,
+		"findings":      clusterFindings,
+		"scanner_data":  scannerData,
+		"peers":         peers,
+		"distributions": dists,
 	})
+}
+
+// clusterPlacement returns where cluster sits in the fleet: its nearest peers on the cohort map
+// and every distribution, in any scope, that flags it.
+func clusterPlacement(rpt *report.Report, cluster string) ([]cohort.Peer, []report.Distribution) {
+	peers := []cohort.Peer{}
+	for _, p := range report.CohortMapFor(rpt).Points {
+		if p.Cluster == cluster && p.Peers != nil {
+			peers = p.Peers
+		}
+	}
+	dists := []report.Distribution{}
+	for _, d := range rpt.Distributions {
+		for _, v := range d.Values {
+			if v.Cluster == cluster && v.Outlier {
+				dists = append(dists, d)
+				break
+			}
+		}
+	}
+	return peers, dists
 }
 
 // handleListGroups returns all groups.
