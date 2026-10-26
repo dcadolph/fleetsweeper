@@ -134,3 +134,47 @@ func TestAckAlert_EmptyFingerprintReturnsBadRequest(t *testing.T) {
 		t.Errorf("want 400, got %d", w.Code)
 	}
 }
+
+// TestListAlertsCarriesAck verifies GET /api/alerts marks an alert acked
+// once an ack covers it, and unacked again after the ack is deleted.
+func TestListAlertsCarriesAck(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	seedAlertForAck(t, ss)
+	h := srv.Handler()
+	ackedOf := func() bool {
+		t.Helper()
+		var out struct {
+			Alerts []alertView `json:"alerts"`
+		}
+		if code := serve(t, h, http.MethodGet, "/api/alerts", "", "", &out); code != http.StatusOK || len(out.Alerts) != 1 {
+			t.Fatalf("list: status %d, %d alerts", code, len(out.Alerts))
+		}
+		return out.Alerts[0].Acked
+	}
+	tests := []struct {
+		Action    func()
+		WantAcked bool
+	}{{ // Test 0: No ack yet.
+		Action: func() {},
+	}, { // Test 1: After an ack.
+		Action: func() {
+			if err := ss.SaveAck(context.Background(), store.AckRecord{Fingerprint: "alert-fp", CreatedAt: time.Now()}); err != nil {
+				t.Fatalf("save ack: %v", err)
+			}
+		},
+		WantAcked: true,
+	}, { // Test 2: After the ack is deleted.
+		Action: func() {
+			if err := ss.DeleteAck(context.Background(), "alert-fp"); err != nil {
+				t.Fatalf("delete ack: %v", err)
+			}
+		},
+	}}
+	for testNum, test := range tests {
+		test.Action()
+		if got := ackedOf(); got != test.WantAcked {
+			t.Errorf("test %d: acked %v, want %v", testNum, got, test.WantAcked)
+		}
+	}
+}
