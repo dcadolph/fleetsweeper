@@ -384,6 +384,12 @@ func (s *Server) apiRoutes() []route {
 		{Method: http.MethodGet, Path: "/admin/whoami", Handler: s.handleAdminWhoami},
 		{Method: http.MethodGet, Path: "/admin/system", Handler: s.handleAdminSystem},
 		{Method: http.MethodGet, Path: "/scanners", Handler: s.handleListScanners},
+		{Method: http.MethodGet, Path: "/distributions", Handler: s.handleGetDistributions},
+		{Method: http.MethodGet, Path: "/distributions/history", Handler: s.handleGetDistributionHistory},
+		{Method: http.MethodGet, Path: "/score/attribution", Handler: s.handleGetScoreAttribution},
+		{Method: http.MethodGet, Path: "/drift", Handler: s.handleGetDrift},
+		{Method: http.MethodGet, Path: "/cohorts/map", Handler: s.handleGetCohortMap},
+		{Method: http.MethodPost, Path: "/whatif", Handler: s.handleWhatIf},
 		{Method: http.MethodGet, Path: "/events", Handler: s.handleEventsStream},
 	}
 }

@@ -523,3 +523,58 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// demoStepCluster is the demo cluster whose ClusterRole count steps up partway through the demo
+// history, so the drift ledger and the distribution history have a real change to show.
+const demoStepCluster = "prod-us-west-2"
+
+// demoScanInput returns the current demo scan, ready to rebuild through the real engine.
+func demoScanInput() *scanInput {
+	rec := demoScanRecord()
+	return &scanInput{
+		ID:        rec.ID,
+		Timestamp: rec.Timestamp,
+		Clusters:  rec.Clusters,
+		Results:   demoResults(),
+		Opts:      report.BuildOptions{ClusterTags: demoTags(), Timestamp: rec.Timestamp},
+	}
+}
+
+// demoScanSeries returns n demo scans six hours apart, oldest first, ending at the current demo
+// scan. Earlier scans carry a few points of per-scan CPU jitter on every cluster, and
+// demoStepCluster carries its ordinary ClusterRole count until two thirds of the way through,
+// when its RBAC sprawl arrives.
+func demoScanSeries(n int) []*scanInput {
+	if n < 1 {
+		n = 1
+	}
+	current := demoScanInput()
+	step := n - n/3
+	out := make([]*scanInput, 0, n)
+	for i := range n {
+		if i == n-1 {
+			out = append(out, current)
+			break
+		}
+		at := current.Timestamp.Add(-time.Duration(n-1-i) * demoSeriesStep)
+		results := demoResults()
+		for cluster, byScanner := range results {
+			if m, ok := byScanner["metrics"].Data.(map[string]any); ok {
+				cpu, _ := m["avg_cpu_percent"].(float64)
+				m["avg_cpu_percent"] = cpu + float64(jitter(cluster+"cpu"+itoa(i), 3))
+			}
+			if m, ok := byScanner["rbac"].Data.(map[string]any); ok && i < step {
+				roles, _ := m["cluster_role_count"].(int)
+				m["cluster_role_count"] = roles - demoRoleSprawl(cluster)
+			}
+		}
+		out = append(out, &scanInput{
+			ID:        demoScanID + "-t" + itoa(i),
+			Timestamp: at,
+			Clusters:  current.Clusters,
+			Results:   results,
+			Opts:      report.BuildOptions{ClusterTags: demoTags(), Timestamp: at},
+		})
+	}
+	return out
+}

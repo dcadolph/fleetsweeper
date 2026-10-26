@@ -394,6 +394,88 @@ components:
         duration_ms: {type: integer}
         error: {type: string}
 
+    CohortMap:
+      type: object
+      required: [points, leaf_order, stress]
+      properties:
+        points:
+          type: array
+          items:
+            type: object
+            required: [cluster, cohort, x, y]
+            properties:
+              cluster: {type: string}
+              cohort: {type: string}
+              x: {type: number}
+              y: {type: number}
+              peers:
+                type: array
+                items: {$ref: "#/components/schemas/Peer"}
+        leaf_order:
+          type: array
+          description: Every cluster, each cohort one contiguous run, in dendrogram order.
+          items: {type: string}
+        stress:
+          type: number
+          description: Kruskal stress-1 of the 2D layout. 0 is a perfect fit.
+
+    Peer:
+      type: object
+      required: [cluster, distance]
+      properties:
+        cluster: {type: string}
+        distance: {type: number, description: Euclidean distance between cohort feature vectors.}
+
+    DriftLedger:
+      type: object
+      required: [scans, clusters]
+      properties:
+        scans:
+          type: array
+          description: Scan IDs the ledger spans, oldest first.
+          items: {type: string}
+        clusters:
+          type: array
+          description: >-
+            Clusters whose own value changed or whose outlier flag flipped,
+            largest change in deviation mass first.
+          items:
+            type: object
+            required: [cluster, mass, mass_before, mass_after, mass_delta]
+            properties:
+              cluster: {type: string}
+              mass:
+                type: array
+                items: {type: number}
+              mass_before: {type: number}
+              mass_after: {type: number}
+              mass_delta: {type: number}
+              fields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    scanner: {type: string}
+                    field: {type: string}
+                    z_before: {type: number}
+                    z_after: {type: number}
+                    before: {type: string}
+                    after: {type: string}
+              gained:
+                type: array
+                items: {$ref: "#/components/schemas/FlagChange"}
+              lost:
+                type: array
+                items: {$ref: "#/components/schemas/FlagChange"}
+
+    FlagChange:
+      type: object
+      required: [scanner, field, scan]
+      properties:
+        scanner: {type: string}
+        field: {type: string}
+        scan: {type: string, description: Scan where the flag last flipped.}
+
     TagMap:
       type: object
       description: Tag key to value.
@@ -625,6 +707,14 @@ paths:
                   scanner_data:
                     type: object
                     additionalProperties: true
+                  peers:
+                    type: array
+                    description: The five nearest clusters on the cohort map.
+                    items: {$ref: "#/components/schemas/Peer"}
+                  distributions:
+                    type: array
+                    description: Every distribution, in any scope, that flags this cluster.
+                    items: {$ref: "#/components/schemas/Distribution"}
 
   /api/groups:
     get:
@@ -1430,3 +1520,179 @@ paths:
                     properties:
                       driver: {type: string}
                       healthy: {type: boolean}
+
+  /api/distributions:
+    get:
+      summary: The distributions behind the fleet norm for one scan
+      parameters:
+        - {$ref: "#/components/parameters/Scan"}
+        - in: query
+          name: scope
+          description: '"fleet" (default), a cohort name, or "*" for every scope.'
+          schema: {type: string}
+        - {in: query, name: scanner, schema: {type: string}}
+        - {in: query, name: field, schema: {type: string}}
+      responses:
+        "200":
+          description: Matching distributions, most deviant first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_id, distributions]
+                properties:
+                  scan_id: {type: string}
+                  distributions:
+                    type: array
+                    items: {$ref: "#/components/schemas/Distribution"}
+        "404": {description: No scans, or the named scan does not exist}
+
+  /api/distributions/history:
+    get:
+      summary: One field's distribution across the most recent scans
+      parameters:
+        - {in: query, name: scanner, required: true, schema: {type: string}}
+        - {in: query, name: field, required: true, schema: {type: string}}
+        - {in: query, name: scope, schema: {type: string, default: fleet}}
+        - {in: query, name: scans, schema: {type: integer, default: 24, maximum: 50}}
+      responses:
+        "200":
+          description: One point per scan, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scanner, field, scope, points]
+                properties:
+                  scanner: {type: string}
+                  field: {type: string}
+                  scope: {type: string}
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      required: [scan_id, timestamp]
+                      properties:
+                        scan_id: {type: string}
+                        timestamp: {type: string, format: date-time}
+                        distribution:
+                          nullable: true
+                          allOf:
+                            - {$ref: "#/components/schemas/Distribution"}
+        "400": {description: scanner or field missing}
+
+  /api/score/attribution:
+    get:
+      summary: The fleet score of one scan and the ledger of what it cost
+      parameters:
+        - {$ref: "#/components/parameters/Scan"}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_id, score, attribution]
+                properties:
+                  scan_id: {type: string}
+                  score: {$ref: "#/components/schemas/FleetScore"}
+                  attribution: {$ref: "#/components/schemas/ScoreAttribution"}
+        "404": {description: No scans, or the named scan does not exist}
+
+  /api/drift:
+    get:
+      summary: Which clusters drifted against the fleet norm over a window of scans
+      description: >-
+        Either the most recent scans (scans, default 10) or the scans between
+        since and until, at most 50 of the newest.
+      parameters:
+        - {in: query, name: scans, schema: {type: integer, default: 10, maximum: 50}}
+        - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: until, schema: {type: string, format: date-time}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DriftLedger"}
+        "400": {description: since or until is not RFC 3339}
+
+  /api/cohorts/map:
+    get:
+      summary: Two-dimensional cohort map of one scan with nearest peers
+      parameters:
+        - {$ref: "#/components/parameters/Scan"}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_id, map]
+                properties:
+                  scan_id: {type: string}
+                  map: {$ref: "#/components/schemas/CohortMap"}
+        "404": {description: No scans, or the named scan does not exist}
+
+  /api/whatif:
+    post:
+      summary: Project the score and norm if one cluster's field were fixed
+      description: >-
+        Rebuilds the scan from a patched copy of its results and writes
+        nothing. A read-scope key may call it; it counts against the write rate
+        limit. A cluster outside the caller's scope is a 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cluster, scanner, field]
+              properties:
+                cluster: {type: string}
+                scanner: {type: string}
+                field: {type: string}
+                fix: {type: string, enum: [median, mode, consensus, remove]}
+                scope: {type: string, default: fleet}
+                scan: {type: string, description: Scan to project from. Empty means the latest.}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_id, outcome]
+                properties:
+                  scan_id: {type: string}
+                  outcome:
+                    type: object
+                    required: [fix, score_before, score_after, before, median_shift, mad_shift]
+                    properties:
+                      fix:
+                        type: object
+                        properties:
+                          cluster: {type: string}
+                          scanner: {type: string}
+                          field: {type: string}
+                          kind: {type: string}
+                          scope: {type: string}
+                      score_before: {type: integer}
+                      score_after: {type: integer}
+                      before: {$ref: "#/components/schemas/Distribution"}
+                      after: {$ref: "#/components/schemas/Distribution"}
+                      median_shift: {type: number}
+                      mad_shift: {type: number}
+                      new_outliers:
+                        type: array
+                        items: {type: string}
+                      cleared_outliers:
+                        type: array
+                        items: {type: string}
+        "400": {description: Missing or unknown fields in the body}
+        "403": {description: Cluster outside the caller's scope}
+        "404": {description: No scans, or the named scan does not exist}
+        "422": {description: The fix does not apply to the field or cluster}
+        "429": {description: Rate limited}

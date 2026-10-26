@@ -55,7 +55,7 @@ func demoResults() map[string]map[string]scanner.Result {
 			"namespaces":       {"count": demoNSCount(c) + jitter(c+"ns", 3)},
 			"services":         {"count": roleBase(c, 60, 24, 14) + jitter(c+"svc", 8)},
 			"ingresses":        {"count": roleBase(c, 22, 9, 4) + jitter(c+"ing", 3)},
-			"rbac":             {"cluster_role_count": 48 + jitter(c+"rb", 14)},
+			"rbac":             {"cluster_role_count": 48 + jitter(c+"rb", 14) + demoRoleSprawl(c)},
 			"crds":             {"count": roleBase(c, 41, 22, 12) + jitter(c+"crd", 5)},
 			"security":         {"enforced_count": roleBase(c, 30, 12, 9), "unenforced_count": unenforced},
 			"network-policies": {"count": roleBase(c, 26, 10, 4), "namespaces_without_policies": nsWithout},
@@ -79,6 +79,15 @@ func demoResults() map[string]map[string]scanner.Result {
 	}
 
 	return out
+}
+
+// demoRoleSprawl is how many extra ClusterRoles demoStepCluster carries in the current demo
+// scan, an RBAC sprawl the demo history shows arriving partway through.
+func demoRoleSprawl(cluster string) int {
+	if cluster == demoStepCluster {
+		return 60
+	}
+	return 0
 }
 
 // demoTags assigns each cluster a cohort label by role so the cohort engine

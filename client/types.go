@@ -279,6 +279,16 @@ type Report struct {
 	Capacity []CapacityAnalysis `json:"capacity,omitempty"`
 	// Notes explain analysis the report could not run.
 	Notes []string `json:"notes,omitempty"`
+	// Distributions holds the population behind every field the detectors
+	// evaluated, fleet scope first, most deviant first.
+	Distributions []Distribution `json:"distributions,omitempty"`
+	// DeviationMass sums, per cluster, the capped |z| of its fleet-scope
+	// numeric values.
+	DeviationMass map[string]float64 `json:"deviation_mass,omitempty"`
+	// ScoreAttribution is the cost ledger behind FleetScore.
+	ScoreAttribution *ScoreAttribution `json:"score_attribution,omitempty"`
+	// Cohorts partitions the fleet with within-cohort outliers.
+	Cohorts []CohortSummary `json:"cohorts,omitempty"`
 }
 
 // CostByCluster is the cost correlation for one cluster.
@@ -409,6 +419,10 @@ type ClusterDetail struct {
 	Findings []Finding `json:"findings,omitempty"`
 	// ScannerData is the raw per-scanner output, keyed by scanner name.
 	ScannerData map[string]json.RawMessage `json:"scanner_data,omitempty"`
+	// Peers lists the five nearest clusters on the cohort map.
+	Peers []Peer `json:"peers,omitempty"`
+	// Distributions lists every distribution that flags the cluster.
+	Distributions []Distribution `json:"distributions,omitempty"`
 }
 
 // OutliersResponse is the payload of GET /api/outliers.
@@ -589,4 +603,316 @@ type CohortsResponse struct {
 	ScanID string `json:"scan_id"`
 	// Cohorts partitions the fleet.
 	Cohorts []CohortSummary `json:"cohorts"`
+}
+
+// Distribution is the population a detector measured one field against.
+type Distribution struct {
+	// Scope is "fleet" or a cohort name.
+	Scope string `json:"scope"`
+	// Scanner is the scanner of the field.
+	Scanner string `json:"scanner"`
+	// Field is the field.
+	Field string `json:"field"`
+	// Kind is numeric, string, or set.
+	Kind string `json:"kind"`
+	// Values holds one entry per cluster in the population.
+	Values []ClusterValue `json:"values"`
+	// Median is the median of a numeric field.
+	Median float64 `json:"median"`
+	// MAD is the median absolute deviation of a numeric field.
+	MAD float64 `json:"mad"`
+	// Band is how far from the median a numeric value may sit before it flags.
+	Band float64 `json:"band"`
+	// Threshold is the cutoff the detector applied.
+	Threshold float64 `json:"threshold"`
+	// Mode is the most common value of a string field.
+	Mode string `json:"mode,omitempty"`
+	// ModeShare is the share of the population holding Mode.
+	ModeShare float64 `json:"mode_share,omitempty"`
+	// Consensus lists the members of a set field most clusters have.
+	Consensus []string `json:"consensus,omitempty"`
+	// SampleSize is the number of clusters in the population.
+	SampleSize int `json:"sample_size"`
+	// LimitedSample marks a population too small for MAD.
+	LimitedSample bool `json:"limited_sample,omitempty"`
+	// Mass is the sum of |z| capped at 10 per value.
+	Mass float64 `json:"mass"`
+}
+
+// ClusterValue is one cluster's value in a Distribution.
+type ClusterValue struct {
+	// Cluster is the cluster name.
+	Cluster string `json:"cluster"`
+	// Number is the value of a numeric field.
+	Number *float64 `json:"number,omitempty"`
+	// Text is the value of a string field.
+	Text string `json:"text,omitempty"`
+	// Size is how many members a set field has on this cluster.
+	Size int `json:"size,omitempty"`
+	// Missing lists the consensus members this cluster lacks.
+	Missing []string `json:"missing,omitempty"`
+	// Z is the signed modified z-score of a numeric value.
+	Z float64 `json:"z,omitempty"`
+	// Outlier is true when the detector flagged this cluster.
+	Outlier bool `json:"outlier,omitempty"`
+}
+
+// DistributionsResponse is the body of GET /api/distributions.
+type DistributionsResponse struct {
+	// ScanID is the scan the distributions came from.
+	ScanID string `json:"scan_id"`
+	// Distributions are the matching distributions, most deviant first.
+	Distributions []Distribution `json:"distributions"`
+}
+
+// DistributionQuery filters GET /api/distributions. Empty fields match all,
+// and an empty Scope means fleet.
+type DistributionQuery struct {
+	// Scope is "fleet", a cohort name, or "*" for every scope.
+	Scope string
+	// Scanner restricts to one scanner.
+	Scanner string
+	// Field restricts to one field.
+	Field string
+}
+
+// HistoryPoint is one scan's distribution of a field.
+type HistoryPoint struct {
+	// ScanID is the scan.
+	ScanID string `json:"scan_id"`
+	// Timestamp is when the scan ran.
+	Timestamp time.Time `json:"timestamp"`
+	// Distribution is the field's distribution in that scan, nil when absent.
+	Distribution *Distribution `json:"distribution"`
+}
+
+// HistoryResponse is the body of GET /api/distributions/history.
+type HistoryResponse struct {
+	// Scanner is the scanner of the field.
+	Scanner string `json:"scanner"`
+	// Field is the field.
+	Field string `json:"field"`
+	// Scope is the norm scope.
+	Scope string `json:"scope"`
+	// Points lists the distribution per scan, oldest first.
+	Points []HistoryPoint `json:"points"`
+}
+
+// ScoreAttribution is the cost ledger behind a fleet score.
+type ScoreAttribution struct {
+	// Terms lists every term that cost points.
+	Terms []ScoreTerm `json:"terms"`
+	// Entries lists every contribution to a term.
+	Entries []ScoreEntry `json:"entries"`
+	// Total is the sum of applied costs.
+	Total float64 `json:"total"`
+	// ByCluster sums applied cost per cluster.
+	ByCluster map[string]float64 `json:"by_cluster,omitempty"`
+	// ByRule sums applied cost per finding rule.
+	ByRule map[string]float64 `json:"by_rule,omitempty"`
+}
+
+// ScoreTerm is one cost category of the fleet score.
+type ScoreTerm struct {
+	// Term names the category.
+	Term string `json:"term"`
+	// Reason is the driver label.
+	Reason string `json:"reason"`
+	// Count is how many findings or clusters the term charged.
+	Count int `json:"count"`
+	// Raw is the cost before the cap.
+	Raw float64 `json:"raw"`
+	// Cap is the most the term may cost, zero when uncapped.
+	Cap float64 `json:"cap,omitempty"`
+	// Cost is the points the term removed.
+	Cost float64 `json:"cost"`
+}
+
+// ScoreEntry is one contribution to a score term.
+type ScoreEntry struct {
+	// Term is the category.
+	Term string `json:"term"`
+	// Rule is the finding rule charged, if any.
+	Rule string `json:"rule,omitempty"`
+	// Cluster is the cluster charged, if any.
+	Cluster string `json:"cluster,omitempty"`
+	// Raw is the cost before the cap.
+	Raw float64 `json:"raw"`
+	// Cost is the cost after the cap.
+	Cost float64 `json:"cost"`
+}
+
+// AttributionResponse is the body of GET /api/score/attribution.
+type AttributionResponse struct {
+	// ScanID is the scan the score came from.
+	ScanID string `json:"scan_id"`
+	// Score is the fleet score.
+	Score FleetScore `json:"score"`
+	// Attribution is the ledger behind it.
+	Attribution *ScoreAttribution `json:"attribution"`
+}
+
+// DriftLedger is the body of GET /api/drift.
+type DriftLedger struct {
+	// Scans lists the scan IDs spanned, oldest first.
+	Scans []string `json:"scans"`
+	// Clusters lists the clusters that drifted, largest change first.
+	Clusters []ClusterDrift `json:"clusters"`
+}
+
+// ClusterDrift is one cluster's row in the drift ledger.
+type ClusterDrift struct {
+	// Cluster is the cluster name.
+	Cluster string `json:"cluster"`
+	// Mass is the deviation mass per scan, oldest first.
+	Mass []float64 `json:"mass"`
+	// MassBefore is the deviation mass in the first scan.
+	MassBefore float64 `json:"mass_before"`
+	// MassAfter is the deviation mass in the last scan.
+	MassAfter float64 `json:"mass_after"`
+	// MassDelta is MassAfter - MassBefore.
+	MassDelta float64 `json:"mass_delta"`
+	// Fields lists the fields whose values changed most.
+	Fields []FieldDrift `json:"fields,omitempty"`
+	// Gained lists outlier flags gained.
+	Gained []FlagChange `json:"gained,omitempty"`
+	// Lost lists outlier flags lost.
+	Lost []FlagChange `json:"lost,omitempty"`
+}
+
+// FieldDrift is one field's movement for one cluster.
+type FieldDrift struct {
+	// Scanner is the scanner of the field.
+	Scanner string `json:"scanner"`
+	// Field is the field.
+	Field string `json:"field"`
+	// ZBefore is the z in the first scan.
+	ZBefore float64 `json:"z_before"`
+	// ZAfter is the z in the last scan.
+	ZAfter float64 `json:"z_after"`
+	// Before is the value in the first scan.
+	Before string `json:"before,omitempty"`
+	// After is the value in the last scan.
+	After string `json:"after,omitempty"`
+}
+
+// FlagChange is an outlier flag that changed state.
+type FlagChange struct {
+	// Scanner is the scanner of the field.
+	Scanner string `json:"scanner"`
+	// Field is the field.
+	Field string `json:"field"`
+	// Scan is where the flag last flipped.
+	Scan string `json:"scan"`
+}
+
+// DriftQuery selects the window of GET /api/drift: the last Scans scans, or
+// the scans between Since and Until when either is set.
+type DriftQuery struct {
+	// Scans is how many recent scans to span. Zero uses the server default.
+	Scans int
+	// Since is the start of a time window.
+	Since time.Time
+	// Until is the end of a time window.
+	Until time.Time
+}
+
+// Peer is a nearby cluster on the cohort map.
+type Peer struct {
+	// Cluster is the peer's name.
+	Cluster string `json:"cluster"`
+	// Distance is the feature distance.
+	Distance float64 `json:"distance"`
+}
+
+// MapPoint is one cluster on the cohort map.
+type MapPoint struct {
+	// Cluster is the cluster name.
+	Cluster string `json:"cluster"`
+	// Cohort is the cluster's cohort.
+	Cohort string `json:"cohort"`
+	// X is the first coordinate.
+	X float64 `json:"x"`
+	// Y is the second coordinate.
+	Y float64 `json:"y"`
+	// Peers lists the nearest clusters.
+	Peers []Peer `json:"peers,omitempty"`
+}
+
+// CohortMap is the two-dimensional layout of a fleet.
+type CohortMap struct {
+	// Points holds one entry per cluster.
+	Points []MapPoint `json:"points"`
+	// LeafOrder lists clusters with each cohort contiguous.
+	LeafOrder []string `json:"leaf_order"`
+	// Stress is the misfit of the layout, 0 when exact.
+	Stress float64 `json:"stress"`
+}
+
+// CohortMapResponse is the body of GET /api/cohorts/map.
+type CohortMapResponse struct {
+	// ScanID is the scan the map came from.
+	ScanID string `json:"scan_id"`
+	// Map is the layout.
+	Map CohortMap `json:"map"`
+}
+
+// WhatIfRequest is the body of POST /api/whatif.
+type WhatIfRequest struct {
+	// Cluster is the cluster to fix.
+	Cluster string `json:"cluster"`
+	// Scanner is the scanner of the field.
+	Scanner string `json:"scanner"`
+	// Field is the field to fix.
+	Field string `json:"field"`
+	// Fix is median, mode, consensus, or remove. Empty picks one.
+	Fix string `json:"fix,omitempty"`
+	// Scope is "fleet" or a cohort name.
+	Scope string `json:"scope,omitempty"`
+	// Scan is the scan to project from. Empty means the latest.
+	Scan string `json:"scan,omitempty"`
+}
+
+// WhatIfFix is the fix a projection applied, with kind and scope resolved.
+type WhatIfFix struct {
+	// Cluster is the fixed cluster.
+	Cluster string `json:"cluster"`
+	// Scanner is the scanner of the field.
+	Scanner string `json:"scanner"`
+	// Field is the field.
+	Field string `json:"field"`
+	// Kind is the fix kind applied.
+	Kind string `json:"kind"`
+	// Scope is the norm scope.
+	Scope string `json:"scope"`
+}
+
+// WhatIfOutcome is the projected result of a fix.
+type WhatIfOutcome struct {
+	// Fix is the applied fix.
+	Fix WhatIfFix `json:"fix"`
+	// ScoreBefore is the score as scanned.
+	ScoreBefore int `json:"score_before"`
+	// ScoreAfter is the score after the fix.
+	ScoreAfter int `json:"score_after"`
+	// Before is the field's distribution as scanned.
+	Before *Distribution `json:"before"`
+	// After is the field's distribution after the fix, nil when every cluster agrees.
+	After *Distribution `json:"after,omitempty"`
+	// MedianShift is the change in the median.
+	MedianShift float64 `json:"median_shift"`
+	// MADShift is the change in the MAD.
+	MADShift float64 `json:"mad_shift"`
+	// NewOutliers lists clusters newly flagged.
+	NewOutliers []string `json:"new_outliers,omitempty"`
+	// ClearedOutliers lists clusters no longer flagged.
+	ClearedOutliers []string `json:"cleared_outliers,omitempty"`
+}
+
+// WhatIfResponse is the body returned by POST /api/whatif.
+type WhatIfResponse struct {
+	// ScanID is the scan the projection started from.
+	ScanID string `json:"scan_id"`
+	// Outcome is the projection.
+	Outcome WhatIfOutcome `json:"outcome"`
 }
