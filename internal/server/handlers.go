@@ -281,8 +281,12 @@ func (s *Server) startBackgroundScan(source string, contexts []string) (scanID s
 	return scanID, true
 }
 
-// resolveContexts determines which kubeconfig contexts to scan for a trigger request.
+// resolveContexts determines which kubeconfig contexts to scan for a trigger request. In demo
+// mode every context comes from the synthetic fleet, never from the kubeconfig.
 func (s *Server) resolveContexts(ctx context.Context, req triggerScanRequest) ([]string, error) {
+	if s.demo && req.Group == "" && (req.AllContexts || len(req.Contexts) == 0) {
+		return demoClusterNames(), nil
+	}
 	if req.Group != "" {
 		g, err := s.store.GetGroup(ctx, req.Group)
 		if err != nil {
