@@ -974,6 +974,90 @@ func TestOutlierRule(t *testing.T) {
 	}
 }
 
+// TestVersionMarks verifies the skew finding names only the clusters off a
+// clear majority version, at the severity of their own skew from it.
+func TestVersionMarks(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Versions     map[string]string
+		WantMajority string
+		WantMarks    []ClusterMark
+	}{{ // Test 0: One cluster a minor behind is a warning mark.
+		Versions:     map[string]string{"a": "v1.31.2", "b": "v1.31.2", "c": "v1.30.4"},
+		WantMajority: "v1.31.2",
+		WantMarks:    []ClusterMark{{Cluster: "c", Severity: SeverityWarning}},
+	}, { // Test 1: Two minors behind is critical, one minor is a warning.
+		Versions:     map[string]string{"a": "v1.31.0", "b": "v1.31.0", "c": "v1.29.1", "d": "v1.30.0"},
+		WantMajority: "v1.31.0",
+		WantMarks: []ClusterMark{
+			{Cluster: "c", Severity: SeverityCritical},
+			{Cluster: "d", Severity: SeverityWarning},
+		},
+	}, { // Test 2: A tie for most common version names no majority.
+		Versions: map[string]string{"a": "v1.30.1", "b": "v1.31.0"},
+	}, { // Test 3: A patch-only difference marks nothing.
+		Versions:     map[string]string{"a": "v1.31.2", "b": "v1.31.2", "c": "v1.31.1"},
+		WantMajority: "v1.31.2",
+	}, { // Test 4: A cluster with no version reading is neither counted nor marked.
+		Versions:     map[string]string{"a": "v1.31.0", "b": "", "c": "v1.31.0", "d": "v1.30.0"},
+		WantMajority: "v1.31.0",
+		WantMarks:    []ClusterMark{{Cluster: "d", Severity: SeverityWarning}},
+	}, { // Test 5: A cluster ahead of the majority is marked too.
+		Versions:     map[string]string{"a": "v1.30.0", "b": "v1.30.0", "c": "v1.31.0"},
+		WantMajority: "v1.30.0",
+		WantMarks:    []ClusterMark{{Cluster: "c", Severity: SeverityWarning}},
+	}, { // Test 6: No versions at all.
+		Versions: map[string]string{},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters := make([]string, 0, len(test.Versions))
+			for c := range test.Versions {
+				clusters = append(clusters, c)
+			}
+			sort.Strings(clusters)
+			gotMajority, gotMarks := versionMarks(clusters, test.Versions)
+			if diff := cmp.Diff(test.WantMajority, gotMajority); diff != "" {
+				t.Errorf("majority mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantMarks, gotMarks, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("marks mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestVersionFindingsMarks verifies the skew finding carries its marks and
+// names the off-majority clusters in its description.
+func TestVersionFindingsMarks(t *testing.T) {
+	t.Parallel()
+	r := testReport(map[string]map[string]any{"version": {
+		"a": map[string]any{"git_version": "v1.31.0"},
+		"b": map[string]any{"git_version": "v1.31.0"},
+		"c": map[string]any{"git_version": "v1.30.2"},
+	}})
+	got := versionFindings(r)
+	want := []Finding{{
+		Rule: "version/skew", Title: "Kubernetes version skew across fleet",
+		Description: "Fleet runs 2 distinct versions: v1.30.2, v1.31.0. Off the majority version v1.31.0: c.",
+		Severity:    SeverityWarning, Cluster: "fleet", Scanner: "version",
+		Affected:    []string{"a=v1.31.0", "b=v1.31.0", "c=v1.30.2"},
+		Marks:       []ClusterMark{{Cluster: "c", Severity: SeverityWarning}},
+		Remediation: &Remediation{Command: "kubectl version"},
+	}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("mismatch (-want +got):\n%s", diff)
+	}
+	status := map[string]string{}
+	for _, h := range GenerateClusterHealth(r, got) {
+		status[h.Name] = h.Status
+	}
+	if diff := cmp.Diff(map[string]string{"a": "healthy", "b": "healthy", "c": "degraded"}, status); diff != "" {
+		t.Errorf("status mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestClusterHealthOwnFindings verifies a cluster's status and counts come
 // from its own findings, so a fleet-scoped finding marks no cluster.
 func TestClusterHealthOwnFindings(t *testing.T) {
@@ -994,6 +1078,12 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 	}, { // Test 2: A cluster critical.
 		Findings:   []Finding{{Cluster: "a", Severity: SeverityCritical, Rule: "node-health/not-ready"}},
 		WantStatus: map[string]string{"a": "critical", "b": "healthy"},
+	}, { // Test 3: A fleet finding sets status on the cluster it marks only.
+		Findings: []Finding{{
+			Cluster: "fleet", Severity: SeverityCritical, Rule: "version/skew",
+			Marks: []ClusterMark{{Cluster: "b", Severity: SeverityWarning}},
+		}},
+		WantStatus: map[string]string{"a": "healthy", "b": "degraded"},
 	}}
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {

@@ -57,6 +57,18 @@ type Finding struct {
 	// against. It is nil on absolute-rule findings, which is how a reader
 	// tells the two classes apart.
 	Norm *NormBasis `json:"norm,omitempty"`
+	// Marks names the clusters a fleet-scoped finding holds responsible, each
+	// with the severity it sets on that cluster's status. Empty on cluster
+	// findings and on fleet findings no single cluster is behind.
+	Marks []ClusterMark `json:"marks,omitempty"`
+}
+
+// ClusterMark ties a fleet-scoped finding to one cluster it implicates.
+type ClusterMark struct {
+	// Cluster is the implicated cluster.
+	Cluster string `json:"cluster"`
+	// Severity is the severity the finding sets on this cluster's status.
+	Severity string `json:"severity"`
 }
 
 // SystemNamespacePrefixes are the namespace name prefixes excluded from
@@ -240,9 +252,9 @@ func outlierKey(cluster, field, scanner string) string {
 }
 
 // GenerateClusterHealth builds per-cluster health summaries. A cluster's
-// status and counts come from its own findings only: a fleet-scoped finding
-// such as version skew is the fleet's, scored once through its own term, and
-// does not mark every cluster degraded.
+// status and counts come from its own findings and from fleet-scoped findings
+// that mark it: a fleet finding such as version skew is the fleet's, scored
+// once through its own term, and sets status only on the clusters it names.
 func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 	healths := make([]ClusterHealth, 0, len(r.Clusters))
 	degradedByCluster := r.DegradedByCluster()
@@ -255,6 +267,11 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 		for _, f := range findings {
 			if f.Cluster == cluster {
 				h.FindingCounts[f.Severity]++
+			}
+			for _, m := range f.Marks {
+				if m.Cluster == cluster {
+					h.FindingCounts[m.Severity]++
+				}
 			}
 		}
 		if h.FindingCounts[SeverityCritical] > 0 {
@@ -316,18 +333,66 @@ func versionFindings(r *Report) []Finding {
 	}
 	sort.Strings(affected)
 
+	desc := fmt.Sprintf("Fleet runs %d distinct versions: %s.", len(uniqueVersions), strings.Join(uniqueVersions, ", "))
+	majority, marks := versionMarks(r.Clusters, versions)
+	if len(marks) > 0 {
+		names := make([]string, 0, len(marks))
+		for _, m := range marks {
+			names = append(names, m.Cluster)
+		}
+		desc += fmt.Sprintf(" Off the majority version %s: %s.", majority, strings.Join(names, ", "))
+	}
+
 	return []Finding{{
 		Rule:        "version/skew",
 		Title:       "Kubernetes version skew across fleet",
-		Description: fmt.Sprintf("Fleet runs %d distinct versions: %s.", len(uniqueVersions), strings.Join(uniqueVersions, ", ")),
+		Description: desc,
 		Severity:    severity,
 		Cluster:     "fleet",
 		Scanner:     "version",
 		Affected:    affected,
+		Marks:       marks,
 		Remediation: &Remediation{
 			Command: "kubectl version",
 		},
 	}}
+}
+
+// versionMarks returns the version most clusters run and a mark for each
+// cluster whose skew from it is a minor version or more, at the severity that
+// skew alone would carry. A tie for most common version names no majority,
+// so it marks no cluster. Patch-only differences mark nothing.
+func versionMarks(clusters []string, versions map[string]string) (string, []ClusterMark) {
+	counts := make(map[string]int)
+	for _, c := range clusters {
+		if v := versions[c]; v != "" {
+			counts[v]++
+		}
+	}
+	majority, top, tied := "", 0, false
+	for v, n := range counts {
+		switch {
+		case n > top:
+			majority, top, tied = v, n, false
+		case n == top:
+			tied = true
+		}
+	}
+	if tied || majority == "" {
+		return "", nil
+	}
+	var marks []ClusterMark
+	for _, c := range clusters {
+		v := versions[c]
+		if v == "" || v == majority {
+			continue
+		}
+		if sev := VersionSkewSeverity([]string{majority, v}); sev != SeverityInfo {
+			marks = append(marks, ClusterMark{Cluster: c, Severity: sev})
+		}
+	}
+	sort.Slice(marks, func(i, j int) bool { return marks[i].Cluster < marks[j].Cluster })
+	return majority, marks
 }
 
 // nodeHealthFindings reports node-health problems with the specific affected
