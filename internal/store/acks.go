@@ -6,16 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // AckRecord is a single finding acknowledgement persisted in SQLite.
-// The fingerprint is stable across scans for the same finding shape
-// (cluster + scanner + title) so a recurring critical can be acknowledged
-// once instead of every scan cycle.
+// The fingerprint is stable across scans for the same check on the same
+// cluster (cluster + scanner + rule) so a recurring critical can be
+// acknowledged once instead of every scan cycle.
 type AckRecord struct {
-	// Fingerprint is the SHA-256 of cluster|scanner|title.
+	// Fingerprint is the SHA-256 of cluster|scanner|rule.
 	Fingerprint string `json:"fingerprint"`
 	// Cluster echoes the finding's cluster scope (or "fleet").
 	Cluster string `json:"cluster"`
@@ -32,12 +30,6 @@ type AckRecord struct {
 	SnoozeUntil time.Time `json:"snooze_until"`
 	// CreatedAt is when the ack was recorded.
 	CreatedAt time.Time `json:"created_at"`
-}
-
-// AckFingerprint returns the stable SHA-256 used to key acknowledgements for
-// a finding identified by its cluster, scanner, and title.
-func AckFingerprint(cluster, scanner, title string) string {
-	return util.Fingerprint(cluster, scanner, title)
 }
 
 // SaveAck upserts an acknowledgement. The fingerprint is the primary key, so

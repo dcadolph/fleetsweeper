@@ -90,13 +90,27 @@ components:
 
     Finding:
       type: object
-      required: [title, severity, cluster, scanner]
+      required: [title, severity, cluster, scanner, rule, fingerprint, acked]
       properties:
         title: {type: string}
         description: {type: string}
         severity: {$ref: "#/components/schemas/Severity"}
         cluster: {type: string, example: prod-us-east-1}
         scanner: {type: string, example: node-health}
+        rule:
+          type: string
+          description: >-
+            The check that produced the finding as scanner/slug. It names no
+            cluster and no count, so the same check on two clusters shares a rule.
+          example: node-health/not-ready
+        fingerprint:
+          type: string
+          description: >-
+            SHA-256 of cluster, scanner, and rule separated by NUL bytes. Ack a
+            finding with POST /api/findings/{fingerprint}/ack.
+        acked:
+          type: boolean
+          description: True when an active acknowledgement covers the finding.
         affected:
           type: array
           items: {type: string}

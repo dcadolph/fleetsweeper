@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // TestSaveAckEmptyFingerprint verifies an ack with no fingerprint is rejected.
@@ -22,7 +24,7 @@ func TestAckSnoozeRoundTrip(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
-	fp := AckFingerprint("prod-east", "node-health", "disk pressure")
+	fp := util.Fingerprint("prod-east", "node-health", "disk pressure")
 	until := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
 	if err := s.SaveAck(ctx, AckRecord{
 		Fingerprint: fp,
@@ -71,7 +73,7 @@ func TestDeleteAckRemovesExisting(t *testing.T) {
 	s := newTestSQLite(t)
 	ctx := context.Background()
 
-	fp := AckFingerprint("c", "s", "t")
+	fp := util.Fingerprint("c", "s", "t")
 	if err := s.SaveAck(ctx, AckRecord{Fingerprint: fp, AckBy: "alice"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}

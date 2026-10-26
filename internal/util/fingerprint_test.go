@@ -14,21 +14,24 @@ func TestFingerprint(t *testing.T) {
 	tests := []struct {
 		Cluster       string
 		Scanner       string
-		Title         string
+		Rule          string
 		WantHash      string
 		WantNotEquals string
 	}{{ // Test 0: Fixed input matches the sha256 of c, NUL, s, NUL, t.
-		Cluster: "c", Scanner: "s", Title: "t",
+		Cluster: "c", Scanner: "s", Rule: "t",
 		WantHash: "741c015adb23e476b173b2ed97e364a8b27a54868012288849d92d0c0739f17e",
 	}, { // Test 1: A pipe-separated hash of the same fields differs.
-		Cluster: "c", Scanner: "s", Title: "t",
+		Cluster: "c", Scanner: "s", Rule: "t",
 		WantNotEquals: "f2b8419830adc96cb9608c12159c3a759e2cd84505f76e48961ca255c590eaf9",
+	}, { // Test 2: A different rule on the same cluster and scanner differs.
+		Cluster: "c", Scanner: "s", Rule: "u",
+		WantNotEquals: "741c015adb23e476b173b2ed97e364a8b27a54868012288849d92d0c0739f17e",
 	}}
 
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			got := Fingerprint(test.Cluster, test.Scanner, test.Title)
+			got := Fingerprint(test.Cluster, test.Scanner, test.Rule)
 			if test.WantNotEquals != "" {
 				if got == test.WantNotEquals {
 					t.Errorf("fingerprint equals the pipe-separated hash %s", got)

@@ -1,0 +1,168 @@
+package report
+
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
+)
+
+// Rule slug prefixes for checks derived from a scanner field rather than a
+// fixed check. The field follows the prefix in hyphenated form.
+const (
+	ruleOutlierPrefix       = "outlier-"
+	ruleCohortOutlierPrefix = "cohort-outlier-"
+	ruleTrendPrefix         = "trend-"
+	ruleSelfDriftPrefix     = "self-drift-"
+)
+
+// ruleTitles maps every fixed rule to a label that names no cluster and no
+// count, so a recommendation spanning many clusters reads correctly.
+var ruleTitles = map[string]string{
+	"version/skew":                       "Kubernetes version skew across the fleet",
+	"namespaces/non-system-count-varies": "Non-system namespace count varies across the fleet",
+	"rbac/config-differs":                "RBAC configuration differs across clusters",
+	"node-health/memory-pressure":        "Nodes under memory pressure",
+	"node-health/disk-pressure":          "Nodes under disk pressure",
+	"node-health/not-ready":              "Nodes not ready",
+	"metrics/capacity-critical":          "Cluster capacity is critical",
+	"metrics/capacity-degraded":          "Cluster capacity is degraded",
+	"metrics/capacity-busy":              "Cluster is busy but healthy",
+	"metrics/capacity-healthy":           "Cluster capacity is healthy",
+	"metrics/group-deviation":            "Utilization deviates from group peers",
+	"security/psa-unenforced":            "Namespaces without Pod Security enforcement",
+	"network-policies/no-policy":         "Namespaces with no network policies",
+	"resource-quotas/no-quota":           "No resource quotas defined",
+	"events/warning-volume":              "Warning events in the last hour",
+	"workload-security/privileged":       "Privileged containers",
+	"workload-security/host-namespaces":  "Pods using host namespaces",
+	"workload-security/run-as-root":      "Containers explicitly running as root",
+	"workload-security/capability-add":   "Containers with added Linux capabilities",
+	"rbac-audit/cluster-admin-binding":   "Non-system cluster-admin bindings",
+	"rbac-audit/wildcard-rule":           "RBAC rules with wildcard permissions",
+	"rbac-audit/default-sa-binding":      "Bindings that grant a default service account",
+	"image-audit/latest-tag":             "Containers using :latest or no tag",
+	"image-audit/no-digest":              "Containers without digest pins",
+	"image-audit/bad-deploy":             "Bad-deploy signals",
+	"certs/expiring-7d":                  "Certificates expiring in fewer than 7 days",
+	"certs/expiring-30d":                 "Certificates expiring within 30 days",
+	"deprecated-apis/in-use":             "Deprecated API versions in use",
+	"workload-coverage/missing-pdb":      "Replicated workloads without a PodDisruptionBudget",
+	"workload-coverage/missing-hpa":      "Replicated workloads without a HorizontalPodAutoscaler",
+	"admission/no-healthy-endpoints":     "Admission webhooks with no healthy endpoints",
+	"admission/ca-expiring":              "Admission webhook CA bundles expiring soon",
+	"cluster-info/node-platform-drift":   "Node-level platform drift",
+	"cohort/wrong-cohort":                "Cluster may be in the wrong cohort",
+}
+
+// fieldRule returns the rule for a check derived from a scanner field, e.g.
+// fieldRule("security", ruleOutlierPrefix, "enforced_count") is
+// "security/outlier-enforced-count".
+func fieldRule(scannerName, prefix, field string) string {
+	return scannerName + "/" + prefix + strings.ReplaceAll(field, "_", "-")
+}
+
+// RuleTitle returns a label for a rule that names no cluster and no count.
+// Field-derived rules are described from their field. An unknown rule is
+// returned unchanged.
+func RuleTitle(rule string) string {
+	if t, ok := ruleTitles[rule]; ok {
+		return t
+	}
+	_, slug, ok := strings.Cut(rule, "/")
+	if !ok {
+		return rule
+	}
+	for _, p := range []struct{ prefix, format string }{
+		{ruleCohortOutlierPrefix, "Deviates from its cohort on %s"},
+		{ruleOutlierPrefix, "Deviates from the fleet norm on %s"},
+		{ruleSelfDriftPrefix, "%s broke from its own baseline"},
+		{ruleTrendPrefix, "%s is trending"},
+	} {
+		if field, found := strings.CutPrefix(slug, p.prefix); found {
+			return fmt.Sprintf(p.format, strings.ReplaceAll(field, "-", "_"))
+		}
+	}
+	return rule
+}
+
+// FindingFingerprint returns the stable identifier of a finding: a hash of its
+// cluster, scanner, and rule. It never reads the title, so counts in the title
+// can change without orphaning acks or breaking persistence.
+func FindingFingerprint(f Finding) string {
+	return util.Fingerprint(f.Cluster, f.Scanner, f.Rule)
+}
+
+// StampFingerprints sets each finding's Fingerprint from its cluster, scanner,
+// and rule, and returns the same slice.
+func StampFingerprints(fs []Finding) []Finding {
+	for i := range fs {
+		fs[i].Fingerprint = FindingFingerprint(fs[i])
+	}
+	return fs
+}
+
+// scannerInspect maps a scanner to the kubectl arguments that show the
+// resources its fields count, so a norm remediation can point at them.
+var scannerInspect = map[string]string{
+	"version":           "version",
+	"namespaces":        "get namespaces",
+	"crds":              "get crds",
+	"services":          "get services -A",
+	"ingresses":         "get ingress -A",
+	"resources":         "get nodes -o wide",
+	"rbac":              "get clusterroles,clusterrolebindings",
+	"security":          "get namespaces -L pod-security.kubernetes.io/enforce",
+	"network-policies":  "get networkpolicies -A",
+	"resource-quotas":   "get resourcequotas,limitranges -A",
+	"node-health":       "get nodes",
+	"metrics":           "top nodes",
+	"events":            "get events -A --field-selector type=Warning --sort-by=.lastTimestamp",
+	"workload-security": "get pods -A -o wide",
+	"rbac-audit":        "get clusterrolebindings -o wide",
+	"image-audit":       "get pods -A -o custom-columns=NAMESPACE:.metadata.namespace,POD:.metadata.name,IMAGES:.spec.containers[*].image",
+	"certs":             "get secrets -A --field-selector type=kubernetes.io/tls",
+	"deprecated-apis":   "get --raw /metrics",
+	"workload-coverage": "get pdb,hpa -A",
+	"cluster-info":      "get nodes -o wide",
+	"admission":         "get validatingwebhookconfigurations,mutatingwebhookconfigurations",
+	"geo":               "get nodes -L topology.kubernetes.io/region,topology.kubernetes.io/zone",
+	"vulnerabilities":   "get vulnerabilityreports -A",
+	"policy-reports":    "get policyreports -A",
+}
+
+// normRemediation builds the remediation for an outlier finding. The first
+// line states the gap between the cluster's value and the norm of scope
+// ("fleet" or a cohort description), the second inspects the resources the
+// field counts on that cluster.
+func normRemediation(o OutlierResult, scope string) *Remediation {
+	inspect, ok := scannerInspect[o.Scanner]
+	if !ok {
+		inspect = "get all -A"
+	}
+	return &Remediation{
+		Command: fmt.Sprintf("# %s\nkubectl --context %s %s", normGap(o, scope), o.Cluster, inspect),
+	}
+}
+
+// normGap describes how far an outlier sits from the norm of scope. Numeric
+// fields state the signed distance from the median, set fields the missing
+// consensus members, and string fields the norm value.
+func normGap(o OutlierResult, scope string) string {
+	v, errV := strconv.ParseFloat(o.Value, 64)
+	n, errN := strconv.ParseFloat(o.FleetNorm, 64)
+	if errV == nil && errN == nil {
+		dir := "above"
+		if v < n {
+			dir = "below"
+		}
+		return fmt.Sprintf("%s is %s here, %s %s the %s median of %s",
+			o.Field, o.Value, formatNum(math.Abs(v-n)), dir, scope, o.FleetNorm)
+	}
+	if strings.HasPrefix(o.Value, "missing ") {
+		return fmt.Sprintf("%s is %s of the %s's %s", o.Field, o.Value, scope, o.FleetNorm)
+	}
+	return fmt.Sprintf("%s is %q here, the %s norm is %q", o.Field, o.Value, scope, o.FleetNorm)
+}

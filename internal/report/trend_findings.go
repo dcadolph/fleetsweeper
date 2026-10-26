@@ -29,6 +29,7 @@ func GenerateTrendFindings(clusterTrends []ClusterTrend, fleetTrends []FleetTren
 		}
 
 		findings = append(findings, Finding{
+			Rule:  fieldRule(ct.Scanner, ruleTrendPrefix, ct.Field),
 			Title: fmt.Sprintf("%s: %s %s is %s", ct.Cluster, label, ct.Field, ct.Direction),
 			Description: fmt.Sprintf(
 				"%s on %s changed from %.1f to %.1f over %d scans.",
@@ -59,6 +60,7 @@ func GenerateTrendFindings(clusterTrends []ClusterTrend, fleetTrends []FleetTren
 		}
 
 		findings = append(findings, Finding{
+			Rule:  fieldRule(ft.Scanner, ruleTrendPrefix, ft.Field),
 			Title: fmt.Sprintf("Fleet %s drift is %s", label, ft.Direction),
 			Description: fmt.Sprintf(
 				"Unique values for %s changed from %.0f to %.0f over %d scans.",
@@ -69,5 +71,5 @@ func GenerateTrendFindings(clusterTrends []ClusterTrend, fleetTrends []FleetTren
 		})
 	}
 
-	return findings
+	return StampFingerprints(findings)
 }

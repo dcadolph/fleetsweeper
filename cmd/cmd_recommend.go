@@ -34,10 +34,12 @@ func init() {
 	recommendCmd.Flags().String("severity", "", "Only consider findings at or above this severity (critical, warning, info).")
 }
 
-// Recommendation is one collapsed remediation across clusters.
+// recommendation is one collapsed remediation across clusters.
 type recommendation struct {
-	// Title is the human-readable label of the finding.
+	// Title is the rule's label, which names no cluster and no count.
 	Title string `json:"title"`
+	// Rule is the check every contributing finding shares.
+	Rule string `json:"rule"`
 	// Scanner is the producing scanner name.
 	Scanner string `json:"scanner"`
 	// Severity is the highest severity seen across the contributing rows.
@@ -82,12 +84,13 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 	return writeRecommendations(cmd.OutOrStdout(), recs, jsonOut)
 }
 
-// buildRecommendations groups findings by (scanner, title) when both
-// have a non-empty Remediation, ranks the groups by leverage * severity,
-// and returns one Recommendation per group.
+// buildRecommendations groups findings that carry a Remediation by
+// (scanner, rule), so the same check on many clusters is one recommendation,
+// ranks the groups by leverage * severity, and returns one recommendation
+// per group. The command and YAML come from the first contributing finding.
 func buildRecommendations(findings []report.Finding, minSeverity string) []recommendation {
 	type key struct {
-		Scanner, Title string
+		Scanner, Rule string
 	}
 	groups := map[key]*recommendation{}
 	for _, f := range findings {
@@ -97,11 +100,12 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		if !util.SeverityAtLeast(f.Severity, minSeverity) {
 			continue
 		}
-		k := key{Scanner: f.Scanner, Title: f.Title}
+		k := key{Scanner: f.Scanner, Rule: f.Rule}
 		entry := groups[k]
 		if entry == nil {
 			entry = &recommendation{
-				Title:      f.Title,
+				Title:      report.RuleTitle(f.Rule),
+				Rule:       f.Rule,
 				Scanner:    f.Scanner,
 				Severity:   f.Severity,
 				Command:    f.Remediation.Command,
@@ -134,7 +138,7 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		if out[i].Leverage != out[j].Leverage {
 			return out[i].Leverage > out[j].Leverage
 		}
-		return out[i].Title < out[j].Title
+		return out[i].Rule < out[j].Rule
 	})
 	return out
 }
@@ -172,8 +176,8 @@ func writeRecommendations(w io.Writer, recs []recommendation, jsonOut bool) erro
 	}
 	for i, r := range recs {
 		fmt.Fprintf(w, "%d. [%s] %s\n", i+1, strings.ToUpper(r.Severity), r.Title)
-		fmt.Fprintf(w, "   Scanner:  %s\n", r.Scanner)
-		fmt.Fprintf(w, "   Leverage: %d cluster(s) — %s\n", r.Leverage, joinTrim(r.Clusters, 5))
+		fmt.Fprintf(w, "   Rule:     %s\n", r.Rule)
+		fmt.Fprintf(w, "   Leverage: %d cluster(s): %s\n", r.Leverage, joinTrim(r.Clusters, 5))
 		if r.Command != "" {
 			fmt.Fprintf(w, "   Run:      %s\n", r.Command)
 		}

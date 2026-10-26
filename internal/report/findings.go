@@ -3,7 +3,6 @@ package report
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -39,6 +38,16 @@ type Finding struct {
 	Cluster string `json:"cluster"`
 	// Scanner is the scanner that produced this finding.
 	Scanner string `json:"scanner"`
+	// Rule names the check that produced this finding as scanner/slug, e.g.
+	// "workload-security/privileged". It never carries a cluster name or a
+	// count, so the same check on two clusters shares a rule.
+	Rule string `json:"rule"`
+	// Fingerprint is the stable identifier of this finding, a hash of its
+	// cluster, scanner, and rule. Acknowledgements and persistence key on it.
+	Fingerprint string `json:"fingerprint"`
+	// Acked reports whether an active acknowledgement covers this finding.
+	// Only the server, which holds the acknowledgements, sets it.
+	Acked bool `json:"acked"`
 	// Affected lists the offending resources (nodes, pods, bindings, images)
 	// scoped to this finding. Empty when the finding has no specific noun.
 	Affected []string `json:"affected,omitempty"`
@@ -147,24 +156,27 @@ func GenerateFindings(r *Report) []Finding {
 	findings = append(findings, compositeBadDeployFindings(r)...)
 
 	severityOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
-	sort.Slice(findings, func(i, j int) bool {
+	sort.SliceStable(findings, func(i, j int) bool {
 		return severityOrder[findings[i].Severity] < severityOrder[findings[j].Severity]
 	})
 
-	return findings
+	return StampFingerprints(findings)
 }
 
-// outlierFindings converts OutlierResults into human-readable findings.
+// outlierFindings converts OutlierResults into human-readable findings, each
+// with a remediation that states the gap to the fleet norm.
 func outlierFindings(r *Report) []Finding {
 	findings := make([]Finding, 0, len(r.Outliers))
 	for _, o := range r.Outliers {
 		findings = append(findings, Finding{
+			Rule:        fieldRule(o.Scanner, ruleOutlierPrefix, o.Field),
 			Title:       fmt.Sprintf("%s deviates from fleet norm on %s", o.Cluster, o.Field),
 			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).", o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner]),
 			Severity:    o.Severity,
 			Cluster:     o.Cluster,
 			Scanner:     o.Scanner,
 			Affected:    []string{o.Field},
+			Remediation: normRemediation(o, "fleet"),
 		})
 	}
 	return findings
@@ -189,15 +201,17 @@ func cohortOutlierFindings(r *Report) []Finding {
 				continue
 			}
 			findings = append(findings, Finding{
+				Rule:  fieldRule(o.Scanner, ruleCohortOutlierPrefix, o.Field),
 				Title: fmt.Sprintf("%s deviates from its cohort on %s", o.Cluster, o.Field),
 				Description: fmt.Sprintf(
 					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).",
 					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner],
 				),
-				Severity: o.Severity,
-				Cluster:  o.Cluster,
-				Scanner:  o.Scanner,
-				Affected: []string{o.Field},
+				Severity:    o.Severity,
+				Cluster:     o.Cluster,
+				Scanner:     o.Scanner,
+				Affected:    []string{o.Field},
+				Remediation: normRemediation(o, fmt.Sprintf("cohort %q", c.Name)),
 			})
 		}
 	}
@@ -285,6 +299,7 @@ func versionFindings(r *Report) []Finding {
 	sort.Strings(affected)
 
 	return []Finding{{
+		Rule:        "version/skew",
 		Title:       "Kubernetes version skew across fleet",
 		Description: fmt.Sprintf("Fleet runs %d distinct versions: %s.", len(uniqueVersions), strings.Join(uniqueVersions, ", ")),
 		Severity:    severity,
@@ -292,7 +307,7 @@ func versionFindings(r *Report) []Finding {
 		Scanner:     "version",
 		Affected:    affected,
 		Remediation: &Remediation{
-			Command: "kubectl version --short",
+			Command: "kubectl version",
 		},
 	}}
 }
@@ -315,6 +330,7 @@ func nodeHealthFindings(r *Report) []Finding {
 		if memPressure > 0 {
 			affected := nodes.byCondition("MemoryPressure")
 			findings = append(findings, Finding{
+				Rule:        "node-health/memory-pressure",
 				Title:       fmt.Sprintf("%s has %d node(s) under memory pressure", cluster, memPressure),
 				Description: fmt.Sprintf("%d of %d nodes report MemoryPressure=True. Pods on these nodes risk OOM kills and the scheduler will avoid them.", memPressure, total),
 				Severity:    SeverityCritical,
@@ -329,6 +345,7 @@ func nodeHealthFindings(r *Report) []Finding {
 		if diskPressure > 0 {
 			affected := nodes.byCondition("DiskPressure")
 			findings = append(findings, Finding{
+				Rule:        "node-health/disk-pressure",
 				Title:       fmt.Sprintf("%s has %d node(s) under disk pressure", cluster, diskPressure),
 				Description: fmt.Sprintf("%d of %d nodes report DiskPressure=True. Pods may be evicted to free disk space.", diskPressure, total),
 				Severity:    SeverityWarning,
@@ -343,6 +360,7 @@ func nodeHealthFindings(r *Report) []Finding {
 		if notReady > 0 {
 			affected := nodes.notReady()
 			findings = append(findings, Finding{
+				Rule:        "node-health/not-ready",
 				Title:       fmt.Sprintf("%s has %d node(s) not ready", cluster, notReady),
 				Description: fmt.Sprintf("%d of %d nodes are not reporting Ready=True. Workloads cannot be scheduled to these nodes.", notReady, total),
 				Severity:    SeverityCritical,
@@ -448,6 +466,7 @@ func capacityFindings(r *Report) []Finding {
 		switch ca.Status {
 		case "critical":
 			findings = append(findings, Finding{
+				Rule:        "metrics/capacity-critical",
 				Title:       fmt.Sprintf("%s is in critical state", ca.Cluster),
 				Description: ca.Recommendation,
 				Severity:    SeverityCritical,
@@ -456,6 +475,7 @@ func capacityFindings(r *Report) []Finding {
 			})
 		case "strained", "degraded":
 			findings = append(findings, Finding{
+				Rule:        "metrics/capacity-degraded",
 				Title:       fmt.Sprintf("%s is degraded", ca.Cluster),
 				Description: ca.Recommendation,
 				Severity:    SeverityWarning,
@@ -464,6 +484,7 @@ func capacityFindings(r *Report) []Finding {
 			})
 		case "busy":
 			findings = append(findings, Finding{
+				Rule:        "metrics/capacity-busy",
 				Title:       fmt.Sprintf("%s is busy but healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
 				Description: ca.Recommendation,
 				Severity:    SeverityInfo,
@@ -472,6 +493,7 @@ func capacityFindings(r *Report) []Finding {
 			})
 		default:
 			findings = append(findings, Finding{
+				Rule:        "metrics/capacity-healthy",
 				Title:       fmt.Sprintf("%s is healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
 				Description: ca.Recommendation,
 				Severity:    SeverityInfo,
@@ -482,11 +504,15 @@ func capacityFindings(r *Report) []Finding {
 
 		if ca.GroupDeviation != "" && !strings.HasPrefix(ca.GroupDeviation, "Within normal range") {
 			findings = append(findings, Finding{
+				Rule:        "metrics/group-deviation",
 				Title:       fmt.Sprintf("%s deviates from group peers", ca.Cluster),
 				Description: ca.GroupDeviation,
 				Severity:    SeverityWarning,
 				Cluster:     ca.Cluster,
 				Scanner:     "metrics",
+				Remediation: &Remediation{
+					Command: fmt.Sprintf("# %s\nkubectl --context %s top nodes", strings.TrimSpace(ca.GroupDeviation), ca.Cluster),
+				},
 			})
 		}
 	}
@@ -504,14 +530,21 @@ func securityFindings(r *Report) []Finding {
 		unenforced := getIntField(r, "security", cluster, "unenforced_count")
 		total := getIntField(r, "security", cluster, "namespace_count")
 		if unenforced > 0 {
-			pct := float64(unenforced) / math.Max(float64(total), 1) * 100
+			// A namespace total below the unenforced count means the total
+			// is missing, so the share is unknown rather than over 100%.
+			share := fmt.Sprintf("%d namespaces", unenforced)
 			sev := SeverityWarning
-			if pct > 50 {
-				sev = SeverityCritical
+			if total >= unenforced {
+				pct := float64(unenforced) / float64(total) * 100
+				share = fmt.Sprintf("%d of %d namespaces (%.0f%%)", unenforced, total, pct)
+				if pct > 50 {
+					sev = SeverityCritical
+				}
 			}
 			findings = append(findings, Finding{
+				Rule:        "security/psa-unenforced",
 				Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, unenforced),
-				Description: fmt.Sprintf("%d of %d namespaces (%.0f%%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.", unenforced, total, pct),
+				Description: share + " have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
 				Severity:    sev,
 				Cluster:     cluster,
 				Scanner:     "security",
@@ -536,6 +569,7 @@ func networkFindings(r *Report) []Finding {
 		without := getIntField(r, "network-policies", cluster, "namespaces_without_policies")
 		if without > 0 {
 			findings = append(findings, Finding{
+				Rule:        "network-policies/no-policy",
 				Title:       fmt.Sprintf("%s has %d namespace(s) with no network policies", cluster, without),
 				Description: fmt.Sprintf("%d namespaces have no NetworkPolicy resources. All pod-to-pod traffic is allowed in these namespaces.", without),
 				Severity:    SeverityWarning,
@@ -578,6 +612,7 @@ func quotaFindings(r *Report) []Finding {
 		nsCount := getIntField(r, "namespaces", cluster, "count")
 		if nsCount > 0 && quotas == 0 {
 			findings = append(findings, Finding{
+				Rule:        "resource-quotas/no-quota",
 				Title:       fmt.Sprintf("%s has no resource quotas defined", cluster),
 				Description: "No namespaces have ResourceQuota objects. There are no limits on resource consumption per namespace.",
 				Severity:    SeverityWarning,
@@ -640,6 +675,7 @@ func eventFindings(r *Report) []Finding {
 			desc += " Top reasons: " + strings.Join(topReasons, ", ") + "."
 		}
 		findings = append(findings, Finding{
+			Rule:        "events/warning-volume",
 			Title:       fmt.Sprintf("%s has %d warning event(s) in the last hour", cluster, warningCount),
 			Description: desc,
 			Severity:    sev,
@@ -728,6 +764,7 @@ func namespaceFindings(r *Report) []Finding {
 		return nil
 	}
 	return []Finding{{
+		Rule:        "namespaces/non-system-count-varies",
 		Title:       "Non-system namespace count varies across the fleet",
 		Description: fmt.Sprintf("%s has %d non-system namespaces while %s has %d. Cloud and add-on namespaces are excluded from this comparison.", minC, minVal, maxC, maxVal),
 		Severity:    SeverityWarning,
@@ -784,6 +821,7 @@ func rbacFindings(r *Report) []Finding {
 		return nil
 	}
 	return []Finding{{
+		Rule:        "rbac/config-differs",
 		Title:       "RBAC configuration differs across clusters",
 		Description: "ClusterRoles, Roles, or their bindings differ between clusters. See the rbac-audit findings for named offenders.",
 		Severity:    SeverityWarning,
@@ -813,6 +851,7 @@ func workloadSecFindings(r *Report) []Finding {
 		if privCount > 0 {
 			affected := filterRiskNames(risks, "privileged")
 			findings = append(findings, Finding{
+				Rule:        "workload-security/privileged",
 				Title:       fmt.Sprintf("%s has %d privileged container(s)", cluster, privCount),
 				Description: fmt.Sprintf("Privileged containers have full host access. Review whether these workloads genuinely require it. Total pods: %d.", total),
 				Severity:    SeverityCritical,
@@ -827,6 +866,7 @@ func workloadSecFindings(r *Report) []Finding {
 		if hostNet > 0 || hostPID > 0 {
 			affected := append(filterRiskNames(risks, "host-network"), filterRiskNames(risks, "host-pid")...)
 			findings = append(findings, Finding{
+				Rule:        "workload-security/host-namespaces",
 				Title:       fmt.Sprintf("%s has pods using host namespaces (network: %d, PID: %d)", cluster, hostNet, hostPID),
 				Description: "Pods sharing the host network or PID namespace can see and interact with other processes and traffic on the node.",
 				Severity:    SeverityWarning,
@@ -842,6 +882,7 @@ func workloadSecFindings(r *Report) []Finding {
 				sev = SeverityWarning
 			}
 			findings = append(findings, Finding{
+				Rule:        "workload-security/run-as-root",
 				Title:       fmt.Sprintf("%s has %d container(s) explicitly running as root (%.0f%%)", cluster, rootCount, pct),
 				Description: "These containers have runAsUser=0 or runAsNonRoot=false set explicitly. Container escape vulnerabilities have higher impact when the workload is root.",
 				Severity:    sev,
@@ -852,6 +893,7 @@ func workloadSecFindings(r *Report) []Finding {
 		if capAdd > 0 {
 			affected := filterRiskNames(risks, "capabilities-add")
 			findings = append(findings, Finding{
+				Rule:        "workload-security/capability-add",
 				Title:       fmt.Sprintf("%s has %d container(s) with added Linux capabilities", cluster, capAdd),
 				Description: "Containers requesting capabilities such as NET_ADMIN or SYS_PTRACE have elevated kernel access beyond the default set.",
 				Severity:    SeverityWarning,
@@ -971,6 +1013,7 @@ func rbacAuditFindings(r *Report) []Finding {
 		if adminBindings > 0 {
 			affected := filterBindingsByRisk(risk, "cluster-admin-to-non-system")
 			findings = append(findings, Finding{
+				Rule:        "rbac-audit/cluster-admin-binding",
 				Title:       fmt.Sprintf("%s has %d non-system cluster-admin binding(s)", cluster, adminBindings),
 				Description: "ClusterRoleBindings granting cluster-admin to non-system principals give unrestricted access to every resource in the cluster.",
 				Severity:    SeverityCritical,
@@ -984,6 +1027,7 @@ func rbacAuditFindings(r *Report) []Finding {
 		}
 		if wildcardRules > 0 {
 			findings = append(findings, Finding{
+				Rule:        "rbac-audit/wildcard-rule",
 				Title:       fmt.Sprintf("%s has %d RBAC rule(s) with wildcard permissions", cluster, wildcardRules),
 				Description: "Rules using '*' for verbs, resources, or apiGroups grant broader access than most workloads need.",
 				Severity:    SeverityWarning,
@@ -994,6 +1038,7 @@ func rbacAuditFindings(r *Report) []Finding {
 		if defaultSA > 0 {
 			affected := filterBindingsByRisk(risk, "grants-to-default-sa")
 			findings = append(findings, Finding{
+				Rule:        "rbac-audit/default-sa-binding",
 				Title:       fmt.Sprintf("%s has %d binding(s) granting permissions to a default service account", cluster, defaultSA),
 				Description: "The default service account is used by any pod that does not specify a different one. Granting it permissions means all unattributed workloads inherit them.",
 				Severity:    SeverityWarning,
@@ -1095,6 +1140,7 @@ func imageAuditFindings(r *Report) []Finding {
 		if latestTag > 0 {
 			affected := filterImagesByRisk(risks, "latest-tag")
 			findings = append(findings, Finding{
+				Rule:        "image-audit/latest-tag",
 				Title:       fmt.Sprintf("%s has %d container(s) using :latest or no tag", cluster, latestTag),
 				Description: fmt.Sprintf("Out of %d containers, %d use :latest or omit a tag. Without a pinned tag, rollbacks and audits are unreliable.", total, latestTag),
 				Severity:    SeverityWarning,
@@ -1110,6 +1156,7 @@ func imageAuditFindings(r *Report) []Finding {
 				sev = SeverityWarning
 			}
 			findings = append(findings, Finding{
+				Rule:        "image-audit/no-digest",
 				Title:       fmt.Sprintf("%s has %d container(s) without digest pins (%.0f%%)", cluster, noDigest, pct),
 				Description: "Images without @sha256: digest pins can change content without changing the tag. Pinning digests ensures reproducible deployments.",
 				Severity:    sev,
@@ -1243,6 +1290,7 @@ func certFindings(r *Report) []Finding {
 		}
 		if len(critical) > 0 {
 			findings = append(findings, Finding{
+				Rule:        "certs/expiring-7d",
 				Title:       fmt.Sprintf("%s has %d certificate(s) expiring in fewer than 7 days", cluster, len(critical)),
 				Description: "These TLS certificates will expire imminently. Renew them before they break webhooks, ingress, or metrics endpoints.",
 				Severity:    SeverityCritical,
@@ -1256,6 +1304,7 @@ func certFindings(r *Report) []Finding {
 		}
 		if len(warning) > 0 {
 			findings = append(findings, Finding{
+				Rule:        "certs/expiring-30d",
 				Title:       fmt.Sprintf("%s has %d certificate(s) expiring within 30 days", cluster, len(warning)),
 				Description: "Schedule renewals now to avoid expiry-driven outages.",
 				Severity:    SeverityWarning,
@@ -1307,6 +1356,7 @@ func deprecatedAPIFindings(r *Report) []Finding {
 			affected = append(affected, fmt.Sprintf("%s %s (%d instances, removed in %s)", apiVersion, kind, instanceCount, removedIn))
 		}
 		findings = append(findings, Finding{
+			Rule:        "deprecated-apis/in-use",
 			Title:       fmt.Sprintf("%s uses %d deprecated API version(s)", cluster, len(raw)),
 			Description: "These API versions have been deprecated or removed in newer Kubernetes minor releases. Migrate before the next upgrade or workloads will fail.",
 			Severity:    SeverityWarning,
@@ -1365,6 +1415,7 @@ func coverageFindings(r *Report) []Finding {
 		}
 		if len(missingPDB) > 0 {
 			findings = append(findings, Finding{
+				Rule:        "workload-coverage/missing-pdb",
 				Title:       fmt.Sprintf("%s has %d replicated workload(s) without a PodDisruptionBudget", cluster, len(missingPDB)),
 				Description: "Voluntary disruptions (node drain, kubectl drain, autoscaler) can take all replicas of these workloads down simultaneously.",
 				Severity:    SeverityWarning,
@@ -1378,6 +1429,7 @@ func coverageFindings(r *Report) []Finding {
 		}
 		if len(missingHPA) > 0 {
 			findings = append(findings, Finding{
+				Rule:        "workload-coverage/missing-hpa",
 				Title:       fmt.Sprintf("%s has %d replicated workload(s) without a HorizontalPodAutoscaler", cluster, len(missingHPA)),
 				Description: "These workloads cannot scale with load. If they are CPU- or memory-bound, expect throttling or OOMKills under traffic spikes.",
 				Severity:    SeverityInfo,
@@ -1449,6 +1501,7 @@ func admissionFindings(r *Report) []Finding {
 		}
 		if len(unhealthy) > 0 {
 			findings = append(findings, Finding{
+				Rule:        "admission/no-healthy-endpoints",
 				Title:       fmt.Sprintf("%s has %d admission webhook(s) with no healthy endpoints", cluster, len(unhealthy)),
 				Description: "When failurePolicy=Fail, every API request matching these webhooks will be rejected. Even with failurePolicy=Ignore, mutations and validations are silently skipped.",
 				Severity:    SeverityCritical,
@@ -1462,6 +1515,7 @@ func admissionFindings(r *Report) []Finding {
 		}
 		if len(expiring) > 0 {
 			findings = append(findings, Finding{
+				Rule:        "admission/ca-expiring",
 				Title:       fmt.Sprintf("%s has %d admission webhook(s) with CA bundles expiring soon", cluster, len(expiring)),
 				Description: "When a webhook CA bundle expires, the apiserver refuses to talk to the webhook. Renew or rotate before the listed deadlines.",
 				Severity:    SeverityWarning,
@@ -1514,6 +1568,7 @@ func clusterInfoFindings(r *Report) []Finding {
 			}
 		}
 		findings = append(findings, Finding{
+			Rule:        "cluster-info/node-platform-drift",
 			Title:       fmt.Sprintf("%s has node-level platform drift", cluster),
 			Description: "Different nodes report different platform identities. Common cause: rolling node-pool replacement, stale AMI, or partially-completed upgrade.",
 			Severity:    SeverityWarning,
@@ -1571,6 +1626,7 @@ func compositeBadDeployFindings(r *Report) []Finding {
 		}
 		sort.Strings(names)
 		findings = append(findings, Finding{
+			Rule:        "image-audit/bad-deploy",
 			Title:       fmt.Sprintf("%s shows bad-deploy signals in %d namespace(s)", cluster, len(names)),
 			Description: "Image risks (mutable tags or no-digest), failure-related warning events, and workload-security risks all overlap on the same namespace. This pattern matches a recently rolled-out workload that is failing.",
 			Severity:    SeverityCritical,

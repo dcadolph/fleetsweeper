@@ -3,8 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -102,7 +100,7 @@ func (s *Server) filterAckedFindings(ctx context.Context, findings []report.Find
 	}
 	out := make([]report.Finding, 0, len(findings))
 	for _, f := range findings {
-		fp := storeAckFingerprint(f.Cluster, f.Scanner, f.Title)
+		fp := report.FindingFingerprint(f)
 		acked, _ := s.store.IsAcked(ctx, fp)
 		if acked {
 			continue
@@ -131,7 +129,7 @@ func (s *Server) dedupCriticals(findings []report.Finding) []report.Finding {
 
 	var fresh []report.Finding
 	for _, f := range findings {
-		key := findingFingerprint(f)
+		key := report.FindingFingerprint(f)
 		if _, seen := s.slackNotifiedKeys[key]; seen {
 			continue
 		}
@@ -139,19 +137,6 @@ func (s *Server) dedupCriticals(findings []report.Finding) []report.Finding {
 		s.slackNotifiedKeys[key] = now
 	}
 	return fresh
-}
-
-// findingFingerprint returns a stable hash of a finding's identifying fields
-// (cluster, scanner, title). Two scans that surface the same condition share
-// a fingerprint and therefore only notify once per dedup window.
-func findingFingerprint(f report.Finding) string {
-	h := sha256.New()
-	h.Write([]byte(f.Cluster))
-	h.Write([]byte{0})
-	h.Write([]byte(f.Scanner))
-	h.Write([]byte{0})
-	h.Write([]byte(f.Title))
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 // slackPayload is the minimal Slack incoming-webhook body. We use the

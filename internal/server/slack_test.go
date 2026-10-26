@@ -52,15 +52,21 @@ func TestDedupCriticals_FiltersRepeat(t *testing.T) {
 	}
 }
 
-func TestFindingFingerprint_Stable(t *testing.T) {
+// TestDedupCriticals_KeysOnRule verifies a count change in the title does not
+// re-notify, because dedup keys on the rule, not the wording.
+func TestDedupCriticals_KeysOnRule(t *testing.T) {
 	t.Parallel()
-	a := report.Finding{Cluster: "c", Scanner: "s", Title: "t"}
-	b := report.Finding{Cluster: "c", Scanner: "s", Title: "t"}
-	if findingFingerprint(a) != findingFingerprint(b) {
-		t.Errorf("fingerprint not stable for identical findings")
+	s := &Server{slackNotifiedKeys: map[string]time.Time{}}
+	first := report.Finding{Cluster: "c", Scanner: "workload-security", Rule: "workload-security/privileged", Title: "c has 3 privileged container(s)", Severity: report.SeverityCritical}
+	again := first
+	again.Title = "c has 4 privileged container(s)"
+	other := first
+	other.Cluster = "x"
+	if got := s.dedupCriticals([]report.Finding{first}); len(got) != 1 {
+		t.Fatalf("first pass: want 1, got %d", len(got))
 	}
-	if findingFingerprint(a) == findingFingerprint(report.Finding{Cluster: "x", Scanner: "s", Title: "t"}) {
-		t.Errorf("fingerprint collided across clusters")
+	if got := s.dedupCriticals([]report.Finding{again, other}); len(got) != 1 || got[0].Cluster != "x" {
+		t.Errorf("second pass: want only cluster x, got %+v", got)
 	}
 }
 

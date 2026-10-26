@@ -199,6 +199,7 @@ func SelfDriftFindings(drifts []SelfDrift) []Finding {
 			verb = "fell"
 		}
 		findings = append(findings, Finding{
+			Rule:  fieldRule(d.Scanner, ruleSelfDriftPrefix, d.Field),
 			Title: fmt.Sprintf("%s: %s %s broke from its own baseline", d.Cluster, label, d.Field),
 			Description: fmt.Sprintf(
 				"%s on %s %s from a baseline of %.1f to %.1f, diverging from its own history around %s.",
@@ -210,5 +211,5 @@ func SelfDriftFindings(drifts []SelfDrift) []Finding {
 			Affected: []string{d.Field},
 		})
 	}
-	return findings
+	return StampFingerprints(findings)
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/google/go-cmp/cmp"
 )
 
 // TestBuildRecommendations_LeverageOrdering verifies the same
@@ -17,33 +18,33 @@ func TestBuildRecommendations_LeverageOrdering(t *testing.T) {
 	findings := []report.Finding{
 		// One critical finding with no leverage.
 		{
-			Title: "low-leverage critical", Severity: "critical",
+			Rule: "low-leverage critical", Title: "low-leverage critical", Severity: "critical",
 			Cluster: "x", Scanner: "s",
 			Remediation: &report.Remediation{Command: "kubectl x"},
 		},
 		// One warning finding present on five clusters.
 		{
-			Title: "high-leverage warning", Severity: "warning",
+			Rule: "high-leverage warning", Title: "high-leverage warning", Severity: "warning",
 			Cluster: "a", Scanner: "s",
 			Remediation: &report.Remediation{Command: "kubectl y"},
 		},
 		{
-			Title: "high-leverage warning", Severity: "warning",
+			Rule: "high-leverage warning", Title: "high-leverage warning", Severity: "warning",
 			Cluster: "b", Scanner: "s",
 			Remediation: &report.Remediation{Command: "kubectl y"},
 		},
 		{
-			Title: "high-leverage warning", Severity: "warning",
+			Rule: "high-leverage warning", Title: "high-leverage warning", Severity: "warning",
 			Cluster: "c", Scanner: "s",
 			Remediation: &report.Remediation{Command: "kubectl y"},
 		},
 		{
-			Title: "high-leverage warning", Severity: "warning",
+			Rule: "high-leverage warning", Title: "high-leverage warning", Severity: "warning",
 			Cluster: "d", Scanner: "s",
 			Remediation: &report.Remediation{Command: "kubectl y"},
 		},
 		{
-			Title: "high-leverage warning", Severity: "warning",
+			Rule: "high-leverage warning", Title: "high-leverage warning", Severity: "warning",
 			Cluster: "e", Scanner: "s",
 			Remediation: &report.Remediation{Command: "kubectl y"},
 		},
@@ -68,8 +69,8 @@ func TestBuildRecommendations_LeverageOrdering(t *testing.T) {
 func TestBuildRecommendations_SkipsFindingsWithoutRemediation(t *testing.T) {
 	t.Parallel()
 	recs := buildRecommendations([]report.Finding{
-		{Title: "no-remediation", Severity: "critical", Scanner: "s", Cluster: "a"},
-		{Title: "yes-remediation", Severity: "warning", Scanner: "s", Cluster: "a",
+		{Rule: "no-remediation", Title: "no-remediation", Severity: "critical", Scanner: "s", Cluster: "a"},
+		{Rule: "yes-remediation", Title: "yes-remediation", Severity: "warning", Scanner: "s", Cluster: "a",
 			Remediation: &report.Remediation{Command: "kubectl"}},
 	}, "")
 	if len(recs) != 1 || recs[0].Title != "yes-remediation" {
@@ -82,9 +83,9 @@ func TestBuildRecommendations_SkipsFindingsWithoutRemediation(t *testing.T) {
 func TestBuildRecommendations_SeverityFilter(t *testing.T) {
 	t.Parallel()
 	findings := []report.Finding{
-		{Title: "i", Severity: "info", Scanner: "s", Cluster: "a", Remediation: &report.Remediation{Command: "x"}},
-		{Title: "w", Severity: "warning", Scanner: "s", Cluster: "a", Remediation: &report.Remediation{Command: "x"}},
-		{Title: "c", Severity: "critical", Scanner: "s", Cluster: "a", Remediation: &report.Remediation{Command: "x"}},
+		{Rule: "i", Title: "i", Severity: "info", Scanner: "s", Cluster: "a", Remediation: &report.Remediation{Command: "x"}},
+		{Rule: "w", Title: "w", Severity: "warning", Scanner: "s", Cluster: "a", Remediation: &report.Remediation{Command: "x"}},
+		{Rule: "c", Title: "c", Severity: "critical", Scanner: "s", Cluster: "a", Remediation: &report.Remediation{Command: "x"}},
 	}
 	recs := buildRecommendations(findings, "warning")
 	titles := map[string]bool{}
@@ -105,12 +106,32 @@ func TestBuildRecommendations_PromotesSeverityWithinGroup(t *testing.T) {
 	t.Parallel()
 	rem := &report.Remediation{Command: "kubectl"}
 	findings := []report.Finding{
-		{Title: "T", Scanner: "s", Cluster: "a", Severity: "warning", Remediation: rem},
-		{Title: "T", Scanner: "s", Cluster: "b", Severity: "critical", Remediation: rem},
+		{Rule: "T", Title: "T", Scanner: "s", Cluster: "a", Severity: "warning", Remediation: rem},
+		{Rule: "T", Title: "T", Scanner: "s", Cluster: "b", Severity: "critical", Remediation: rem},
 	}
 	recs := buildRecommendations(findings, "")
 	if len(recs) != 1 || recs[0].Severity != "critical" {
 		t.Errorf("severity should promote to critical, got %+v", recs)
+	}
+}
+
+// TestBuildRecommendations_SharedRuleCountsClusters verifies findings whose
+// titles differ only by a count share a rule and fold into one
+// recommendation whose leverage counts both clusters.
+func TestBuildRecommendations_SharedRuleCountsClusters(t *testing.T) {
+	t.Parallel()
+	rem := &report.Remediation{Command: "kubectl get pods"}
+	findings := []report.Finding{
+		{Rule: "workload-security/privileged", Title: "a has 3 privileged container(s)", Scanner: "workload-security", Cluster: "a", Severity: "critical", Remediation: rem},
+		{Rule: "workload-security/privileged", Title: "b has 4 privileged container(s)", Scanner: "workload-security", Cluster: "b", Severity: "critical", Remediation: rem},
+	}
+	recs := buildRecommendations(findings, "")
+	want := []recommendation{{
+		Title: "Privileged containers", Rule: "workload-security/privileged", Scanner: "workload-security",
+		Severity: "critical", Clusters: []string{"a", "b"}, Command: "kubectl get pods", Leverage: 2,
+	}}
+	if diff := cmp.Diff(want, recs); diff != "" {
+		t.Errorf("recommendations mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -121,6 +142,7 @@ func TestWriteRecommendations_HumanCoversCoreLines(t *testing.T) {
 	t.Parallel()
 	recs := []recommendation{{
 		Title:    "Add default-deny NetworkPolicy",
+		Rule:     "network-policies/no-policy",
 		Scanner:  "networkpolicy",
 		Severity: "warning",
 		Clusters: []string{"a", "b", "c"},
@@ -134,7 +156,8 @@ func TestWriteRecommendations_HumanCoversCoreLines(t *testing.T) {
 	}
 	out := buf.String()
 	wants := []string{
-		"Leverage: 3 cluster(s)",
+		"Rule:     network-policies/no-policy",
+		"Leverage: 3 cluster(s): a, b, c",
 		"Run:      kubectl",
 		"Apply:",
 		"apiVersion: networking.k8s.io/v1",

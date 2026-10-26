@@ -7,7 +7,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
-	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // Default and maximum number of scans a drift-replay or persistence request
@@ -23,6 +22,8 @@ const (
 type timelineFinding struct {
 	// Fingerprint is the stable finding identifier, matching its ack key.
 	Fingerprint string `json:"fingerprint"`
+	// Rule is the check that produced the finding.
+	Rule string `json:"rule"`
 	// Title is the finding title.
 	Title string `json:"title"`
 	// Severity is critical, warning, or info.
@@ -67,7 +68,8 @@ func (s *Server) handleFindingsTimeline(w http.ResponseWriter, r *http.Request) 
 		var crit, warn, info int
 		for j, f := range sf.Findings {
 			fs[j] = timelineFinding{
-				Fingerprint: util.Fingerprint(f.Cluster, f.Scanner, f.Title),
+				Fingerprint: report.FindingFingerprint(f),
+				Rule:        f.Rule,
 				Title:       f.Title,
 				Severity:    f.Severity,
 				Cluster:     f.Cluster,
