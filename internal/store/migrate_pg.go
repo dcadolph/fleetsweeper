@@ -1,12 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
-	"time"
 )
 
-// pgMigrations holds the Postgres-flavoured DDL for each schema version.
+// pgMigrations holds the Postgres-flavored DDL for each schema version.
 // Versions are numerically aligned with the SQLite migrations in migrate.go
 // so a database carries the same `schema_migrations` table contents whichever
 // backend wrote it.
@@ -171,77 +170,18 @@ ALTER TABLE scan_results ADD COLUMN IF NOT EXISTS reason TEXT NOT NULL DEFAULT '
 // migrations across replicas starting at the same time.
 const pgMigrationLockKey = 0x666c656574 // "fleet"
 
-// migratePostgres ensures the Postgres schema is at the latest version.
-// Safe to call repeatedly and from several replicas at once: every step runs
-// under a transaction-scoped advisory lock and rechecks the applied version
-// after taking it, so each migration applies exactly once.
-func migratePostgres(db *sql.DB) error {
-	if err := pgLocked(db, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    INTEGER PRIMARY KEY,
-		applied_at TEXT NOT NULL
-	)`)
+// postgresDialect applies migrations to Postgres under a transaction-scoped
+// advisory lock so replicas starting together never race on DDL.
+var postgresDialect = dialect{
+	Name:   "postgres",
+	Rebind: rebind,
+	Lock: func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", pgMigrationLockKey)
 		return err
-	}); err != nil {
-		return fmt.Errorf("%w: bootstrap migrations table: %w", ErrMigrate, err)
-	}
-
-	applied, err := appliedVersions(db)
-	if err != nil {
-		return err
-	}
-
-	for _, m := range pgMigrations {
-		if applied[m.Version] {
-			continue
-		}
-		if err := pgLocked(db, func(tx *sql.Tx) error { return applyPGMigration(tx, m) }); err != nil {
-			return fmt.Errorf("%w: migration %d: %w", ErrMigrate, m.Version, err)
-		}
-	}
-	return nil
+	},
 }
 
-// pgLocked runs fn in a transaction that holds the migration advisory lock
-// and commits it when fn succeeds.
-func pgLocked(db *sql.DB, fn func(tx *sql.Tx) error) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec("SELECT pg_advisory_xact_lock($1)", pgMigrationLockKey); err != nil {
-		return fmt.Errorf("advisory lock: %w", err)
-	}
-	if err := fn(tx); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	return nil
-}
-
-// applyPGMigration runs one migration inside a locked transaction unless
-// another replica recorded it while this one waited for the lock.
-func applyPGMigration(tx *sql.Tx, m migration) error {
-	var done bool
-	if err := tx.QueryRow(
-		"SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)", m.Version,
-	).Scan(&done); err != nil {
-		return fmt.Errorf("check applied: %w", err)
-	}
-	if done {
-		return nil
-	}
-	if _, err := tx.Exec(m.SQL); err != nil {
-		return fmt.Errorf("run: %w", err)
-	}
-	if _, err := tx.Exec(
-		"INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)",
-		m.Version, time.Now().UTC().Format(time.RFC3339),
-	); err != nil {
-		return fmt.Errorf("record: %w", err)
-	}
-	return nil
+// migratePostgres brings a Postgres schema to the latest version.
+func migratePostgres(ctx context.Context, db *sql.DB) error {
+	return runMigrations(ctx, db, postgresDialect, pgMigrations)
 }

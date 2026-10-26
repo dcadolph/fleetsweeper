@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -175,50 +176,105 @@ ALTER TABLE scan_results ADD COLUMN reason TEXT NOT NULL DEFAULT '';
 	},
 }
 
-// migrate ensures the schema is at the latest version. It is safe to call
-// repeatedly; already-applied versions are skipped.
-func migrate(db *sql.DB) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+// dialect holds what differs between the backends when applying migrations.
+type dialect struct {
+	// Name labels the backend in error messages.
+	Name string
+	// Rebind converts the runner's ? placeholders to the backend's style.
+	Rebind func(q string) string
+	// Lock serializes migrations across processes inside tx. Nil when the
+	// backend needs no cross-process lock.
+	Lock func(ctx context.Context, tx *sql.Tx) error
+}
+
+// sqliteDialect applies migrations to SQLite, which takes its write lock per
+// transaction and needs no extra serialization.
+var sqliteDialect = dialect{Name: "sqlite", Rebind: func(q string) string { return q }}
+
+// migrate brings a SQLite schema to the latest version.
+func migrate(ctx context.Context, db *sql.DB) error {
+	return runMigrations(ctx, db, sqliteDialect, migrations)
+}
+
+// runMigrations brings the schema to the latest version in ms. It is safe to
+// call repeatedly and from several processes at once: each migration runs in
+// its own transaction, holds the dialect's lock when it has one, and rechecks
+// schema_migrations after taking it, so every version applies exactly once.
+func runMigrations(ctx context.Context, db *sql.DB, d dialect, ms []migration) error {
+	if err := inMigrationTx(ctx, db, d, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
 		applied_at TEXT NOT NULL
-	)`); err != nil {
-		return fmt.Errorf("%w: bootstrap migrations table: %w", ErrMigrate, err)
+	)`)
+		return err
+	}); err != nil {
+		return fmt.Errorf("%w: %s: bootstrap migrations table: %w", ErrMigrate, d.Name, err)
 	}
 
-	applied, err := appliedVersions(db)
+	applied, err := appliedVersions(ctx, db)
 	if err != nil {
 		return err
 	}
-
-	for _, m := range migrations {
+	for _, m := range ms {
 		if applied[m.Version] {
 			continue
 		}
-		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("%w: begin migration %d: %w", ErrMigrate, m.Version, err)
-		}
-		if _, err := tx.Exec(m.SQL); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("%w: run migration %d: %w", ErrMigrate, m.Version, err)
-		}
-		if _, err := tx.Exec(
-			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-			m.Version, time.Now().UTC().Format(time.RFC3339),
-		); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("%w: record migration %d: %w", ErrMigrate, m.Version, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("%w: commit migration %d: %w", ErrMigrate, m.Version, err)
+		if err := inMigrationTx(ctx, db, d, func(tx *sql.Tx) error { return applyMigration(ctx, tx, d, m) }); err != nil {
+			return fmt.Errorf("%w: %s: migration %d: %w", ErrMigrate, d.Name, m.Version, err)
 		}
 	}
 	return nil
 }
 
+// inMigrationTx runs fn in a transaction holding the dialect's lock and
+// commits it when fn succeeds.
+func inMigrationTx(ctx context.Context, db *sql.DB, d dialect, fn func(tx *sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // Rollback after Commit is a no-op.
+	if d.Lock != nil {
+		if err := d.Lock(ctx, tx); err != nil {
+			return fmt.Errorf("lock: %w", err)
+		}
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// applyMigration runs m and records it unless another process recorded it
+// while this one waited for the lock.
+func applyMigration(ctx context.Context, tx *sql.Tx, d dialect, m migration) error {
+	var done bool
+	if err := tx.QueryRowContext(ctx,
+		d.Rebind("SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = ?)"), m.Version,
+	).Scan(&done); err != nil {
+		return fmt.Errorf("check applied: %w", err)
+	}
+	if done {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, m.SQL); err != nil {
+		return fmt.Errorf("run: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		d.Rebind("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)"),
+		m.Version, time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		return fmt.Errorf("record: %w", err)
+	}
+	return nil
+}
+
 // appliedVersions returns the set of migration versions already recorded.
-func appliedVersions(db *sql.DB) (map[int]bool, error) {
-	rows, err := db.Query("SELECT version FROM schema_migrations")
+func appliedVersions(ctx context.Context, db *sql.DB) (map[int]bool, error) {
+	rows, err := db.QueryContext(ctx, "SELECT version FROM schema_migrations")
 	if err != nil {
 		return nil, fmt.Errorf("%w: list migrations: %w", ErrMigrate, err)
 	}

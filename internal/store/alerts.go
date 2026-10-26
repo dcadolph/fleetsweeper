@@ -90,7 +90,7 @@ ON CONFLICT(fingerprint) DO UPDATE SET
 		rec.Fingerprint, rec.Cluster, rec.Status, rec.AlertName,
 		nullable(rec.Severity), nullable(rec.Summary),
 		nullableTime(rec.StartsAt), nullableTime(rec.EndsAt),
-		rec.ReceivedAt.UTC().Format(time.RFC3339Nano),
+		rec.ReceivedAt.UTC().Format(sortableTime),
 		string(labelsJSON), string(annJSON),
 		nullable(rec.GeneratorURL),
 	)
@@ -143,7 +143,7 @@ func (s *SQLite) ListAlerts(ctx context.Context, opts AlertListOptions) ([]Alert
 	}
 	if !opts.Since.IsZero() {
 		clauses = append(clauses, "received_at > ?")
-		args = append(args, opts.Since.UTC().Format(time.RFC3339Nano))
+		args = append(args, opts.Since.UTC().Format(sortableTime))
 	}
 	where := ""
 	if len(clauses) > 0 {
@@ -172,7 +172,7 @@ FROM alerts`+where+` ORDER BY received_at DESC LIMIT ?`, args...)
 func (s *SQLite) PruneAlerts(ctx context.Context, cutoff time.Time) (int, error) {
 	res, err := s.db.ExecContext(ctx,
 		"DELETE FROM alerts WHERE received_at < ?",
-		cutoff.UTC().Format(time.RFC3339Nano))
+		cutoff.UTC().Format(sortableTime))
 	if err != nil {
 		return 0, fmt.Errorf("%w: prune alerts: %w", ErrStore, err)
 	}
@@ -221,5 +221,5 @@ func nullableTime(t time.Time) any {
 	if t.IsZero() {
 		return nil
 	}
-	return t.UTC().Format(time.RFC3339Nano)
+	return t.UTC().Format(sortableTime)
 }

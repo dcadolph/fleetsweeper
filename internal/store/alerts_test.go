@@ -207,8 +207,8 @@ func TestNullableTime(t *testing.T) {
 		WantNil bool
 	}{{ // Test 0: Zero time maps to nil (SQL NULL).
 		Name: "zero", In: time.Time{}, WantNil: true,
-	}, { // Test 1: Non-zero time maps to an RFC3339Nano string.
-		Name: "set", In: time.Date(2026, 6, 7, 8, 9, 10, 0, time.UTC), WantStr: "2026-06-07T08:09:10Z",
+	}, { // Test 1: Non-zero time maps to a fixed-width, sortable UTC string.
+		Name: "set", In: time.Date(2026, 6, 7, 8, 9, 10, 0, time.UTC), WantStr: "2026-06-07T08:09:10.000000000Z",
 	}}
 	for i, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {

@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// sortableTime is the fixed-width UTC layout for timestamps that queries
+// compare or order as text. RFC 3339 with trimmed fractional seconds does not
+// sort: ".1Z" compares after ".15Z" and "05Z" after "05.5Z".
+const sortableTime = "2006-01-02T15:04:05.000000000Z07:00"
+
 // AuditEntry is a single audit log row recording one mutating request.
 // Read-only requests are not audited to keep the table volume manageable;
 // the request log already captures those at info level.
@@ -65,7 +70,7 @@ func (s *SQLite) SaveAuditEntry(ctx context.Context, rec AuditEntry) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO audit_log (id, timestamp, actor_id, actor_name, actor_role, method, path, status, remote_addr, user_agent, duration_ms, error)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.ID, rec.Timestamp.UTC().Format(time.RFC3339Nano),
+		rec.ID, rec.Timestamp.UTC().Format(sortableTime),
 		nullable(rec.ActorID), nullable(rec.ActorName), nullable(rec.ActorRole),
 		rec.Method, rec.Path, rec.Status,
 		nullable(rec.RemoteAddr), nullable(rec.UserAgent),
@@ -82,7 +87,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 func (s *SQLite) PruneAuditEntries(ctx context.Context, cutoff time.Time) (int, error) {
 	res, err := s.db.ExecContext(ctx,
 		"DELETE FROM audit_log WHERE timestamp < ?",
-		cutoff.UTC().Format(time.RFC3339Nano))
+		cutoff.UTC().Format(sortableTime))
 	if err != nil {
 		return 0, fmt.Errorf("%w: prune audit: %w", ErrStore, err)
 	}
@@ -101,7 +106,7 @@ func (s *SQLite) ListAuditEntries(ctx context.Context, opts AuditListOptions) ([
 	)
 	if !opts.Since.IsZero() {
 		clauses = append(clauses, "timestamp > ?")
-		args = append(args, opts.Since.UTC().Format(time.RFC3339Nano))
+		args = append(args, opts.Since.UTC().Format(sortableTime))
 	}
 	if opts.ActorID != "" {
 		clauses = append(clauses, "actor_id = ?")

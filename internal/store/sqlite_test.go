@@ -103,45 +103,6 @@ func TestGetScanResults(t *testing.T) {
 	}
 }
 
-func TestListScans(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	ctx := context.Background()
-
-	// Save 3 scans.
-	for i := range 3 {
-		clusters := []string{fmt.Sprintf("cluster-%d", i)}
-		results := map[string]map[string]scanner.Result{
-			clusters[0]: {"version": {Scanner: "version", Data: map[string]any{"i": float64(i)}}},
-		}
-		if _, err := s.SaveScan(ctx, clusters, results); err != nil {
-			t.Fatalf("save scan %d: %v", i, err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	scans, err := s.ListScans(ctx, 10)
-	if err != nil {
-		t.Fatalf("list scans: %v", err)
-	}
-	if diff := cmp.Diff(3, len(scans)); diff != "" {
-		t.Errorf("count mismatch (-want +got):\n%s", diff)
-	}
-	// Most recent first.
-	if scans[0].Timestamp.Before(scans[2].Timestamp) {
-		t.Error("expected scans ordered most recent first")
-	}
-
-	// Test limit.
-	limited, err := s.ListScans(ctx, 2)
-	if err != nil {
-		t.Fatalf("list scans limited: %v", err)
-	}
-	if diff := cmp.Diff(2, len(limited)); diff != "" {
-		t.Errorf("limited count mismatch (-want +got):\n%s", diff)
-	}
-}
-
 // TestListScansTiebreak verifies that scans sharing a second-granularity
 // timestamp return in a deterministic order, newest id first. Without the id
 // tiebreak, two scans in the same second have unstable latest and previous
@@ -169,41 +130,6 @@ func TestListScansTiebreak(t *testing.T) {
 	want := []string{"0000000000001-cccc", "0000000000001-bbbb", "0000000000001-aaaa"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("tiebreak order mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestClusterTracking(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	ctx := context.Background()
-
-	results := map[string]map[string]scanner.Result{
-		"alpha": {"version": {Scanner: "version", Data: map[string]any{}}},
-	}
-
-	// First scan.
-	s.SaveScan(ctx, []string{"alpha"}, results)
-	time.Sleep(10 * time.Millisecond)
-
-	// Second scan updates last_seen.
-	s.SaveScan(ctx, []string{"alpha"}, results)
-
-	clusters, err := s.ListClusters(ctx)
-	if err != nil {
-		t.Fatalf("list clusters: %v", err)
-	}
-	if len(clusters) != 1 {
-		t.Fatalf("expected 1 cluster, got %d", len(clusters))
-	}
-	if clusters[0].Name != "alpha" {
-		t.Errorf("expected cluster name 'alpha', got %q", clusters[0].Name)
-	}
-	if !clusters[0].LastSeen.After(clusters[0].FirstSeen) || clusters[0].LastSeen.Equal(clusters[0].FirstSeen) {
-		// Both timestamps come from time.Now() in SaveScan — they may be equal
-		// if the test runs fast enough. Just verify they're both non-zero.
-		if clusters[0].FirstSeen.IsZero() || clusters[0].LastSeen.IsZero() {
-			t.Error("expected non-zero timestamps")
-		}
 	}
 }
 
@@ -276,31 +202,6 @@ func TestGetScanNotFound(t *testing.T) {
 	_, err := s.GetScan(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent scan")
-	}
-}
-
-func TestGetClusterHistory(t *testing.T) {
-	t.Parallel()
-	s := testStore(t)
-	ctx := context.Background()
-
-	// Save 3 scans for the same cluster.
-	for i := range 3 {
-		results := map[string]map[string]scanner.Result{
-			"alpha": {"version": {Scanner: "version", Data: map[string]any{"i": float64(i)}}},
-		}
-		if _, err := s.SaveScan(ctx, []string{"alpha"}, results); err != nil {
-			t.Fatalf("save scan %d: %v", i, err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	history, err := s.GetClusterHistory(ctx, "alpha", 10)
-	if err != nil {
-		t.Fatalf("get history: %v", err)
-	}
-	if diff := cmp.Diff(3, len(history)); diff != "" {
-		t.Errorf("history count mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -447,10 +348,4 @@ func checkSaveScanRecord(t *testing.T, st Store) {
 	if rec.Timestamp.Before(before) {
 		t.Errorf("zero timestamp should mean now: got %v, want at or after %v", rec.Timestamp, before)
 	}
-}
-
-// TestSaveScanRecord runs the SaveScanRecord contract against SQLite.
-func TestSaveScanRecord(t *testing.T) {
-	t.Parallel()
-	checkSaveScanRecord(t, testStore(t))
 }

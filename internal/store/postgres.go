@@ -45,7 +45,7 @@ func NewPostgres(dsn string) (*Postgres, error) {
 		return nil, fmt.Errorf("%w: ping: %w", ErrStore, err)
 	}
 
-	if err := migratePostgres(db); err != nil {
+	if err := migratePostgres(context.Background(), db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -738,7 +738,7 @@ func (p *Postgres) SaveAuditEntry(ctx context.Context, rec AuditEntry) error {
 	_, err := p.exec(ctx, `
 INSERT INTO audit_log (id, timestamp, actor_id, actor_name, actor_role, method, path, status, remote_addr, user_agent, duration_ms, error)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rec.ID, rec.Timestamp.UTC().Format(time.RFC3339Nano),
+		rec.ID, rec.Timestamp.UTC().Format(sortableTime),
 		nullable(rec.ActorID), nullable(rec.ActorName), nullable(rec.ActorRole),
 		rec.Method, rec.Path, rec.Status,
 		nullable(rec.RemoteAddr), nullable(rec.UserAgent),
@@ -755,7 +755,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 func (p *Postgres) PruneAuditEntries(ctx context.Context, cutoff time.Time) (int, error) {
 	res, err := p.exec(ctx,
 		"DELETE FROM audit_log WHERE timestamp < ?",
-		cutoff.UTC().Format(time.RFC3339Nano))
+		cutoff.UTC().Format(sortableTime))
 	if err != nil {
 		return 0, fmt.Errorf("%w: prune audit: %w", ErrStore, err)
 	}
@@ -774,7 +774,7 @@ func (p *Postgres) ListAuditEntries(ctx context.Context, opts AuditListOptions) 
 	)
 	if !opts.Since.IsZero() {
 		clauses = append(clauses, "timestamp > ?")
-		args = append(args, opts.Since.UTC().Format(time.RFC3339Nano))
+		args = append(args, opts.Since.UTC().Format(sortableTime))
 	}
 	if opts.ActorID != "" {
 		clauses = append(clauses, "actor_id = ?")
@@ -841,7 +841,7 @@ ON CONFLICT(fingerprint) DO UPDATE SET
 		rec.Fingerprint, rec.Cluster, rec.Status, rec.AlertName,
 		nullable(rec.Severity), nullable(rec.Summary),
 		nullableTime(rec.StartsAt), nullableTime(rec.EndsAt),
-		rec.ReceivedAt.UTC().Format(time.RFC3339Nano),
+		rec.ReceivedAt.UTC().Format(sortableTime),
 		string(labelsJSON), string(annJSON),
 		nullable(rec.GeneratorURL),
 	)
@@ -894,7 +894,7 @@ func (p *Postgres) ListAlerts(ctx context.Context, opts AlertListOptions) ([]Ale
 	}
 	if !opts.Since.IsZero() {
 		clauses = append(clauses, "received_at > ?")
-		args = append(args, opts.Since.UTC().Format(time.RFC3339Nano))
+		args = append(args, opts.Since.UTC().Format(sortableTime))
 	}
 	where := ""
 	if len(clauses) > 0 {
@@ -923,7 +923,7 @@ FROM alerts`+where+` ORDER BY received_at DESC LIMIT ?`, args...)
 func (p *Postgres) PruneAlerts(ctx context.Context, cutoff time.Time) (int, error) {
 	res, err := p.exec(ctx,
 		"DELETE FROM alerts WHERE received_at < ?",
-		cutoff.UTC().Format(time.RFC3339Nano))
+		cutoff.UTC().Format(sortableTime))
 	if err != nil {
 		return 0, fmt.Errorf("%w: prune alerts: %w", ErrStore, err)
 	}
