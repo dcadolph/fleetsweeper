@@ -32,7 +32,7 @@ export const ROUTES = [
   { id: 'trends', label: 'Trends', group: 'Analysis', abbr: 'Tr', chord: 't', render: renderTrends },
   { id: 'replay', label: 'Drift replay', group: 'Analysis', abbr: 'Rp', render: renderReplay },
   { id: 'capacity', label: 'Capacity', group: 'Analysis', abbr: 'Ca', chord: 'c', render: renderCapacity },
-  { id: 'heatmap', label: 'Fleet heatmap', group: 'Maps', abbr: 'Hm', render: renderHeatmap },
+  { id: 'heatmap', label: 'Deviation matrix', group: 'Maps', abbr: 'Mx', render: renderHeatmap },
   { id: 'globe', label: 'Globe', group: 'Maps', abbr: 'Gl', chord: 'g', render: renderGlobe },
   { id: 'diff', label: 'Scan diff', group: 'Maps', abbr: 'Df', render: renderDiff },
   { id: 'scans', label: 'Scan history', group: 'History', abbr: 'Sh', chord: 'h', render: renderScans },
