@@ -43,7 +43,7 @@ func NewSQLite(path string) (*SQLite, error) {
 		db.SetMaxOpenConns(4)
 		db.SetMaxIdleConns(2)
 	}
-	if err := migrate(db); err != nil {
+	if err := migrate(context.Background(), db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
