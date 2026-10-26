@@ -39,6 +39,9 @@ type ScanDiff struct {
 	// changed, so a cluster that loses another CRD shows up even though its
 	// finding persisted.
 	SetDrift []SetDrift `json:"set_drift"`
+	// Drift is the drift ledger from A to B: which clusters moved against
+	// the fleet norm, by how much, and on which fields.
+	Drift report.Ledger `json:"drift"`
 	// ClusterStatusChanges lists clusters whose health status moved.
 	ClusterStatusChanges []ClusterStatusChange `json:"cluster_status_changes"`
 	// AddedClusters are clusters present in B but not in A.
@@ -89,6 +92,7 @@ func Diff(a, b *report.Report) ScanDiff {
 	out.populateFindings(a, b)
 	out.populateClusters(a, b)
 	out.populateSummary(a, b)
+	out.Drift = report.DriftLedger([]report.ScanReport{{Report: a}, {Report: b}})
 	return out
 }
 
@@ -287,6 +291,13 @@ func RenderText(d ScanDiff, color bool) string {
 	fmt.Fprintf(&b, "Warning:      %d -> %d\n", d.WarningBefore, d.WarningAfter)
 	fmt.Fprintln(&b)
 
+	if len(d.Drift.Clusters) > 0 {
+		fmt.Fprintf(&b, "%sDrifted clusters (%d):%s\n", yellow, len(d.Drift.Clusters), reset())
+		for _, line := range DriftLines(d.Drift, maxDriftLines) {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
+		fmt.Fprintln(&b)
+	}
 	renderFindingsSection(&b, "NEW", d.New, red, reset())
 	renderFindingsSection(&b, "RESOLVED", d.Resolved, green, reset())
 
@@ -362,6 +373,13 @@ func RenderMarkdown(d ScanDiff) string {
 	fmt.Fprintf(&b, "| Warning findings | %d | %d | %+d |\n\n",
 		d.WarningBefore, d.WarningAfter, d.WarningAfter-d.WarningBefore)
 
+	if len(d.Drift.Clusters) > 0 {
+		fmt.Fprintf(&b, "### Drifted clusters (%d)\n\n", len(d.Drift.Clusters))
+		for _, line := range DriftLines(d.Drift, maxDriftLines) {
+			fmt.Fprintf(&b, "- %s\n", line)
+		}
+		fmt.Fprintln(&b)
+	}
 	if len(d.New) > 0 {
 		fmt.Fprintf(&b, "### New findings (%d)\n\n", len(d.New))
 		for _, f := range d.New {
@@ -400,6 +418,55 @@ func RenderMarkdown(d ScanDiff) string {
 		}
 	}
 	return b.String()
+}
+
+// maxDriftLines is how many drifted clusters the text and Markdown renderings
+// list before summarizing the rest.
+const maxDriftLines = 10
+
+// DriftLines renders up to limit ledger rows as one line each: the cluster,
+// how its deviation mass moved, the field that moved most, and the outlier
+// flags it gained or lost with the scan of each flip when known. A final line
+// counts the rows left out.
+func DriftLines(l report.Ledger, limit int) []string {
+	var out []string
+	for i, c := range l.Clusters {
+		if i == limit {
+			out = append(out, fmt.Sprintf("... and %d more", len(l.Clusters)-limit))
+			break
+		}
+		parts := []string{fmt.Sprintf("%s deviation %.1f -> %.1f (%+.1f)", c.Cluster, c.MassBefore, c.MassAfter, c.MassDelta)}
+		if len(c.Fields) > 0 {
+			f := c.Fields[0]
+			parts = append(parts, fmt.Sprintf("%s/%s %s -> %s (z %.1f -> %.1f)",
+				f.Scanner, f.Field, orDash(f.Before), orDash(f.After), f.ZBefore, f.ZAfter))
+		}
+		for _, g := range c.Gained {
+			parts = append(parts, "now flagged on "+flagText(g))
+		}
+		for _, g := range c.Lost {
+			parts = append(parts, "no longer flagged on "+flagText(g))
+		}
+		out = append(out, strings.Join(parts, ", "))
+	}
+	return out
+}
+
+// flagText renders a flag change as scanner/field, with the scan it flipped in
+// when known.
+func flagText(f report.FlagChange) string {
+	if f.Scan == "" {
+		return f.Scanner + "/" + f.Field
+	}
+	return fmt.Sprintf("%s/%s since %s", f.Scanner, f.Field, f.Scan)
+}
+
+// orDash returns s, or "-" when s is empty.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 // setDriftText renders the newly missing and restored members of s, e.g.

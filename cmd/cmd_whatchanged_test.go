@@ -25,9 +25,9 @@ func buildReportForDiffTest(score int, findings []report.Finding, healths []repo
 // in both are excluded.
 func TestComputeWhatChanged_DetectsNewAndCleared(t *testing.T) {
 	t.Parallel()
-	common := report.Finding{Title: "common", Severity: "warning", Cluster: "a", Scanner: "x"}
-	gone := report.Finding{Title: "gone", Severity: "critical", Cluster: "a", Scanner: "x"}
-	added := report.Finding{Title: "new", Severity: "critical", Cluster: "b", Scanner: "y"}
+	common := report.Finding{Title: "common", Severity: "warning", Cluster: "a", Scanner: "x", Rule: "x/common"}
+	gone := report.Finding{Title: "gone", Severity: "critical", Cluster: "a", Scanner: "x", Rule: "x/gone"}
+	added := report.Finding{Title: "new", Severity: "critical", Cluster: "b", Scanner: "y", Rule: "y/new"}
 
 	a := buildReportForDiffTest(90,
 		[]report.Finding{common, gone},
@@ -59,9 +59,9 @@ func TestComputeWhatChanged_SeverityFilter(t *testing.T) {
 	t.Parallel()
 	a := buildReportForDiffTest(100, nil, nil)
 	b := buildReportForDiffTest(95, []report.Finding{
-		{Title: "info-thing", Severity: "info", Cluster: "a", Scanner: "x"},
-		{Title: "warn-thing", Severity: "warning", Cluster: "a", Scanner: "x"},
-		{Title: "crit-thing", Severity: "critical", Cluster: "a", Scanner: "x"},
+		{Title: "info-thing", Severity: "info", Cluster: "a", Scanner: "x", Rule: "x/info"},
+		{Title: "warn-thing", Severity: "warning", Cluster: "a", Scanner: "x", Rule: "x/warn"},
+		{Title: "crit-thing", Severity: "critical", Cluster: "a", Scanner: "x", Rule: "x/crit"},
 	}, nil)
 
 	d := computeWhatChanged(a, b, "a", "b", "warning")
@@ -74,6 +74,25 @@ func TestComputeWhatChanged_SeverityFilter(t *testing.T) {
 	}
 	if !titles["warn-thing"] || !titles["crit-thing"] {
 		t.Errorf("warning+ findings missing: %v", titles)
+	}
+}
+
+// TestComputeWhatChanged_TitleCountChange verifies a finding whose title count
+// changes between scans is neither new nor cleared, since findings match on
+// cluster, scanner, and rule.
+func TestComputeWhatChanged_TitleCountChange(t *testing.T) {
+	t.Parallel()
+	a := buildReportForDiffTest(90, []report.Finding{{
+		Title: "a has 3 privileged containers", Severity: "critical", Cluster: "a",
+		Scanner: "workload-security", Rule: "workload-security/privileged",
+	}}, nil)
+	b := buildReportForDiffTest(90, []report.Finding{{
+		Title: "a has 5 privileged containers", Severity: "critical", Cluster: "a",
+		Scanner: "workload-security", Rule: "workload-security/privileged",
+	}}, nil)
+	d := computeWhatChanged(a, b, "a", "b", "")
+	if len(d.NewFindings) != 0 || len(d.ClearedFindings) != 0 {
+		t.Errorf("want no new or cleared findings, got new %v cleared %v", d.NewFindings, d.ClearedFindings)
 	}
 }
 
@@ -113,7 +132,7 @@ func TestWriteWhatChanged_HumanIncludesFleetDelta(t *testing.T) {
 	if !strings.Contains(out, "Fleet score: 90 -> 80 (-10)") {
 		t.Errorf("missing fleet delta line: %s", out)
 	}
-	if !strings.Contains(out, "[CRITICAL] c1 — T") {
+	if !strings.Contains(out, "[CRITICAL] c1 -- T") {
 		t.Errorf("missing new-finding line: %s", out)
 	}
 	if !strings.Contains(out, "c1") || !strings.Contains(out, "-30") {

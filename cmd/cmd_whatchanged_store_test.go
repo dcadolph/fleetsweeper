@@ -3,10 +3,17 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -129,5 +136,73 @@ func TestWhatChangedRuns(t *testing.T) {
 	}
 	if !strings.Contains(jsonOut, "fleet_score_delta") {
 		t.Errorf("json output missing delta field:\n%s", jsonOut)
+	}
+}
+
+// seedStepScans stores six scans of a 10-cluster fleet an hour apart, IDs
+// scan-1 to scan-6, with c04 stepping from 24 to 80 enforced namespaces at
+// scan-4.
+func seedStepScans(t *testing.T, dbPath string) {
+	t.Helper()
+	s, err := store.NewSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	base := []float64{20, 22, 23, 24, 24, 25, 26, 26, 28, 30}
+	start := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	for n := 1; n <= 6; n++ {
+		clusters := make([]string, 0, len(base))
+		results := map[string]map[string]scanner.Result{}
+		for i, v := range base {
+			c := fmt.Sprintf("c%02d", i)
+			if c == "c04" && n >= 4 {
+				v = 80
+			}
+			clusters = append(clusters, c)
+			results[c] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+		}
+		rec := store.ScanRecord{ID: fmt.Sprintf("scan-%d", n), Timestamp: start.Add(time.Duration(n) * time.Hour), Clusters: clusters}
+		if _, err := s.SaveScanRecord(context.Background(), rec, results); err != nil {
+			t.Fatalf("save scan %d: %v", n, err)
+		}
+	}
+}
+
+// TestWhatChangedDrift verifies whatchanged reads every scan between the two
+// it compares, so the drifted cluster leads the ledger with its flag stamped
+// with the scan it flipped in, and the text lists drift above the findings.
+func TestWhatChangedDrift(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "drift.db")
+	seedStepScans(t, dbPath)
+
+	jsonOut, err := execWhatChanged(t, dbPath, "scan-1", "scan-6", "--json=true", "--severity=")
+	if err != nil {
+		t.Fatalf("json: %v\n%s", err, jsonOut)
+	}
+	var diff whatChangedDiff
+	if err := json.Unmarshal([]byte(jsonOut), &diff); err != nil {
+		t.Fatalf("decode: %v\n%s", err, jsonOut)
+	}
+	if diff := cmp.Diff([]string{"scan-1", "scan-2", "scan-3", "scan-4", "scan-5", "scan-6"}, diff.Drift.Scans); diff != "" {
+		t.Errorf("ledger scans mismatch (-want +got):\n%s", diff)
+	}
+	if len(diff.Drift.Clusters) == 0 || diff.Drift.Clusters[0].Cluster != "c04" {
+		t.Fatalf("want c04 first in the ledger, got %+v", diff.Drift.Clusters)
+	}
+	want := []report.FlagChange{{Scanner: "security", Field: "enforced_count", Scan: "scan-4"}}
+	if d := cmp.Diff(want, diff.Drift.Clusters[0].Gained); d != "" {
+		t.Errorf("gained mismatch (-want +got):\n%s", d)
+	}
+
+	text, err := execWhatChanged(t, dbPath, "scan-1", "scan-6", "--json=false", "--severity=")
+	if err != nil {
+		t.Fatalf("text: %v\n%s", err, text)
+	}
+	if !strings.Contains(text, "now flagged on security/enforced_count since scan-4") {
+		t.Errorf("text lacks the flag line:\n%s", text)
+	}
+	if strings.Index(text, "Drifted clusters") > strings.Index(text, "New findings") {
+		t.Errorf("drift is not above the findings:\n%s", text)
 	}
 }

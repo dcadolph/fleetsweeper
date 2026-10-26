@@ -60,6 +60,7 @@ func init() {
 	rootCmd.AddCommand(driftCmd)
 	rootCmd.AddCommand(textfileCmd)
 	rootCmd.AddCommand(whatChangedCmd)
+	rootCmd.AddCommand(whatifCmd)
 	rootCmd.AddCommand(recommendCmd)
 	rootCmd.AddCommand(tagCmd)
 }
