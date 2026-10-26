@@ -39,31 +39,54 @@ func (l cohortSectionLookup) PerCluster(name string) map[string]any {
 // each one: MAD for cohorts of minMADSample clusters or more, the
 // leave-one-out majority diff for cohorts of minMajoritySample to
 // minMADSample-1. Smaller cohorts contribute their members and source but no
-// outliers.
-func buildCohorts(r *Report, tags map[string]string, threshold float64) []CohortSummary {
+// outliers. It also returns the distribution behind every field each cohort
+// evaluated.
+func buildCohorts(r *Report, tags map[string]string, threshold float64) ([]CohortSummary, []Distribution) {
 	if len(r.Clusters) == 0 {
-		return nil
+		return nil, nil
 	}
 	profiles := cohort.Profiles(r.Clusters, cohortSectionLookup{sections: r.Sections}, tags)
 	groups := cohort.Assign(profiles, cohort.Options{})
 
 	out := make([]CohortSummary, 0, len(groups))
+	var dists []Distribution
 	for _, g := range groups {
 		summary := CohortSummary{
 			Name:     g.Name,
 			Source:   string(g.Source),
 			Clusters: g.Clusters,
 		}
+		var found []Distribution
 		switch {
 		case len(g.Clusters) >= minMADSample:
-			summary.Outliers = detectCohortOutliers(r, g.Name, g.Clusters, threshold)
+			summary.Outliers, found = detectCohortOutliers(r, g.Name, g.Clusters, threshold)
 		case len(g.Clusters) >= minMajoritySample:
 			sub := &Report{Clusters: g.Clusters, Sections: r.Sections}
-			summary.Outliers = detectMajorityOutliers(sub, threshold, g.Name)
+			summary.Outliers, found = detectMajorityOutliers(sub, threshold, g.Name)
 		}
+		dists = append(dists, found...)
 		out = append(out, summary)
 	}
-	return out
+	return out, dists
+}
+
+// cohortMapPeers is how many nearest peers the cohort map lists per cluster.
+const cohortMapPeers = 5
+
+// CohortMapFor lays the fleet of r out on a cohort map, from the same feature
+// vectors cohort assignment uses, with r's cohorts as the groups and five
+// nearest peers per cluster. It is computed on demand rather than in Build
+// because classical scaling is cubic in the fleet size.
+func CohortMapFor(r *Report) cohort.Map {
+	if r == nil || len(r.Clusters) == 0 {
+		return cohort.Map{}
+	}
+	profiles := cohort.Profiles(r.Clusters, cohortSectionLookup{sections: r.Sections}, nil)
+	groups := make([]cohort.Cohort, 0, len(r.Cohorts))
+	for _, c := range r.Cohorts {
+		groups = append(groups, cohort.Cohort{Name: c.Name, Source: cohort.Source(c.Source), Clusters: c.Clusters})
+	}
+	return cohort.BuildMap(profiles, groups, cohortMapPeers)
 }
 
 // detectCohortOutliers runs the same MAD-based numeric/string/set detection
@@ -71,7 +94,7 @@ func buildCohorts(r *Report, tags map[string]string, threshold float64) []Cohort
 // outliers compare each cluster against the cohort's own median or mode,
 // which is what surfaces drift that is invisible at fleet scale. Each result's
 // Scope is the cohort name.
-func detectCohortOutliers(r *Report, name string, members []string, threshold float64) []OutlierResult {
+func detectCohortOutliers(r *Report, name string, members []string, threshold float64) ([]OutlierResult, []Distribution) {
 	subReport := &Report{
 		Clusters: members,
 		Sections: r.Sections,

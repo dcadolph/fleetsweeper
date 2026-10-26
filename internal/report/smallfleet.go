@@ -14,9 +14,11 @@ const minMajoritySample = 3
 // non-uniform section of r. It is the outlier detector for populations of
 // minMajoritySample to minMADSample-1 clusters, where MAD over the whole
 // population is unstable. Every result is marked LimitedSample, its severity
-// is capped at warning, and its Scope is scope.
-func detectMajorityOutliers(r *Report, threshold float64, scope string) []OutlierResult {
+// is capped at warning, and its Scope is scope. It also returns the
+// distribution behind every numeric and string field it evaluated.
+func detectMajorityOutliers(r *Report, threshold float64, scope string) ([]OutlierResult, []Distribution) {
 	var outliers []OutlierResult
+	var dists []Distribution
 	for scannerName, sec := range r.Sections {
 		if sec.Uniform {
 			continue
@@ -28,13 +30,26 @@ func detectMajorityOutliers(r *Report, threshold float64, scope string) []Outlie
 				continue
 			}
 			var o *OutlierResult
+			var dist *Distribution
 			switch {
 			case isNumericInFlat(r.Clusters, flat, field):
 				o = majorityNumericOutlier(r.Clusters, flat, field, threshold)
+				dist = majorityNumericDistribution(r.Clusters, flat, field, threshold)
 			case isArrayInFlat(r.Clusters, flat, field):
 				continue
 			default:
 				o = majorityStringOutlier(r.Clusters, flat, field)
+				dist = majorityStringDistribution(r.Clusters, flat, field)
+			}
+			if dist != nil {
+				dist.Scanner = scannerName
+				dist.Field = field
+				dist.Scope = scope
+				if o != nil {
+					markOutliers(dist, []OutlierResult{*o}, true)
+				}
+				dist.Mass = massOf(dist.Values)
+				dists = append(dists, *dist)
 			}
 			if o == nil {
 				continue
@@ -51,7 +66,68 @@ func detectMajorityOutliers(r *Report, threshold float64, scope string) []Outlie
 		}
 	}
 	sortOutliers(outliers)
-	return outliers
+	sortDistributions(dists)
+	return outliers, dists
+}
+
+// majorityNumericDistribution returns the distribution of a numeric field over
+// a population of minMajoritySample to minMADSample-1 clusters, or nil
+// outside that range. Median, MAD, and each Z describe the whole population;
+// the caller overwrites the flagged cluster's Z with its leave-one-out score.
+func majorityNumericDistribution(clusters []string, flat map[string]map[string]any, field string, threshold float64) *Distribution {
+	var vals []float64
+	var values []ClusterValue
+	for _, c := range clusters {
+		v, ok := toOptionalFloat64(flat[c][field])
+		if !ok {
+			continue
+		}
+		vals = append(vals, v)
+		values = append(values, ClusterValue{Cluster: c, Number: &v})
+	}
+	if len(vals) < minMajoritySample || len(vals) >= minMADSample {
+		return nil
+	}
+	m := computeMedian(vals)
+	d := computeMAD(vals, m)
+	dist := &Distribution{
+		Kind: NormKindNumeric, Values: values, Median: m, MAD: d, Threshold: threshold,
+		SampleSize: len(vals), LimitedSample: true,
+	}
+	if d != 0 {
+		dist.Band = threshold * d / madScale
+		for i, v := range vals {
+			dist.Values[i].Z = cappedZ(madScale * (v - m) / d)
+		}
+	}
+	return dist
+}
+
+// majorityStringDistribution returns the distribution of a string field over a
+// population of minMajoritySample to minMADSample-1 clusters, or nil outside
+// that range or when every cluster holds the same value. Threshold is the
+// share the majority diff requires of the mode: all but one cluster.
+func majorityStringDistribution(clusters []string, flat map[string]map[string]any, field string) *Distribution {
+	counts := make(map[string]int)
+	var values []ClusterValue
+	for _, c := range clusters {
+		raw, ok := flat[c][field]
+		if !ok || raw == nil {
+			continue
+		}
+		v := fmt.Sprintf("%v", raw)
+		counts[v]++
+		values = append(values, ClusterValue{Cluster: c, Text: v})
+	}
+	n := len(values)
+	if n < minMajoritySample || n >= minMADSample || len(counts) < 2 {
+		return nil
+	}
+	mode := dominantString(counts)
+	return &Distribution{
+		Kind: NormKindString, Values: values, Threshold: float64(n-1) / float64(n),
+		Mode: mode, ModeShare: float64(counts[mode]) / float64(n), SampleSize: n, LimitedSample: true,
+	}
 }
 
 // majorityNumericOutlier returns the one cluster that stands apart from peers

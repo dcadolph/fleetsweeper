@@ -526,7 +526,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 
 	r, tags := normFixture()
 	r.Outliers = DetectOutliers(r, 3.5)
-	r.Cohorts = buildCohorts(r, tags, 3.5)
+	r.Cohorts, _ = buildCohorts(r, tags, 3.5)
 	fleet := outlierFindings(r)
 	byRule := map[string]Finding{}
 	for _, f := range fleet {
@@ -560,7 +560,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Run("cohort scope", func(t *testing.T) {
 		t.Parallel()
 		r, tags := normFixture()
-		r.Cohorts = buildCohorts(r, tags, 3.5)
+		r.Cohorts, _ = buildCohorts(r, tags, 3.5)
 		got := cohortOutlierFindings(r)
 		if len(got) != 2 {
 			t.Fatalf("want 2 cohort findings, got %d: %+v", len(got), got)

@@ -3,7 +3,6 @@ package report
 import (
 	"fmt"
 	"math"
-	"sort"
 
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
@@ -68,53 +67,31 @@ const (
 // it on two different reports. Safe to call on nil; returns a perfect score
 // with a placeholder headline.
 func ComputeFleetScore(r *Report) FleetScore {
+	score, _ := scoreWithAttribution(r)
+	return score
+}
+
+// scoreWithAttribution returns the FleetScore of r and the cost ledger it was
+// computed from. The score is 100 minus the ledger's total, rounded and
+// floored at zero, and the drivers are the ledger's top three terms.
+func scoreWithAttribution(r *Report) (FleetScore, ScoreAttribution) {
 	if r == nil {
-		return FleetScore{Score: 100, Grade: "A", Headline: "No data yet."}
+		return FleetScore{Score: 100, Grade: "A", Headline: "No data yet."}, ScoreAttribution{}
 	}
-
-	drivers := []FleetScoreDriver{}
-	totalCost := 0.0
-
-	if cost, drv := findingCost(r.Findings); cost > 0 {
-		totalCost += cost
-		drivers = append(drivers, drv...)
-	}
-	if cost, drv := clusterHealthCost(r.ClusterHealths); cost > 0 {
-		totalCost += cost
-		drivers = append(drivers, drv...)
-	}
-	if cost, drv := versionSkewCost(r.ClusterHealths); cost > 0 {
-		totalCost += cost
-		drivers = append(drivers, drv)
-	}
-	if cost, drv := worstNodeCost(r.ClusterHealths); cost > 0 {
-		totalCost += cost
-		drivers = append(drivers, drv)
-	}
-
-	raw := 100.0 - totalCost
-	if raw < 0 {
-		raw = 0
-	}
+	a := ComputeScoreAttribution(r)
+	raw := math.Max(100.0-a.Total, 0)
 	score := int(math.Round(raw))
-
-	sort.SliceStable(drivers, func(i, j int) bool {
-		return drivers[i].Impact > drivers[j].Impact
-	})
-	if len(drivers) > 3 {
-		drivers = drivers[:3]
-	}
 
 	sample, dims, excluded := scoreProvenance(r)
 	return FleetScore{
 		Score:            score,
 		Grade:            grade(score),
 		Headline:         headline(score, r),
-		Drivers:          drivers,
+		Drivers:          a.Drivers(),
 		SampleSize:       sample,
 		Dimensions:       dims,
 		ExcludedClusters: excluded,
-	}
+	}, a
 }
 
 // scoreProvenance derives the sample size, contributing dimension count, and
@@ -139,143 +116,6 @@ func scoreProvenance(r *Report) (sample, dimensions, excluded int) {
 	}
 	excluded = len(r.Clusters) - sample
 	return sample, dimensions, excluded
-}
-
-// findingCost returns the total points subtracted by findings plus a
-// per-severity driver entry for each non-zero severity.
-func findingCost(findings []Finding) (float64, []FleetScoreDriver) {
-	var crit, warn, info int
-	for _, f := range findings {
-		switch f.Severity {
-		case SeverityCritical:
-			crit++
-		case SeverityWarning:
-			warn++
-		case SeverityInfo:
-			info++
-		}
-	}
-
-	critCost := math.Min(float64(crit)*scorePerCritical, scoreCriticalCap)
-	warnCost := math.Min(float64(warn)*scorePerWarning, scoreWarningCap)
-	infoCost := math.Min(float64(info)*scorePerInfo, scoreInfoCap)
-	total := critCost + warnCost + infoCost
-
-	var drivers []FleetScoreDriver
-	if critCost > 0 {
-		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d critical finding%s", crit, util.Plural(crit)),
-			Impact: int(math.Round(critCost)),
-		})
-	}
-	if warnCost > 0 {
-		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d warning finding%s", warn, util.Plural(warn)),
-			Impact: int(math.Round(warnCost)),
-		})
-	}
-	if infoCost > 0 {
-		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d info finding%s", info, util.Plural(info)),
-			Impact: int(math.Round(infoCost)),
-		})
-	}
-	return total, drivers
-}
-
-// clusterHealthCost penalizes fleets where a meaningful fraction of clusters
-// are not healthy. Scaling by fraction-of-fleet keeps the cost proportional:
-// one critical cluster in a fleet of three hurts more than one critical
-// cluster in a fleet of thirty.
-func clusterHealthCost(healths []ClusterHealth) (float64, []FleetScoreDriver) {
-	if len(healths) == 0 {
-		return 0, nil
-	}
-	var crit, deg int
-	for _, h := range healths {
-		switch h.Status {
-		case "critical":
-			crit++
-		case "degraded", "strained":
-			deg++
-		}
-	}
-	total := len(healths)
-	critCost := scoreCriticalFleet * float64(crit) / float64(total)
-	degCost := scoreDegradedFleet * float64(deg) / float64(total)
-
-	var drivers []FleetScoreDriver
-	if critCost > 0 {
-		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d of %d cluster%s critical", crit, total, util.Plural(total)),
-			Impact: int(math.Round(critCost)),
-		})
-	}
-	if degCost > 0 {
-		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d of %d cluster%s degraded", deg, total, util.Plural(total)),
-			Impact: int(math.Round(degCost)),
-		})
-	}
-	return critCost + degCost, drivers
-}
-
-// versionSkewCost charges for Kubernetes version skew across the fleet using
-// the same severity calibration as the existing VersionSkewSeverity rule.
-func versionSkewCost(healths []ClusterHealth) (float64, FleetScoreDriver) {
-	if len(healths) < 2 {
-		return 0, FleetScoreDriver{}
-	}
-	versions := make([]string, 0, len(healths))
-	for _, h := range healths {
-		if h.KubernetesVersion != "" {
-			versions = append(versions, h.KubernetesVersion)
-		}
-	}
-	sev := VersionSkewSeverity(versions)
-	switch sev {
-	case SeverityCritical:
-		return scoreVersionCritSev, FleetScoreDriver{
-			Reason: "Kubernetes version skew exceeds one minor",
-			Impact: int(scoreVersionCritSev),
-		}
-	case SeverityWarning:
-		return scoreVersionWarnSev, FleetScoreDriver{
-			Reason: "Kubernetes version skew across the fleet",
-			Impact: int(scoreVersionWarnSev),
-		}
-	}
-	return 0, FleetScoreDriver{}
-}
-
-// worstNodeCost penalizes the fleet according to the cluster with the worst
-// unhealthy-node ratio. We take the worst rather than the average so a single
-// cluster melting down does not get hidden by a healthy long tail.
-func worstNodeCost(healths []ClusterHealth) (float64, FleetScoreDriver) {
-	var worstFrac float64
-	var worstCluster string
-	for _, h := range healths {
-		if h.NodeCount <= 0 {
-			continue
-		}
-		unhealthy := h.NodeCount - h.HealthyNodes
-		if unhealthy <= 0 {
-			continue
-		}
-		frac := float64(unhealthy) / float64(h.NodeCount)
-		if frac > worstFrac {
-			worstFrac = frac
-			worstCluster = h.Name
-		}
-	}
-	if worstFrac == 0 {
-		return 0, FleetScoreDriver{}
-	}
-	cost := scoreWorstNodeCap * worstFrac
-	return cost, FleetScoreDriver{
-		Reason: fmt.Sprintf("%s has %d%% unhealthy nodes", worstCluster, int(math.Round(worstFrac*100))),
-		Impact: int(math.Round(cost)),
-	}
 }
 
 // grade maps a numeric score to a letter grade.

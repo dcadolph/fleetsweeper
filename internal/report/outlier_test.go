@@ -237,7 +237,7 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
 			clusters, flat := goldenFlat(test.Values)
-			got := detectNumericOutliers(clusters, flat, "f", "metrics", test.Threshold)
+			got, _ := detectNumericOutliers(clusters, flat, "f", "metrics", test.Threshold)
 			opts := []cmp.Option{
 				cmpopts.EquateApprox(0, 0.01),
 				cmpopts.EquateEmpty(),
@@ -309,7 +309,7 @@ func TestDetectStringOutliersGolden(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
 			clusters, flat := goldenFlat(test.Values)
-			got := detectStringOutliers(clusters, flat, "f", "version")
+			got, _ := detectStringOutliers(clusters, flat, "f", "version")
 			var gotClusters []string
 			for _, o := range got {
 				if o.Value != "b" || o.FleetNorm != "a" {
@@ -377,7 +377,7 @@ func TestDetectSetOutliersGolden(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
 			clusters, flat := goldenFlat(test.Values)
-			got := detectSetOutliers(clusters, flat, "f", "pods")
+			got, _ := detectSetOutliers(clusters, flat, "f", "pods")
 			opts := []cmp.Option{
 				cmpopts.EquateEmpty(),
 				cmpopts.SortSlices(func(a, b OutlierResult) bool { return a.Cluster < b.Cluster }),

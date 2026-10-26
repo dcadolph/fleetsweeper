@@ -147,13 +147,16 @@ func (o OutlierResult) Basis() *NormBasis {
 // flag more outliers. The function only emits findings when the sample is
 // large enough to be statistically meaningful (see minMADSample).
 func DetectOutliers(r *Report, threshold float64) []OutlierResult {
-	return detectOutliers(r, threshold, NormScopeFleet)
+	outliers, _ := detectOutliers(r, threshold, NormScopeFleet)
+	return outliers
 }
 
-// detectOutliers runs DetectOutliers over r and stamps every result with the
-// scope its norm was computed over.
-func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult {
+// detectOutliers runs DetectOutliers over r, returning the distribution behind
+// every field it evaluated as well, and stamps every result and distribution
+// with the scope its norm was computed over.
+func detectOutliers(r *Report, threshold float64, scope string) ([]OutlierResult, []Distribution) {
 	var outliers []OutlierResult
+	var dists []Distribution
 
 	for scannerName, sec := range r.Sections {
 		if sec.Uniform || len(sec.PerCluster) < minMADSample {
@@ -169,12 +172,21 @@ func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult 
 				continue
 			}
 
-			if isNumericInFlat(r.Clusters, flat, field) {
-				outliers = append(outliers, detectNumericOutliers(r.Clusters, flat, field, scannerName, threshold)...)
-			} else if isArrayInFlat(r.Clusters, flat, field) {
-				outliers = append(outliers, detectSetOutliers(r.Clusters, flat, field, scannerName)...)
-			} else {
-				outliers = append(outliers, detectStringOutliers(r.Clusters, flat, field, scannerName)...)
+			var found []OutlierResult
+			var dist *Distribution
+			switch {
+			case isNumericInFlat(r.Clusters, flat, field):
+				found, dist = detectNumericOutliers(r.Clusters, flat, field, scannerName, threshold)
+			case isArrayInFlat(r.Clusters, flat, field):
+				found, dist = detectSetOutliers(r.Clusters, flat, field, scannerName)
+			default:
+				found, dist = detectStringOutliers(r.Clusters, flat, field, scannerName)
+			}
+			outliers = append(outliers, found...)
+			if dist != nil {
+				dist.Scanner = scannerName
+				dist.Field = field
+				dists = append(dists, *dist)
 			}
 		}
 	}
@@ -182,8 +194,12 @@ func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult 
 	for i := range outliers {
 		outliers[i].Scope = scope
 	}
+	for i := range dists {
+		dists[i].Scope = scope
+	}
 	sortOutliers(outliers)
-	return outliers
+	sortDistributions(dists)
+	return outliers, dists
 }
 
 // sortOutliers orders outliers by severity, then scanner, cluster, and field,
@@ -209,10 +225,13 @@ func sortOutliers(outliers []OutlierResult) {
 // which is robust to the outliers themselves. When MAD is zero the population
 // is uniform enough that a single non-median value is not statistically
 // distinguishable from noise; we emit nothing in that case rather than flagging
-// every minority value.
-func detectNumericOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string, threshold float64) []OutlierResult {
+// every minority value. The distribution is returned whenever the population
+// reaches minMADSample, flagged or not, with every Z zero when MAD is zero.
+func detectNumericOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string,
+	threshold float64) ([]OutlierResult, *Distribution) {
 	vals := make([]float64, 0, len(clusters))
 	clusterVals := make(map[string]float64, len(clusters))
+	var order []string
 	for _, c := range clusters {
 		m := flat[c]
 		if m == nil {
@@ -224,18 +243,36 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		}
 		vals = append(vals, v)
 		clusterVals[c] = v
+		order = append(order, c)
 	}
 
 	if len(vals) < minMADSample {
-		return nil
+		return nil, nil
 	}
 
 	median := computeMedian(vals)
 	mad := computeMAD(vals, median)
+	dist := &Distribution{
+		Kind:       NormKindNumeric,
+		Values:     make([]ClusterValue, 0, len(order)),
+		Median:     median,
+		MAD:        mad,
+		Threshold:  threshold,
+		SampleSize: len(vals),
+	}
+	for _, c := range order {
+		v := clusterVals[c]
+		cv := ClusterValue{Cluster: c, Number: &v}
+		if mad != 0 {
+			cv.Z = cappedZ(madScale * (v - median) / mad)
+		}
+		dist.Values = append(dist.Values, cv)
+	}
 
 	if mad == 0 {
-		return nil
+		return nil, dist
 	}
+	dist.Band = threshold * mad / madScale
 
 	var outliers []OutlierResult
 	for c, v := range clusterVals {
@@ -266,16 +303,28 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 			})
 		}
 	}
-	return outliers
+	markOutliers(dist, outliers, false)
+	dist.Mass = massOf(dist.Values)
+	return outliers, dist
+}
+
+// cappedZ returns z with an infinite value replaced by the signed
+// maxReportedDeviation, so a distribution stays JSON-safe.
+func cappedZ(z float64) float64 {
+	if math.IsInf(z, 0) {
+		return math.Copysign(maxReportedDeviation, z)
+	}
+	return z
 }
 
 // detectStringOutliers flags clusters whose string value differs from the mode,
 // but only when the mode commands at least minStringModeMass of the population.
 // Tied or near-tied distributions produce no findings to avoid arbitrary
 // majority-vs-minority reports.
-func detectStringOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) []OutlierResult {
+func detectStringOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) ([]OutlierResult, *Distribution) {
 	counts := make(map[string]int)
 	clusterVals := make(map[string]string, len(clusters))
+	var order []string
 
 	for _, c := range clusters {
 		m := flat[c]
@@ -285,19 +334,28 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 		v := fmt.Sprintf("%v", m[field])
 		counts[v]++
 		clusterVals[c] = v
+		order = append(order, c)
 	}
 
 	if len(counts) <= 1 || len(clusterVals) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	mode := dominantString(counts)
-	if mode == "" {
-		return nil
-	}
 	share := float64(counts[mode]) / float64(len(clusterVals))
-	if share < minStringModeMass {
-		return nil
+	dist := &Distribution{
+		Kind:       NormKindString,
+		Values:     make([]ClusterValue, 0, len(order)),
+		Threshold:  minStringModeMass,
+		Mode:       mode,
+		ModeShare:  share,
+		SampleSize: len(clusterVals),
+	}
+	for _, c := range order {
+		dist.Values = append(dist.Values, ClusterValue{Cluster: c, Text: clusterVals[c]})
+	}
+	if mode == "" || share < minStringModeMass {
+		return nil, dist
 	}
 
 	var outliers []OutlierResult
@@ -318,7 +376,8 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 			})
 		}
 	}
-	return outliers
+	markOutliers(dist, outliers, false)
+	return outliers, dist
 }
 
 // dominantString returns the mode of a string population. Ties break
@@ -340,9 +399,10 @@ func dominantString(counts map[string]int) string {
 // clusters, eliminating the discontinuity the previous integer-divide
 // threshold produced at small N. A cluster that does not report the field at
 // all is left out of the population; a null list counts as an empty set.
-func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) []OutlierResult {
+func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) ([]OutlierResult, *Distribution) {
 	itemCounts := make(map[string]int)
 	clusterSets := make(map[string]map[string]struct{}, len(clusters))
+	var order []string
 
 	for _, c := range clusters {
 		m := flat[c]
@@ -361,10 +421,11 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 			itemCounts[s]++
 		}
 		clusterSets[c] = set
+		order = append(order, c)
 	}
 
 	if len(clusterSets) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	threshold := int(math.Ceil(float64(len(clusterSets)) * minSetConsensusShare))
@@ -376,14 +437,25 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 	}
 	sort.Strings(consensus)
 
+	dist := &Distribution{
+		Kind:       NormKindSet,
+		Values:     make([]ClusterValue, 0, len(order)),
+		Threshold:  minSetConsensusShare,
+		Consensus:  consensus,
+		SampleSize: len(clusterSets),
+	}
 	var outliers []OutlierResult
-	for c, set := range clusterSets {
+	for _, c := range order {
+		set := clusterSets[c]
 		var missing []string
 		for _, item := range consensus {
 			if _, ok := set[item]; !ok {
 				missing = append(missing, item)
 			}
 		}
+		dist.Values = append(dist.Values, ClusterValue{
+			Cluster: c, Size: len(set), Missing: missing, Outlier: len(missing) > 0,
+		})
 		if len(missing) > 0 {
 			outliers = append(outliers, OutlierResult{
 				Cluster:    c,
@@ -394,13 +466,13 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 				Severity:   classifySeverity(scannerName, field),
 				Kind:       NormKindSet,
 				Consensus:  slices.Clone(consensus),
-				Missing:    missing,
+				Missing:    slices.Clone(missing),
 				SampleSize: len(clusterSets),
 				Threshold:  minSetConsensusShare,
 			})
 		}
 	}
-	return outliers
+	return outliers, dist
 }
 
 // setProjection turns an array of objects into the member set the set
