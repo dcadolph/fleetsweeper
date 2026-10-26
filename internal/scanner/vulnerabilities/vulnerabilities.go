@@ -7,11 +7,8 @@ package vulnerabilities
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -84,25 +81,20 @@ type Data struct {
 // wrapped ErrScan instead of a clean, zero-vulnerability result.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		list, err := client.Dynamic().Resource(reportsGVR).List(ctx, metav1.ListOptions{ResourceVersion: "0"})
-		if err != nil {
-			if meta.IsNoMatchError(err) || isNotFound(err) {
-				return scanner.Result{
-					Scanner: Name,
-					State:   scanner.StateUnavailable,
-					Reason:  "Trivy VulnerabilityReport CRD not installed",
-					Data:    Data{Available: false},
-				}, nil
-			}
-			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		list, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Dynamic().Resource(reportsGVR).List,
+			func(l *unstructured.UnstructuredList) []unstructured.Unstructured { return l.Items })
+		available := cov.Observe("vulnerability reports", err)
+		if !available {
+			list = nil
 		}
-		data := Data{Available: true, Reports: len(list.Items)}
+		data := Data{Available: available, Reports: len(list)}
 		seen := make(map[string]*VulnerableImage)
-		for i := range list.Items {
-			parseReport(&list.Items[i], &data, seen)
+		for i := range list {
+			parseReport(&list[i], &data, seen)
 		}
 		data.TopImages = topImages(seen, 20)
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
 }
 
@@ -186,31 +178,4 @@ func intFromAny(v any) int {
 		return int(x)
 	}
 	return 0
-}
-
-// isNotFound returns true when the error indicates the resource type does
-// not exist, which is how the apiserver reports a missing CRD to a
-// dynamic client.
-func isNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return contains(msg, "the server could not find the requested resource") ||
-		contains(msg, "could not find the requested resource") ||
-		contains(msg, "no matches for kind")
-}
-
-// contains is a tiny substring helper that avoids importing strings for
-// one call.
-func contains(s, sub string) bool {
-	if len(sub) > len(s) {
-		return false
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

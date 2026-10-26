@@ -3,8 +3,9 @@ package rbac
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -60,13 +61,15 @@ func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		rbacClient := client.Clientset().RbacV1()
 		data := Data{}
+		var cov scanner.Coverage
 
-		crList, err := rbacClient.ClusterRoles().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: cluster roles: %w", scanner.ErrScan, Name, err)
+		crList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.ClusterRoles().List,
+			func(l *rbacv1.ClusterRoleList) []rbacv1.ClusterRole { return l.Items })
+		if !cov.Require("cluster roles", err) {
+			crList = nil
 		}
-		data.ClusterRoleCount = len(crList.Items)
-		for _, cr := range crList.Items {
+		data.ClusterRoleCount = len(crList)
+		for _, cr := range crList {
 			data.Roles = append(data.Roles, RoleInfo{
 				Kind:      "ClusterRole",
 				Name:      cr.Name,
@@ -74,12 +77,13 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		rList, err := rbacClient.Roles("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: roles: %w", scanner.ErrScan, Name, err)
+		rList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.Roles("").List,
+			func(l *rbacv1.RoleList) []rbacv1.Role { return l.Items })
+		if !cov.Require("roles", err) {
+			rList = nil
 		}
-		data.RoleCount = len(rList.Items)
-		for _, r := range rList.Items {
+		data.RoleCount = len(rList)
+		for _, r := range rList {
 			data.Roles = append(data.Roles, RoleInfo{
 				Kind:      "Role",
 				Namespace: r.Namespace,
@@ -88,12 +92,13 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		crbList, err := rbacClient.ClusterRoleBindings().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: cluster role bindings: %w", scanner.ErrScan, Name, err)
+		crbList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.ClusterRoleBindings().List,
+			func(l *rbacv1.ClusterRoleBindingList) []rbacv1.ClusterRoleBinding { return l.Items })
+		if !cov.Require("cluster role bindings", err) {
+			crbList = nil
 		}
-		data.ClusterRoleBindingCount = len(crbList.Items)
-		for _, crb := range crbList.Items {
+		data.ClusterRoleBindingCount = len(crbList)
+		for _, crb := range crbList {
 			data.Bindings = append(data.Bindings, BindingInfo{
 				Kind:         "ClusterRoleBinding",
 				Name:         crb.Name,
@@ -102,12 +107,13 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		rbList, err := rbacClient.RoleBindings("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: role bindings: %w", scanner.ErrScan, Name, err)
+		rbList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.RoleBindings("").List,
+			func(l *rbacv1.RoleBindingList) []rbacv1.RoleBinding { return l.Items })
+		if !cov.Require("role bindings", err) {
+			rbList = nil
 		}
-		data.RoleBindingCount = len(rbList.Items)
-		for _, rb := range rbList.Items {
+		data.RoleBindingCount = len(rbList)
+		for _, rb := range rbList {
 			data.Bindings = append(data.Bindings, BindingInfo{
 				Kind:         "RoleBinding",
 				Namespace:    rb.Namespace,
@@ -130,9 +136,6 @@ func NewScanner() scanner.Scanner {
 			return data.Bindings[i].Name < data.Bindings[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data:    data,
-		}, nil
+		return cov.Finish(Name, data)
 	})
 }

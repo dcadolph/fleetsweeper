@@ -3,8 +3,9 @@ package quota
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -52,19 +53,23 @@ type Data struct {
 // NewScanner returns a scanner that collects ResourceQuota and LimitRange data.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		qList, err := client.Clientset().CoreV1().ResourceQuotas("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: quotas: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		cs := client.Clientset()
+		qList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), cs.CoreV1().ResourceQuotas("").List,
+			func(l *corev1.ResourceQuotaList) []corev1.ResourceQuota { return l.Items })
+		if !cov.Require("resource quotas", err) {
+			qList = nil
 		}
 
-		lrList, err := client.Clientset().CoreV1().LimitRanges("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: limit ranges: %w", scanner.ErrScan, Name, err)
+		lrList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), cs.CoreV1().LimitRanges("").List,
+			func(l *corev1.LimitRangeList) []corev1.LimitRange { return l.Items })
+		if !cov.Require("limit ranges", err) {
+			lrList = nil
 		}
 
 		namespacesWithQuotas := make(map[string]struct{})
-		quotas := make([]QuotaInfo, 0, len(qList.Items))
-		for _, q := range qList.Items {
+		quotas := make([]QuotaInfo, 0, len(qList))
+		for _, q := range qList {
 			namespacesWithQuotas[q.Namespace] = struct{}{}
 			hard := make(map[string]string, len(q.Spec.Hard))
 			for k, v := range q.Spec.Hard {
@@ -88,8 +93,8 @@ func NewScanner() scanner.Scanner {
 			return quotas[i].Name < quotas[j].Name
 		})
 
-		limitRanges := make([]LimitRangeInfo, 0, len(lrList.Items))
-		for _, lr := range lrList.Items {
+		limitRanges := make([]LimitRangeInfo, 0, len(lrList))
+		for _, lr := range lrList {
 			limitRanges = append(limitRanges, LimitRangeInfo{
 				Namespace: lr.Namespace,
 				Name:      lr.Name,
@@ -103,15 +108,12 @@ func NewScanner() scanner.Scanner {
 			return limitRanges[i].Name < limitRanges[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data: Data{
-				QuotaCount:           len(quotas),
-				LimitRangeCount:      len(limitRanges),
-				NamespacesWithQuotas: len(namespacesWithQuotas),
-				Quotas:               quotas,
-				LimitRanges:          limitRanges,
-			},
-		}, nil
+		return cov.Finish(Name, Data{
+			QuotaCount:           len(quotas),
+			LimitRangeCount:      len(limitRanges),
+			NamespacesWithQuotas: len(namespacesWithQuotas),
+			Quotas:               quotas,
+			LimitRanges:          limitRanges,
+		})
 	})
 }

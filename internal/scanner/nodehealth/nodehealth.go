@@ -2,8 +2,9 @@ package nodehealth
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -69,14 +70,16 @@ type Data struct {
 // NewScanner returns a scanner that checks node health conditions.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		nodeList, err := client.Clientset().CoreV1().Nodes().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		nodeList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
+			func(l *corev1.NodeList) []corev1.Node { return l.Items })
+		if !cov.Observe("nodes", err) {
+			nodeList = nil
 		}
 
-		data := Data{NodeCount: len(nodeList.Items)}
+		data := Data{NodeCount: len(nodeList)}
 
-		for _, node := range nodeList.Items {
+		for _, node := range nodeList {
 			nh := NodeHealth{
 				Name:          node.Name,
 				Unschedulable: node.Spec.Unschedulable,
@@ -134,9 +137,6 @@ func NewScanner() scanner.Scanner {
 			return data.Nodes[i].Name < data.Nodes[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data:    data,
-		}, nil
+		return cov.Finish(Name, data)
 	})
 }

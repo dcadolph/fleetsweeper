@@ -2,8 +2,9 @@ package namespace
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -25,28 +26,27 @@ type Data struct {
 // NewScanner returns a scanner that lists all namespaces in a cluster.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		nsList, err := client.Clientset().CoreV1().Namespaces().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
-		}
+		var cov scanner.Coverage
+		nsList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			client.Clientset().CoreV1().Namespaces().List,
+			func(l *corev1.NamespaceList) []corev1.Namespace { return l.Items })
 
-		names := make([]string, 0, len(nsList.Items))
-		labels := make(map[string]map[string]string, len(nsList.Items))
-		for _, ns := range nsList.Items {
-			names = append(names, ns.Name)
-			if len(ns.Labels) > 0 {
-				labels[ns.Name] = ns.Labels
+		names := make([]string, 0, len(nsList))
+		labels := make(map[string]map[string]string, len(nsList))
+		if cov.Observe("namespaces", err) {
+			for _, ns := range nsList {
+				names = append(names, ns.Name)
+				if len(ns.Labels) > 0 {
+					labels[ns.Name] = ns.Labels
+				}
 			}
 		}
 		sort.Strings(names)
 
-		return scanner.Result{
-			Scanner: Name,
-			Data: Data{
-				Count:  len(names),
-				Names:  names,
-				Labels: labels,
-			},
-		}, nil
+		return cov.Finish(Name, Data{
+			Count:  len(names),
+			Names:  names,
+			Labels: labels,
+		})
 	})
 }

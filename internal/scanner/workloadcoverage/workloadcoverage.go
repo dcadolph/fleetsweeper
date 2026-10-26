@@ -7,10 +7,9 @@ package workloadcoverage
 
 import (
 	"context"
-	"fmt"
 	"sort"
-	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,47 +60,38 @@ func NewScanner() scanner.Scanner {
 		policyClient := client.Clientset().PolicyV1()
 		hpaClient := client.Clientset().AutoscalingV2()
 
-		var reasons []string
+		var cov scanner.Coverage
 
-		pdbs, err := policyClient.PodDisruptionBudgets("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("pod disruption budgets list failed: %v", err))
+		pdbs, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), policyClient.PodDisruptionBudgets("").List,
+			func(l *policyv1.PodDisruptionBudgetList) []policyv1.PodDisruptionBudget { return l.Items })
+		if !cov.Observe("pod disruption budgets", err) {
+			pdbs = nil
 		}
-		hpas, err := hpaClient.HorizontalPodAutoscalers("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("horizontal pod autoscalers list failed: %v", err))
+		hpas, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), hpaClient.HorizontalPodAutoscalers("").List,
+			func(l *autoscalingv2.HorizontalPodAutoscalerList) []autoscalingv2.HorizontalPodAutoscaler {
+				return l.Items
+			})
+		if !cov.Observe("horizontal pod autoscalers", err) {
+			hpas = nil
 		}
 
 		hpaTargets := make(map[hpaKey]bool)
-		if hpas != nil {
-			for i := range hpas.Items {
-				hpa := &hpas.Items[i]
-				hpaTargets[hpaKey{
-					Namespace: hpa.Namespace,
-					Kind:      hpa.Spec.ScaleTargetRef.Kind,
-					Name:      hpa.Spec.ScaleTargetRef.Name,
-				}] = true
-			}
+		for i := range hpas {
+			hpa := &hpas[i]
+			hpaTargets[hpaKey{
+				Namespace: hpa.Namespace,
+				Kind:      hpa.Spec.ScaleTargetRef.Kind,
+				Name:      hpa.Spec.ScaleTargetRef.Name,
+			}] = true
 		}
 
 		data := Data{}
 
-		deployments, err := appsClient.Deployments("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("deployments list failed: %v", err))
-		}
-		if deployments != nil {
-			for i := range deployments.Items {
-				d := &deployments.Items[i]
+		deployments, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), appsClient.Deployments("").List,
+			func(l *appsv1.DeploymentList) []appsv1.Deployment { return l.Items })
+		if cov.Observe("deployments", err) {
+			for i := range deployments {
+				d := &deployments[i]
 				replicas := int32(1)
 				if d.Spec.Replicas != nil {
 					replicas = *d.Spec.Replicas
@@ -110,7 +100,7 @@ func NewScanner() scanner.Scanner {
 					continue
 				}
 				data.TotalReplicated++
-				cov := Coverage{
+				wc := Coverage{
 					Kind:      "Deployment",
 					Namespace: d.Namespace,
 					Name:      d.Name,
@@ -118,28 +108,23 @@ func NewScanner() scanner.Scanner {
 					HasPDB:    pdbMatches(pdbs, d.Namespace, d.Spec.Template.Labels),
 					HasHPA:    hpaTargets[hpaKey{Namespace: d.Namespace, Kind: "Deployment", Name: d.Name}],
 				}
-				if !cov.HasPDB {
+				if !wc.HasPDB {
 					data.MissingPDB++
 				}
-				if !cov.HasHPA {
+				if !wc.HasHPA {
 					data.MissingHPA++
 				}
-				if !cov.HasPDB || !cov.HasHPA {
-					data.Gaps = append(data.Gaps, cov)
+				if !wc.HasPDB || !wc.HasHPA {
+					data.Gaps = append(data.Gaps, wc)
 				}
 			}
 		}
 
-		statefulSets, err := appsClient.StatefulSets("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("statefulsets list failed: %v", err))
-		}
-		if statefulSets != nil {
-			for i := range statefulSets.Items {
-				ss := &statefulSets.Items[i]
+		statefulSets, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), appsClient.StatefulSets("").List,
+			func(l *appsv1.StatefulSetList) []appsv1.StatefulSet { return l.Items })
+		if cov.Observe("statefulsets", err) {
+			for i := range statefulSets {
+				ss := &statefulSets[i]
 				replicas := int32(1)
 				if ss.Spec.Replicas != nil {
 					replicas = *ss.Spec.Replicas
@@ -148,7 +133,7 @@ func NewScanner() scanner.Scanner {
 					continue
 				}
 				data.TotalReplicated++
-				cov := Coverage{
+				wc := Coverage{
 					Kind:      "StatefulSet",
 					Namespace: ss.Namespace,
 					Name:      ss.Name,
@@ -156,14 +141,14 @@ func NewScanner() scanner.Scanner {
 					HasPDB:    pdbMatches(pdbs, ss.Namespace, ss.Spec.Template.Labels),
 					HasHPA:    hpaTargets[hpaKey{Namespace: ss.Namespace, Kind: "StatefulSet", Name: ss.Name}],
 				}
-				if !cov.HasPDB {
+				if !wc.HasPDB {
 					data.MissingPDB++
 				}
-				if !cov.HasHPA {
+				if !wc.HasHPA {
 					data.MissingHPA++
 				}
-				if !cov.HasPDB || !cov.HasHPA {
-					data.Gaps = append(data.Gaps, cov)
+				if !wc.HasPDB || !wc.HasHPA {
+					data.Gaps = append(data.Gaps, wc)
 				}
 			}
 		}
@@ -178,13 +163,7 @@ func NewScanner() scanner.Scanner {
 			data.Gaps = data.Gaps[:100]
 		}
 
-		_ = autoscalingv2.SchemeGroupVersion // ensure the import is used even when no HPAs are present
-		result := scanner.Result{Scanner: Name, Data: data}
-		if len(reasons) > 0 {
-			result.State = scanner.StateDegraded
-			result.Reason = strings.Join(reasons, "; ")
-		}
-		return result, nil
+		return cov.Finish(Name, data)
 	})
 }
 
@@ -201,12 +180,9 @@ type hpaKey struct {
 // pdbMatches reports whether any PDB in the workload's namespace selects the
 // supplied pod template labels. A nil selector on a PDB never matches; an
 // empty selector matches every pod in the namespace.
-func pdbMatches(list *policyv1.PodDisruptionBudgetList, namespace string, podLabels map[string]string) bool {
-	if list == nil {
-		return false
-	}
-	for i := range list.Items {
-		pdb := &list.Items[i]
+func pdbMatches(list []policyv1.PodDisruptionBudget, namespace string, podLabels map[string]string) bool {
+	for i := range list {
+		pdb := &list[i]
 		if pdb.Namespace != namespace {
 			continue
 		}

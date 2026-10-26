@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -45,13 +46,16 @@ type Data struct {
 // NewScanner returns a scanner that lists all services in a cluster.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		svcList, err := client.Clientset().CoreV1().Services("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		svcList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			client.Clientset().CoreV1().Services("").List,
+			func(l *corev1.ServiceList) []corev1.Service { return l.Items })
+		if !cov.Observe("services", err) {
+			svcList = nil
 		}
 
-		services := make([]ServiceInfo, 0, len(svcList.Items))
-		for _, svc := range svcList.Items {
+		services := make([]ServiceInfo, 0, len(svcList))
+		for _, svc := range svcList {
 			info := ServiceInfo{
 				Namespace: svc.Namespace,
 				Name:      svc.Name,
@@ -73,12 +77,9 @@ func NewScanner() scanner.Scanner {
 			return services[i].Name < services[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data: Data{
-				Count:    len(services),
-				Services: services,
-			},
-		}, nil
+		return cov.Finish(Name, Data{
+			Count:    len(services),
+			Services: services,
+		})
 	})
 }

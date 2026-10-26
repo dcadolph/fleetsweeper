@@ -11,8 +11,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 
@@ -162,19 +164,13 @@ func TestNewScannerDegraded(t *testing.T) {
 		Objects:      []runtime.Object{validating("vwc", "v.example.com", serviceRef("webhooks", "svc", nil), nil)},
 		FailMutating: true,
 		WantTotal:    1,
-		WantReasons:  []string{"mutating webhook list failed"},
+		WantReasons:  []string{"mutating webhook list"},
 	}, { // Test 1: Validating list fails; mutating webhooks still counted.
 		Name:           "validating fails",
 		Objects:        []runtime.Object{mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", nil), nil)},
 		FailValidating: true,
 		WantTotal:      1,
-		WantReasons:    []string{"validating webhook list failed"},
-	}, { // Test 2: Both lists fail; no webhooks and both reasons present.
-		Name:           "both fail",
-		FailMutating:   true,
-		FailValidating: true,
-		WantTotal:      0,
-		WantReasons:    []string{"mutating webhook list failed", "validating webhook list failed"},
+		WantReasons:    []string{"validating webhook list"},
 	}}
 
 	for testNum, test := range tests {
@@ -212,6 +208,38 @@ func TestNewScannerDegraded(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantTotal, data.TotalWebhooks); diff != "" {
 				t.Errorf("total webhooks mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestScanListErrors verifies a failed list is classified instead of read as an empty cluster.
+func TestScanListErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Err       error
+		Want      error
+		WantState scanner.State
+	}{{ // Test 0: Forbidden lists error the scan.
+		Err:  apierrors.NewForbidden(schema.GroupResource{Resource: "x"}, "", errors.New("rbac denied")),
+		Want: scanner.ErrScan, WantState: scanner.StateErrored,
+	}, { // Test 1: A resource type the server does not serve is unavailable.
+		Err:       apierrors.NewNotFound(schema.GroupResource{Resource: "x"}, ""),
+		WantState: scanner.StateUnavailable,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cs := fakeclientset.NewSimpleClientset()
+			cs.PrependReactor("list", "*", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, test.Err
+			})
+			result, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs))
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state = %q, want %q", result.State, test.WantState)
 			}
 		})
 	}

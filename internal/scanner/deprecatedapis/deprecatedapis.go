@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
@@ -104,20 +103,27 @@ func NewScanner() scanner.Scanner {
 
 		dyn := client.Dynamic()
 		if dyn == nil {
-			return scanner.Result{Scanner: Name, Data: data}, nil
+			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: dynamic client unavailable", scanner.ErrScan, Name)
 		}
 
-		discovery := client.Clientset().Discovery()
-		serverGroups, err := discovery.ServerGroups()
+		// Discovery gates the probes but measures nothing, so only a failure is observed: a
+		// cluster whose every probe is denied must read as errored, not degraded.
+		var cov scanner.Coverage
+		serverGroups, err := client.Clientset().Discovery().ServerGroups()
+		if err != nil {
+			cov.Observe("server groups", err)
+			return cov.Finish(Name, data)
+		}
 		served := make(map[string]bool)
-		if err == nil {
-			for _, g := range serverGroups.Groups {
-				for _, v := range g.Versions {
-					served[fmt.Sprintf("%s/%s", g.Name, v.Version)] = true
-				}
+		for _, g := range serverGroups.Groups {
+			for _, v := range g.Versions {
+				served[fmt.Sprintf("%s/%s", g.Name, v.Version)] = true
 			}
 		}
 
+		// Each served removal candidate is probed with one bounded list to count instances. The
+		// probe is not paged through ListAll: it only needs a count, and a version the server
+		// stopped serving between discovery and the probe is skipped rather than observed.
 		for _, rm := range removals {
 			gv := rm.Version
 			gvKey := rm.Version
@@ -134,21 +140,21 @@ func NewScanner() scanner.Scanner {
 				Version:  rm.Version,
 				Resource: lowercasePlural(rm.Kind),
 			}
-			list, listErr := dyn.Resource(gvr).List(ctx, metav1.ListOptions{
-				Limit:                1000,
-				ResourceVersion:      "0",
-				ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-			})
+			opts := scanner.CacheReadOptions()
+			opts.Limit = 1000
+			listCtx, cancel := context.WithTimeout(ctx, scanner.DefaultListTimeout)
+			list, listErr := dyn.Resource(gvr).List(listCtx, opts)
+			cancel()
 			entry := Deprecated{
 				APIVersion:  gv,
 				Kind:        rm.Kind,
 				Replacement: rm.Replacement,
 				RemovedIn:   rm.RemovedIn,
 			}
-			if listErr != nil {
-				if errors.IsNotFound(listErr) || errors.IsMethodNotSupported(listErr) {
-					continue
-				}
+			if errors.IsNotFound(listErr) || errors.IsMethodNotSupported(listErr) {
+				continue
+			}
+			if !cov.Observe(gv+" "+rm.Kind, listErr) {
 				if errors.IsForbidden(listErr) {
 					entry.Forbidden = true
 					data.Deprecated = append(data.Deprecated, entry)
@@ -170,7 +176,7 @@ func NewScanner() scanner.Scanner {
 			return data.Deprecated[i].APIVersion < data.Deprecated[j].APIVersion
 		})
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
 }
 

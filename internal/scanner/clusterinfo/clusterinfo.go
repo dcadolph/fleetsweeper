@@ -7,10 +7,9 @@ package clusterinfo
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -57,21 +56,20 @@ type Data struct {
 // node in the cluster and exposes intra-cluster drift.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		list, err := client.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		list, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
+			func(l *corev1.NodeList) []corev1.Node { return l.Items })
+		if !cov.Observe("nodes", err) {
+			list = nil
 		}
-		data := Data{NodeCount: len(list.Items)}
+		data := Data{NodeCount: len(list)}
 		os := uniqueStringSet{}
 		kernel := uniqueStringSet{}
 		runtime := uniqueStringSet{}
 		kubelet := uniqueStringSet{}
 
-		for i := range list.Items {
-			n := &list.Items[i]
+		for i := range list {
+			n := &list[i]
 			info := n.Status.NodeInfo
 			os.add(info.OSImage)
 			kernel.add(info.KernelVersion)
@@ -100,7 +98,7 @@ func NewScanner() scanner.Scanner {
 			data.Nodes = data.Nodes[:200]
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
 }
 

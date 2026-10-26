@@ -3,8 +3,9 @@ package security
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -58,17 +59,19 @@ type Data struct {
 // NewScanner returns a scanner that checks Pod Security Standards labels on namespaces.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		nsList, err := client.Clientset().CoreV1().Namespaces().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		nsList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Namespaces().List,
+			func(l *corev1.NamespaceList) []corev1.Namespace { return l.Items })
+		if !cov.Observe("namespaces", err) {
+			nsList = nil
 		}
 
 		data := Data{
-			NamespaceCount:    len(nsList.Items),
+			NamespaceCount:    len(nsList),
 			LevelDistribution: make(map[string]int),
 		}
 
-		for _, ns := range nsList.Items {
+		for _, ns := range nsList {
 			sec := NamespaceSecurity{
 				Namespace:      ns.Name,
 				Enforce:        ns.Labels[labelEnforce],
@@ -92,9 +95,6 @@ func NewScanner() scanner.Scanner {
 			return data.Namespaces[i].Namespace < data.Namespaces[j].Namespace
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data:    data,
-		}, nil
+		return cov.Finish(Name, data)
 	})
 }

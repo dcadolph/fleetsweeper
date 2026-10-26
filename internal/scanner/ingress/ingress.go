@@ -2,8 +2,9 @@ package ingress
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	networkingv1 "k8s.io/api/networking/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -37,13 +38,16 @@ type Data struct {
 // NewScanner returns a scanner that lists all ingress resources in a cluster.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		ingList, err := client.Clientset().NetworkingV1().Ingresses("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		ingList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			client.Clientset().NetworkingV1().Ingresses("").List,
+			func(l *networkingv1.IngressList) []networkingv1.Ingress { return l.Items })
+		if !cov.Observe("ingresses", err) {
+			ingList = nil
 		}
 
-		ingresses := make([]IngressInfo, 0, len(ingList.Items))
-		for _, ing := range ingList.Items {
+		ingresses := make([]IngressInfo, 0, len(ingList))
+		for _, ing := range ingList {
 			info := IngressInfo{
 				Namespace: ing.Namespace,
 				Name:      ing.Name,
@@ -66,12 +70,9 @@ func NewScanner() scanner.Scanner {
 			return ingresses[i].Name < ingresses[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data: Data{
-				Count:     len(ingresses),
-				Ingresses: ingresses,
-			},
-		}, nil
+		return cov.Finish(Name, Data{
+			Count:     len(ingresses),
+			Ingresses: ingresses,
+		})
 	})
 }

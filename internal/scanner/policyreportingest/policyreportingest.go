@@ -8,12 +8,9 @@ package policyreportingest
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -108,83 +105,34 @@ func NewScanner() scanner.Scanner {
 		bySource := map[string]*sourceTally{}
 		topMap := map[string]*PolicyFailure{}
 
-		nsList, nsErr := client.Dynamic().Resource(policyReportGVR).
-			List(ctx, metav1.ListOptions{ResourceVersion: "0"})
-		clList, clErr := client.Dynamic().Resource(clusterPolicyReportGVR).
-			List(ctx, metav1.ListOptions{ResourceVersion: "0"})
+		var cov scanner.Coverage
+		dyn := client.Dynamic()
+		nsList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), dyn.Resource(policyReportGVR).List,
+			func(l *unstructured.UnstructuredList) []unstructured.Unstructured { return l.Items })
+		nsOK := cov.Observe("policy reports", err)
+		clList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), dyn.Resource(clusterPolicyReportGVR).List,
+			func(l *unstructured.UnstructuredList) []unstructured.Unstructured { return l.Items })
+		clOK := cov.Observe("cluster policy reports", err)
 
-		nsAbsent := !crdAvailable(nsErr)
-		clAbsent := !crdAvailable(clErr)
-
-		// Both CRDs not installed means the feature is genuinely absent, a
-		// trustworthy "nothing here" rather than a failed read.
-		if nsAbsent && clAbsent {
-			return scanner.Result{
-				Scanner: Name,
-				State:   scanner.StateUnavailable,
-				Reason:  "wgpolicyk8s.io PolicyReport CRDs not installed",
-				Data:    data,
-			}, nil
-		}
-		data.Available = true
-
-		if nsList != nil {
-			data.Reports = len(nsList.Items)
-			for i := range nsList.Items {
-				ingestReport(&nsList.Items[i], &data, bySource, topMap)
+		data.Available = nsOK || clOK
+		if nsOK {
+			data.Reports = len(nsList)
+			for i := range nsList {
+				ingestReport(&nsList[i], &data, bySource, topMap)
 			}
 		}
-		if clList != nil {
-			data.ClusterReports = len(clList.Items)
-			for i := range clList.Items {
-				ingestReport(&clList.Items[i], &data, bySource, topMap)
+		if clOK {
+			data.ClusterReports = len(clList)
+			for i := range clList {
+				ingestReport(&clList[i], &data, bySource, topMap)
 			}
 		}
 
 		data.BySource = finalizeSourceTallies(bySource)
 		data.TopFailures = finalizeTopFailures(topMap, 20)
 
-		// A real error (not "CRD absent") on one list while the other was
-		// reachable means we hold partial data, so report degraded rather
-		// than letting missing reports read as a clean cluster.
-		var degraded []string
-		if nsErr != nil && !nsAbsent {
-			degraded = append(degraded, fmt.Sprintf("policy reports: %v", nsErr))
-		}
-		if clErr != nil && !clAbsent {
-			degraded = append(degraded, fmt.Sprintf("cluster policy reports: %v", clErr))
-		}
-		if len(degraded) > 0 {
-			return scanner.Result{
-				Scanner: Name,
-				State:   scanner.StateDegraded,
-				Reason:  "partial data: " + strings.Join(degraded, "; "),
-				Data:    data,
-			}, nil
-		}
-
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
-}
-
-// crdAvailable reports whether the dynamic-client error indicates the
-// CRD is registered. The two "no such resource" errors look different
-// when surfaced through the dynamic client; both should suppress.
-func crdAvailable(err error) bool {
-	if err == nil {
-		return true
-	}
-	if meta.IsNoMatchError(err) {
-		return false
-	}
-	msg := err.Error()
-	if strings.Contains(msg, "could not find the requested resource") ||
-		strings.Contains(msg, "no matches for kind") {
-		return false
-	}
-	// Other errors (RBAC denied, timeout) are still treated as
-	// "available but unreadable"; the scanner returns zero counts.
-	return true
 }
 
 // ingestReport folds one report's results into the running aggregate.
