@@ -545,7 +545,7 @@
     label: 'Fleet Score',
     duration: 7500,
     headline: 'One number for the whole fleet.',
-    subcaption: 'Fleet Score is a <span class="accent">0 to 100</span> rollup of drift, outliers, health, and capacity.',
+    subcaption: 'Fleet Score starts at <span class="accent">100</span> and loses points for findings by severity, troubled clusters, version skew, and the worst node.',
     paint: function (svg) {
       // Big number with arc
       var cx = STAGE_W / 2, cy = 280, R = 140;
@@ -570,8 +570,8 @@
       var legend = [
         {label: 'critical findings', val: '-12', color: CR},
         {label: 'warning findings', val: '-8', color: WN},
-        {label: 'cluster status', val: '-4', color: WN},
-        {label: 'capacity strain', val: '-3', color: WN}
+        {label: 'troubled clusters', val: '-4', color: WN},
+        {label: 'version skew', val: '-3', color: WN}
       ];
       for (var i = 0; i < legend.length; i++) {
         var lx = 130, ly = 110 + i * 32;

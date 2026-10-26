@@ -20,6 +20,7 @@ var state = {
   spotlight: null,
   card: null,
   progressBar: null,
+  el: null,
   startedAt: 0,
   pausedFraction: 0,
 };
@@ -34,7 +35,7 @@ var STEPS = [
   {
     hero: true,
     title: 'The fleet is the policy.',
-    body: '26 clusters. Four continents. No rules to write. Here is what drift looks like.',
+    body: 'No rules to write. Every cluster is measured against its peers. Here is what drift looks like.',
     dwell: 5000,
   },
   {
@@ -47,7 +48,7 @@ var STEPS = [
   },
   {
     page: 'globe',
-    selector: '#ct',
+    selector: '#globe-wrap',
     title: 'Where the trouble lives.',
     body: 'Critical clusters pulse red. The camera focuses on them so the eye lands on trouble first.',
     position: 'left',
@@ -72,7 +73,7 @@ var STEPS = [
   },
   {
     page: 'outliers',
-    selector: '#ct',
+    selector: '.strip',
     title: 'Statistical, not opinionated.',
     body: 'MAD outlier detection on numbers, mode voting on strings. Your fleet is the baseline.',
     position: 'left',
@@ -80,7 +81,7 @@ var STEPS = [
   },
   {
     page: 'trends',
-    selector: '#ct',
+    selector: '.multiples',
     title: 'Trends with a confidence gate.',
     body: 'OLS regression with R-squared and t-stat gating. Noise will not flip an arrow.',
     position: 'left',
@@ -88,7 +89,7 @@ var STEPS = [
   },
   {
     page: 'capacity',
-    selector: '#ct',
+    selector: '#ct .g3 .cd',
     title: 'Capacity, correlated with pressure.',
     body: 'Headroom, OOM events, scheduling failures, all in one row, with a recommendation.',
     position: 'left',
@@ -96,7 +97,7 @@ var STEPS = [
   },
   {
     page: 'manage',
-    selector: '#ct',
+    selector: '.manage-empty, .manage-grid',
     title: 'Now point it at your real fleet.',
     body: 'Restart with --kubeconfig. Every reachable context shows up here. Click Scan.',
     position: 'left',
@@ -296,8 +297,13 @@ function renderStep(step, el) {
   card.className = 'tour-card' + (isHero ? ' hero' : '');
   state.spotlight.style.display = isHero ? 'none' : '';
   state.overlay.className = 'tour-overlay' + (isHero ? ' center' : '');
+  state.el = isHero ? null : el;
 
   if (!isHero && el) {
+    var r = el.getBoundingClientRect();
+    if (r.top < 0 || r.top > window.innerHeight - 80) {
+      el.scrollIntoView({ block: 'center' });
+    }
     positionSpotlight(el);
   }
 
@@ -341,9 +347,11 @@ function positionSpotlight(el) {
   sp.style.height = Math.min(rect.height + pad * 2, window.innerHeight - 16) + 'px';
 }
 
-function positionCard(step, el) {
+// positionCard places the explainer card beside el, or centers it for a hero
+// step. A quiet reposition, after a scroll or resize, skips the fade.
+function positionCard(step, el, quiet) {
   var card = state.card;
-  card.style.opacity = '0';
+  if (!quiet) card.style.opacity = '0';
   // Defer measurement until after the card has its new innerHTML laid out.
   requestAnimationFrame(function () {
     var w = card.offsetWidth;
@@ -402,3 +410,16 @@ function currentPage() {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.active) stop();
 });
+
+// reposition follows the current step's element when the page scrolls or the
+// window resizes.
+function reposition() {
+  if (!state.active) return;
+  var step = state.steps[state.index];
+  if (!step) return;
+  if (state.el && !step.hero) positionSpotlight(state.el);
+  positionCard(step, state.el, true);
+}
+
+window.addEventListener('resize', reposition);
+window.addEventListener('scroll', reposition, true);

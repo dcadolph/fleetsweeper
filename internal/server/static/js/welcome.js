@@ -5,16 +5,34 @@ import { esc } from './dom.js';
 import { nav } from './router.js';
 import { startTour } from './tour.js';
 
-// maybeShowWelcome greets a demo visitor arriving without a deep link.
+// DISMISSED_KEY is the localStorage key that remembers the viewer closed the
+// splash.
+const DISMISSED_KEY = 'fleetsweeper-welcome-dismissed';
+
+// dismissed reports whether this viewer closed the splash before.
+function dismissed() {
+  try {
+    return localStorage.getItem(DISMISSED_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+// maybeShowWelcome greets a demo visitor arriving without a deep link, once.
+// Every number on it comes from the server.
 export async function maybeShowWelcome() {
   if (location.hash && location.hash !== '#/' && location.hash !== '#') return;
-  let geo = null;
+  if (dismissed()) return;
+  let geo;
+  let scanners;
   try {
-    geo = await api('/geo');
+    const integrations = await api('/integrations');
+    const demo = (integrations.items || []).some((it) => it.name === 'Demo mode' && it.status === 'demo');
+    if (!demo) return;
+    [geo, scanners] = await Promise.all([api('/geo'), api('/scanners')]);
   } catch (_) {
     return;
   }
-  if (!geo || !geo.demo) return;
   const root = document.createElement('div');
   root.className = 'welcome-root';
   root.id = 'welcome-root';
@@ -28,8 +46,8 @@ export async function maybeShowWelcome() {
     '<div class="welcome-actions"><button class="welcome-btn welcome-btn-primary" data-w-act="tour">Take the cinematic tour</button>' +
     '<button class="welcome-btn welcome-btn-ghost" data-w-act="explore">Explore on my own</button>' +
     '<button class="welcome-btn welcome-btn-ghost" data-w-act="connect">Connect my own clusters</button></div>' +
-    `<div class="welcome-stats"><div><strong>${esc((geo.points || []).length)}</strong>Clusters in this fleet</div>` +
-    '<div><strong>4</strong>Continents</div><div><strong>16</strong>Scanners running</div><div><strong>0</strong>Agents installed</div></div>';
+    `<div class="welcome-stats"><div><strong>${esc((geo.points || []).length + (geo.unlocated || []).length)}</strong>Clusters in this fleet</div>` +
+    `<div><strong>${esc((scanners || []).length)}</strong>Scanners running</div><div><strong>0</strong>Agents installed</div></div>`;
   document.body.appendChild(root);
   document.body.classList.add('modal-open');
   root.addEventListener('click', (e) => {
@@ -37,6 +55,9 @@ export async function maybeShowWelcome() {
     if (!btn) return;
     root.remove();
     document.body.classList.remove('modal-open');
+    try {
+      localStorage.setItem(DISMISSED_KEY, '1');
+    } catch (_) { /* the splash shows again next visit */ }
     if (btn.dataset.wAct === 'tour') setTimeout(startTour, 200);
     else if (btn.dataset.wAct === 'connect') openConnect();
   });
