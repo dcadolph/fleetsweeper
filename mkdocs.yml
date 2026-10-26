@@ -49,12 +49,19 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Production readiness: production-readiness.md
   - Concepts:
       - The fleet is the policy: concepts/fleet-is-policy.md
       - Fleet Score: concepts/fleet-score.md
       - Statistical outlier detection: concepts/outliers.md
+      - Distributions: concepts/distributions.md
+      - Findings: concepts/findings.md
+      - Scanners: concepts/scanners.md
+      - Globe: concepts/globe.md
   - Operator:
       - Overview: operator/overview.md
+      - Server mode: operator/server-mode.md
       - ClusterScan CRD: operator/clusterscan.md
       - Admission webhook: operator/admission-webhook.md
       - Pinning the baseline: operator/baseline.md
@@ -76,7 +83,6 @@ nav:
       - Prometheus and Grafana: integrations/prometheus.md
       - AlertManager: integrations/alertmanager.md
       - Falco runtime alerts: integrations/falco.md
-      - GitHub Actions: integrations/github-actions.md
       - node_exporter textfile collector: integrations/textfile-collector.md
       - Registry probing: integrations/registry-probing.md
       - Trivy Operator: integrations/trivy.md

@@ -51,13 +51,16 @@ to the newer one, up to 50, not just the two ends. For each cluster it
 reports:
 
 - **Deviation mass** at the first and last scan: the sum, over every
-  fleet-relative numeric field, of how far the cluster sits from the fleet
-  median in modified z-score terms, each field capped at 10. Zero means the
-  cluster sits on the norm everywhere.
+  numeric field, of how far the cluster sits from its norm in modified
+  z-score terms, each field capped at 10. The norm is the fleet, or the
+  cluster's tagged cohort where it has one. Zero means the cluster sits on
+  the norm everywhere.
 - **The field that moved most**, with its value and z-score before and
   after.
 - **Outlier flags gained or lost**, each with the scan where it last
-  flipped, so "since scan-4" points at the deploy that caused it.
+  flipped, so "since scan-4" points at the deploy that caused it. A flag
+  the cluster's tagged cohort holds does not count, since it raises no
+  finding.
 
 A cluster appears only when one of its own values changed or one of its
 flags flipped. A cluster whose z-score moved only because the rest of the
@@ -65,6 +68,13 @@ fleet moved around it is left out. Rows are ordered by the size of the
 change in deviation mass, largest first. `--json` carries the full ledger
 under `drift`, including the per-scan mass series for every listed
 cluster.
+
+The dashboard's Drift page draws the same ledger over a window of the last
+2, 5, 10, or 24 scans, or a date range, with a sparkline of each cluster's
+mass, then the findings that appeared and resolved between the window's
+first and last scans, and copies the lot as Markdown. `GET /api/drift`
+serves it: `?scans=N` for the newest N scans, or `?since=` and `?until=` in
+RFC 3339, with `?scans=` capping how many of that range it keeps.
 
 Findings are matched across scans by fingerprint: cluster, scanner, and
 rule. A finding whose title count changes ("3 privileged containers" to

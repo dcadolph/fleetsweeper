@@ -16,7 +16,9 @@ floored at zero:
    clusters in critical status, plus up to 10 points scaled by the
    fraction in degraded or strained status. Scaling by fraction keeps the
    cost proportional: one critical cluster in a fleet of three costs more
-   than one in a fleet of thirty.
+   than one in a fleet of thirty. A cluster's status comes from its own
+   findings only. A fleet-wide finding such as version skew costs its
+   points once, through its own term, and marks no cluster.
 3. **Version skew.** 10 points when Kubernetes minor versions across the
    fleet differ by two or more (critical skew), 3 points when they differ
    by exactly one (warning skew). Patch-only differences cost nothing
@@ -27,8 +29,11 @@ floored at zero:
    healthy long tail.
 
 The three largest costs are reported as the score's drivers, so the
-number always arrives with its explanation. The exact weights live in
-`internal/report/score.go` and are documented inline.
+number always arrives with its explanation. The full ledger, every term
+with every rule and cluster it charged and what each cap forgave, is
+`GET /api/score/attribution` and the dashboard's "How the score adds up".
+The exact weights live in `internal/report/score.go` and are documented
+inline.
 
 ## Provenance
 
@@ -65,7 +70,8 @@ section "Consistency is not correctness" works through this in detail.
 
 ## Trends
 
-A regression line is fitted through the score history. The trend is only
-surfaced as "improving" or "regressing" when the t-statistic exceeds 2.0
-so a two-scan window does not produce false alarms. The forecast at
-`/api/forecast/fleet-score` projects 30 days out using the same fit.
+The forecast at `/api/forecast/fleet-score` fits a least squares line
+through the score history and projects one median scan interval ahead, the
+time of the next scan at the usual cadence, with a 95% prediction interval
+clamped to 0 to 100. It needs at least 4 scans; with fewer it says so
+instead of guessing. `/api/forecast/clusters` does the same per cluster.

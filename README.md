@@ -25,7 +25,7 @@ Service accounts get patched at 3am and nobody writes it down. Every
 cluster is "healthy" on its own, so every tool you already own stays
 quiet. Fleetsweeper finds the one cluster that wandered off the herd.
 
-The fleet itself is the baseline. No rulebook. No thresholds to tune.
+The fleet itself is the baseline. No rulebook. No rules to write.
 The [modified z-score](https://en.wikipedia.org/wiki/Median_absolute_deviation)
 across your own clusters does the work.
 
@@ -103,7 +103,6 @@ pipelines in [`docs/operator/rbac.md`](docs/operator/rbac.md).
 | `kubectl`, k9s             | The state of one cluster, right now.             | A fleet-wide comparison across 24 dimensions. Names the outlier.                    |
 | Argo CD, Flux              | Whether each cluster matches its manifest.       | Drift across clusters even when every cluster matches its own source of truth.      |
 | Prometheus, Grafana        | Time series for what you remembered to instrument. | Statistical baselines derived from the fleet, with no rules to write.             |
-| Datadog Cluster Insights   | Per-cluster alerts scored by a vendor rulebook.  | The norm is your own fleet, not a vendor checklist.                                 |
 | OPA, Kyverno               | Violations against rules you authored.           | Detects drift you forgot to write a rule for. Complements, does not replace.        |
 
 ## Production-ready out of the box
@@ -124,6 +123,7 @@ admission webhook, and supply-chain signed images. Full checklist:
 - [The fleet is the policy](docs/concepts/fleet-is-policy.md). Why norm-based detection scales.
 - [Fleet Score](docs/concepts/fleet-score.md). What the number means.
 - [Outliers](docs/concepts/outliers.md). MAD-based statistical detection.
+- [Distributions](docs/concepts/distributions.md). What a strip shows and how the band is drawn.
 - [Findings and remediation](docs/concepts/findings.md). Severity calibration and `kubectl` outputs.
 - [Globe view](docs/concepts/globe.md). Geolocation sources and overrides.
 
