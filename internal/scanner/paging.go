@@ -2,8 +2,10 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -17,15 +19,6 @@ const DefaultListLimit = 500
 // hang a full fleet sweep on one bad cluster.
 const DefaultListTimeout = 30 * time.Second
 
-// ListPager paginates an apiserver list call using Continue tokens and the
-// supplied list function. The list function should call the typed client's
-// List method with the provided options and return the raw list result; the
-// caller is responsible for appending each page's items into its accumulator
-// inside the callback. ResourceVersion is fixed at "0" with NotOlderThan
-// match semantics so reads come from the apiserver watch cache rather than
-// etcd, dramatically reducing load on large clusters.
-type ListPager func(ctx context.Context, opts metav1.ListOptions) (continueToken string, err error)
-
 // CacheReadOptions returns ListOptions configured to read from the apiserver
 // watch cache. Use these for any read that does not need a strict-consistency
 // guarantee against etcd; on a busy cluster this is an order-of-magnitude
@@ -38,25 +31,51 @@ func CacheReadOptions() metav1.ListOptions {
 	}
 }
 
-// ListAll drives a ListPager to completion, applying a per-list timeout and
-// the watch-cache hint described above. The list function is invoked once per
-// page; pagination stops when the apiserver returns an empty continue token.
-func ListAll(ctx context.Context, list ListPager) error {
-	opts := metav1.ListOptions{
-		Limit:                DefaultListLimit,
-		ResourceVersion:      "0",
-		ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
+// ListPage is one page of a list response, typed or unstructured, that can name the next page.
+type ListPage interface {
+	// GetContinue returns the token for the next page, or "" on the last page.
+	GetContinue() string
+}
+
+// ListAll pages through a cluster-wide list and returns every item. list is the client's List
+// method, for example clientset.CoreV1().Secrets("").List or dyn.Resource(gvr).List, and items
+// extracts a page's items. opts is the first request: pass CacheReadOptions to read from the
+// watch cache, plus any selectors. A zero Limit becomes DefaultListLimit. Later pages carry the
+// continue token and the selectors but no resource version, which the apiserver rejects
+// alongside a token. Each page gets DefaultListTimeout. A continue token that expires mid-list
+// restarts the list once from the first page.
+func ListAll[L ListPage, T any](ctx context.Context, opts metav1.ListOptions,
+	list func(context.Context, metav1.ListOptions) (L, error), items func(L) []T) ([]T, error) {
+	if opts.Limit == 0 {
+		opts.Limit = DefaultListLimit
 	}
+	var out []T
+	page := opts
+	restarted := false
 	for {
 		listCtx, cancel := context.WithTimeout(ctx, DefaultListTimeout)
-		token, err := list(listCtx, opts)
+		resp, err := list(listCtx, page)
 		cancel()
 		if err != nil {
-			return err
+			if page.Continue != "" && !restarted && apierrors.IsResourceExpired(err) {
+				restarted = true
+				out = out[:0]
+				page = opts
+				continue
+			}
+			return nil, err
 		}
+		out = append(out, items(resp)...)
+		token := resp.GetContinue()
 		if token == "" {
-			return nil
+			return out, nil
 		}
-		opts.Continue = token
+		if token == page.Continue {
+			return nil, fmt.Errorf("list: server repeated continue token after %d items", len(out))
+		}
+		page = opts
+		page.Continue = token
+		page.ResourceVersion = ""
+		page.ResourceVersionMatch = ""
 	}
 }

@@ -80,6 +80,15 @@ func denyingClient(listErr error) *kube.Client {
 	return kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
 }
 
+// forbiddenNodes returns a typed clientset whose node list is denied.
+func forbiddenNodes() *fakeclientset.Clientset {
+	cs := fakeclientset.NewSimpleClientset()
+	cs.PrependReactor("list", "nodes", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, "", errors.New("rbac denied"))
+	})
+	return cs
+}
+
 // TestExtractNodeMetrics checks quantity parsing and percentage math for the
 // pure helper that converts one unstructured NodeMetrics object into a typed
 // NodeMetrics, covering missing fields, missing allocatable data, unparseable
@@ -172,7 +181,7 @@ func TestExtractNodeMetrics(t *testing.T) {
 // TestScan drives the full metrics scanner over the dynamic and typed fakes,
 // covering the missing dynamic client, a missing metrics API (NoMatch and
 // NotFound), a 403, a generic list error, the resolved-percentage
-// aggregation, and metrics without matching nodes.
+// aggregation, a denied node read, and metrics without matching nodes.
 func TestScan(t *testing.T) {
 	t.Parallel()
 
@@ -184,9 +193,8 @@ func TestScan(t *testing.T) {
 		Want      error
 		WantState scanner.State
 		WantData  Data
-	}{{ // Test 0: No dynamic client means metrics are unavailable.
-		Client:   nilDynamicClient(),
-		WantData: Data{Available: false},
+	}{{ // Test 0: No dynamic client is a blind read, never a clean zero.
+		Client: nilDynamicClient(), Want: scanner.ErrScan, WantState: scanner.StateErrored,
 	}, { // Test 1: A NoMatch error means the metrics API is absent, not a failure.
 		Client: denyingClient(&meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{
 			Group: "metrics.k8s.io", Version: "v1beta1", Resource: "nodes",
@@ -198,14 +206,12 @@ func TestScan(t *testing.T) {
 			schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "")),
 		WantState: scanner.StateUnavailable,
 		WantData:  Data{Available: false},
-	}, { // Test 3: A 403 is a blind read: the error propagates with the RBAC flag set.
+	}, { // Test 3: A 403 is a blind read: errored, never unavailable or a clean zero.
 		Client: denyingClient(apierrors.NewForbidden(
 			schema.GroupResource{Group: "metrics.k8s.io", Resource: "nodes"}, "", errDenied)),
-		Want:     scanner.ErrScan,
-		WantData: Data{Available: false, Forbidden: true},
+		Want: scanner.ErrScan, WantState: scanner.StateErrored,
 	}, { // Test 4: A non-403 error is a blind read and propagates as an error.
-		Client: denyingClient(errBoom),
-		Want:   scanner.ErrScan,
+		Client: denyingClient(errBoom), Want: scanner.ErrScan, WantState: scanner.StateErrored,
 	}, { // Test 5: Metrics resolve against allocatable node capacity.
 		Client: kube.NewTestClientWithDynamic("test",
 			fakeclientset.NewSimpleClientset(
@@ -227,7 +233,17 @@ func TestScan(t *testing.T) {
 				{Name: "node2", CPUUsage: "1000m", MemoryUsage: "1000Mi", CPUPercent: 50, MemoryPercent: 25},
 			},
 		},
-	}, { // Test 6: Metrics without matching nodes stay unresolved but available.
+	}, { // Test 6: A forbidden node read keeps usage without percentages and is degraded.
+		Client: kube.NewTestClientWithDynamic("test", forbiddenNodes(),
+			newMetricsDynamic(nodeMetric("node1", "250m", "1000Mi"))),
+		WantState: scanner.StateDegraded,
+		WantData: Data{
+			Available: true, NodeCount: 1,
+			Nodes: []NodeMetrics{
+				{Name: "node1", CPUUsage: "250m", MemoryUsage: "1000Mi", CPUPercent: -1, MemoryPercent: -1},
+			},
+		},
+	}, { // Test 7: Metrics without matching nodes stay unresolved but available.
 		Client: kube.NewTestClientWithDynamic("test",
 			fakeclientset.NewSimpleClientset(),
 			newMetricsDynamic(nodeMetric("orphan", "250m", "100Mi")),

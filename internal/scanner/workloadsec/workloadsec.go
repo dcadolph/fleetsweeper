@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -81,18 +80,17 @@ type Data struct {
 // NewScanner returns a scanner that audits pod security contexts across all namespaces.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		podList, err := client.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		pods, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Pods("").List,
+			func(l *corev1.PodList) []corev1.Pod { return l.Items })
+		if !cov.Observe("pods", err) {
+			return cov.Finish(Name, nil)
 		}
 
-		data := Data{TotalPods: len(podList.Items)}
+		data := Data{TotalPods: len(pods)}
 
-		for i := range podList.Items {
-			pod := &podList.Items[i]
+		for i := range pods {
+			pod := &pods[i]
 			hostNet := pod.Spec.HostNetwork
 			hostPID := pod.Spec.HostPID
 			hostIPC := pod.Spec.HostIPC
@@ -183,7 +181,7 @@ func NewScanner() scanner.Scanner {
 			data.HighRiskPods = data.HighRiskPods[:50]
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
 }
 

@@ -10,12 +10,10 @@ import (
 	"encoding/pem"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -65,66 +63,50 @@ type Data struct {
 	Certs []Cert `json:"certs"`
 }
 
-// NewScanner returns a scanner that enumerates TLS certificates across the
-// cluster. Errors fetching one source do not abort the whole scan; the result
-// reflects whatever was successfully read and is marked StateDegraded with a
-// reason naming any list that failed.
+// tlsSecretSelector asks the apiserver for TLS Secrets only, so the scan never pulls every
+// Secret's payload in the cluster.
+const tlsSecretSelector = "type=" + string(corev1.SecretTypeTLS)
+
+// NewScanner returns a scanner that enumerates TLS certificates across the cluster. A list that
+// fails does not abort the scan: the result keeps whatever was read and is StateDegraded with a
+// reason naming the failed list. When every list fails, the scan errors rather than reporting a
+// cluster with zero certificates.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		data := Data{Soonest: -1}
 		now := time.Now()
-		var reasons []string
+		var cov scanner.Coverage
+		cs := client.Clientset()
 
-		secrets, err := client.Clientset().CoreV1().Secrets("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("secrets list failed: %v", err))
-		} else {
-			for i := range secrets.Items {
-				s := &secrets.Items[i]
-				if s.Type != corev1.SecretTypeTLS {
-					continue
-				}
-				crt, ok := s.Data["tls.crt"]
-				if !ok {
-					continue
-				}
-				for _, cert := range parsePEM(crt) {
-					data.Certs = append(data.Certs, Cert{
-						Name:          s.Name,
-						Namespace:     s.Namespace,
-						Kind:          "Secret",
-						Subject:       cert.Subject.CommonName,
-						NotAfter:      cert.NotAfter,
-						DaysRemaining: int(cert.NotAfter.Sub(now).Hours() / 24),
-					})
-				}
+		secretOpts := scanner.CacheReadOptions()
+		secretOpts.FieldSelector = tlsSecretSelector
+		secrets, err := scanner.ListAll(ctx, secretOpts, cs.CoreV1().Secrets("").List,
+			func(l *corev1.SecretList) []corev1.Secret { return l.Items })
+		if cov.Observe("secrets", err) {
+			for i := range secrets {
+				appendSecretCerts(&data, &secrets[i], now)
 			}
 		}
 
-		mwh, err := client.Clientset().AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("mutating webhook configurations list failed: %v", err))
-		} else {
-			for i := range mwh.Items {
-				appendWebhookCAs(&data, &mwh.Items[i], now)
+		mwh, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			cs.AdmissionregistrationV1().MutatingWebhookConfigurations().List,
+			func(l *admissionregv1.MutatingWebhookConfigurationList) []admissionregv1.MutatingWebhookConfiguration {
+				return l.Items
+			})
+		if cov.Observe("mutating webhook configurations", err) {
+			for i := range mwh {
+				appendWebhookCAs(&data, &mwh[i], now)
 			}
 		}
 
-		vwh, err := client.Clientset().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			reasons = append(reasons, fmt.Sprintf("validating webhook configurations list failed: %v", err))
-		} else {
-			for i := range vwh.Items {
-				appendValidatingCAs(&data, &vwh.Items[i], now)
+		vwh, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			cs.AdmissionregistrationV1().ValidatingWebhookConfigurations().List,
+			func(l *admissionregv1.ValidatingWebhookConfigurationList) []admissionregv1.ValidatingWebhookConfiguration {
+				return l.Items
+			})
+		if cov.Observe("validating webhook configurations", err) {
+			for i := range vwh {
+				appendValidatingCAs(&data, &vwh[i], now)
 			}
 		}
 
@@ -150,13 +132,31 @@ func NewScanner() scanner.Scanner {
 			data.Certs = data.Certs[:100]
 		}
 
-		result := scanner.Result{Scanner: Name, Data: data}
-		if len(reasons) > 0 {
-			result.State = scanner.StateDegraded
-			result.Reason = strings.Join(reasons, "; ")
-		}
-		return result, nil
+		return cov.Finish(Name, data)
 	})
+}
+
+// appendSecretCerts records every certificate in a TLS Secret's tls.crt. The type check stays
+// even though the list is field-selected, because a client that ignores field selectors would
+// otherwise hand opaque Secrets to the PEM parser.
+func appendSecretCerts(data *Data, s *corev1.Secret, now time.Time) {
+	if s.Type != corev1.SecretTypeTLS {
+		return
+	}
+	crt, ok := s.Data["tls.crt"]
+	if !ok {
+		return
+	}
+	for _, cert := range parsePEM(crt) {
+		data.Certs = append(data.Certs, Cert{
+			Name:          s.Name,
+			Namespace:     s.Namespace,
+			Kind:          "Secret",
+			Subject:       cert.Subject.CommonName,
+			NotAfter:      cert.NotAfter,
+			DaysRemaining: int(cert.NotAfter.Sub(now).Hours() / 24),
+		})
+	}
 }
 
 // parsePEM decodes a PEM-encoded byte slice into a slice of x509.Certificate.

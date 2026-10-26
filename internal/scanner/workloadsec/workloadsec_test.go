@@ -9,8 +9,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 
@@ -267,5 +269,22 @@ func TestScanListError(t *testing.T) {
 	_, err := NewScanner().Scan(context.Background(), client)
 	if !errors.Is(err, scanner.ErrScan) {
 		t.Fatalf("expected scanner.ErrScan, got %v", err)
+	}
+}
+
+// TestScanForbiddenIsErrored verifies a denied pod list is a blind, errored read rather than a
+// cluster with zero risky pods.
+func TestScanForbiddenIsErrored(t *testing.T) {
+	t.Parallel()
+	cs := fakeclientset.NewSimpleClientset()
+	cs.PrependReactor("list", "pods", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("rbac denied"))
+	})
+	result, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs))
+	if !errors.Is(err, scanner.ErrScan) || !apierrors.IsForbidden(err) {
+		t.Fatalf("err = %v, want ErrScan wrapping Forbidden", err)
+	}
+	if result.State != scanner.StateErrored || result.Data != nil {
+		t.Errorf("result = %+v, want errored with no data", result)
 	}
 }

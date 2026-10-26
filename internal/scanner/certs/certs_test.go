@@ -2,6 +2,7 @@ package certs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -9,11 +10,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/testcerts"
 )
 
@@ -157,5 +162,95 @@ func TestWebhookCABundles(t *testing.T) {
 	}
 	if diff := cmp.Diff(10, data.Soonest); diff != "" {
 		t.Errorf("soonest mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// webhookPair returns mutating and validating webhook configurations whose caBundles expire in
+// ten days.
+func webhookPair(t *testing.T) (*admissionregv1.MutatingWebhookConfiguration, *admissionregv1.ValidatingWebhookConfiguration) {
+	t.Helper()
+	caPEM, err := testcerts.PEMWithExpiry("webhook-ca", time.Now().Add(10*24*time.Hour+time.Hour))
+	if err != nil {
+		t.Fatalf("generate cert: %v", err)
+	}
+	return &admissionregv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "mwc"},
+		Webhooks: []admissionregv1.MutatingWebhook{{
+			Name: "m.example.com", ClientConfig: admissionregv1.WebhookClientConfig{CABundle: caPEM},
+		}},
+	}, &admissionregv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "vwc"},
+		Webhooks: []admissionregv1.ValidatingWebhook{{
+			Name: "v.example.com", ClientConfig: admissionregv1.WebhookClientConfig{CABundle: caPEM},
+		}},
+	}
+}
+
+// TestScanForbidden verifies denied lists never read as a cluster with zero certificates: one
+// denied list degrades the result and keeps the rest, and every list denied errors.
+func TestScanForbidden(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Denied     []string
+		Want       error
+		WantState  scanner.State
+		WantTotal  int
+		WantReason string
+	}{{ // Test 0: Secrets denied, webhooks read: degraded with the two webhook certs.
+		Denied: []string{"secrets"}, WantState: scanner.StateDegraded, WantTotal: 2,
+		WantReason: "secrets: forbidden: ",
+	}, { // Test 1: Every list denied: errored with no data, not degraded with zero certs.
+		Denied:    []string{"secrets", "mutatingwebhookconfigurations", "validatingwebhookconfigurations"},
+		Want:      scanner.ErrScan,
+		WantState: scanner.StateErrored, WantReason: "secrets: forbidden: ",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			mwc, vwc := webhookPair(t)
+			cs := fakeclientset.NewSimpleClientset(tlsSecret(t, "crit", 3), mwc, vwc)
+			for _, resource := range test.Denied {
+				cs.PrependReactor("list", resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: resource}, "",
+						errors.New("rbac denied"))
+				})
+			}
+			result, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs))
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state = %q, want %q", result.State, test.WantState)
+			}
+			if len(result.Reason) < len(test.WantReason) || result.Reason[:len(test.WantReason)] != test.WantReason {
+				t.Errorf("reason = %q, want prefix %q", result.Reason, test.WantReason)
+			}
+			if test.WantState == scanner.StateErrored {
+				if result.Data != nil {
+					t.Errorf("errored result carries data %+v", result.Data)
+				}
+				return
+			}
+			if got := result.Data.(Data).TotalCerts; got != test.WantTotal {
+				t.Errorf("total certs = %d, want %d", got, test.WantTotal)
+			}
+		})
+	}
+}
+
+// TestSecretListSelectsTLS verifies the Secret list asks the apiserver for TLS Secrets only.
+func TestSecretListSelectsTLS(t *testing.T) {
+	t.Parallel()
+	cs := fakeclientset.NewSimpleClientset()
+	var got []string
+	cs.PrependReactor("list", "secrets", func(a clienttesting.Action) (bool, runtime.Object, error) {
+		got = append(got, a.(clienttesting.ListActionImpl).GetListOptions().FieldSelector)
+		return false, nil, nil
+	})
+	if _, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs)); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if diff := cmp.Diff([]string{"type=kubernetes.io/tls"}, got); diff != "" {
+		t.Errorf("secret field selectors mismatch (-want +got):\n%s", diff)
 	}
 }
