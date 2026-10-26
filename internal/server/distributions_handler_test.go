@@ -118,6 +118,41 @@ func TestDemoDrift(t *testing.T) {
 	}
 }
 
+// TestDemoDriftWindow verifies a since window in demo mode reads the demo series, keeps the
+// newest ?scans=N, and keeps the RBAC step inside the window.
+func TestDemoDriftWindow(t *testing.T) {
+	t.Parallel()
+	h := demoTestServer(t).Handler()
+	tests := []struct {
+		WantTop   string
+		Query     string
+		WantScans int
+	}{{ // Test 0: Last 7 days capped at 10 scans.
+		Query: "scans=10&since=" + time.Now().Add(-7*24*time.Hour).UTC().Format(time.RFC3339), WantScans: 10, WantTop: demoStepCluster,
+	}, { // Test 1: A window that starts in the future holds no scans.
+		Query: "since=" + time.Now().Add(time.Hour).UTC().Format(time.RFC3339), WantScans: 0,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			var l report.Ledger
+			if code := serve(t, h, http.MethodGet, "/api/drift?"+test.Query, "", "", &l); code != http.StatusOK {
+				t.Fatalf("status %d", code)
+			}
+			if diff := cmp.Diff(test.WantScans, len(l.Scans)); diff != "" {
+				t.Errorf("scan count mismatch (-want +got):\n%s", diff)
+			}
+			top := ""
+			if len(l.Clusters) > 0 {
+				top = l.Clusters[0].Cluster
+			}
+			if diff := cmp.Diff(test.WantTop, top); diff != "" {
+				t.Errorf("top row mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestDemoDistributionHistory verifies the history endpoint returns one point per scan, oldest
 // first, and that the stepping cluster's value moves at the step.
 func TestDemoDistributionHistory(t *testing.T) {
@@ -335,6 +370,11 @@ func TestStoredDriftAndScan(t *testing.T) {
 	serve(t, h, http.MethodGet, "/api/drift?since="+since, "", "", &window)
 	if diff := cmp.Diff([]string{"scan-3", "scan-4", "scan-5"}, window.Scans); diff != "" {
 		t.Errorf("window scans mismatch (-want +got):\n%s", diff)
+	}
+	var capped report.Ledger
+	serve(t, h, http.MethodGet, "/api/drift?scans=2&since="+start.Add(-time.Hour).Format(time.RFC3339), "", "", &capped)
+	if diff := cmp.Diff([]string{"scan-4", "scan-5"}, capped.Scans); diff != "" {
+		t.Errorf("capped window scans mismatch (-want +got):\n%s", diff)
 	}
 	if code := serve(t, h, http.MethodGet, "/api/drift?since=yesterday", "", "", nil); code != http.StatusBadRequest {
 		t.Errorf("bad since: want 400, got %d", code)

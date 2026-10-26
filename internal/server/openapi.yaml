@@ -1605,7 +1605,7 @@ paths:
       summary: Which clusters drifted against the fleet norm over a window of scans
       description: >-
         Either the most recent scans (scans, default 10) or the scans between
-        since and until, at most 50 of the newest.
+        since and until, the newest scans of them (default 50, at most 50).
       parameters:
         - {in: query, name: scans, schema: {type: integer, default: 10, maximum: 50}}
         - {in: query, name: since, schema: {type: string, format: date-time}}
