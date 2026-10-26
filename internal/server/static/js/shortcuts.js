@@ -6,6 +6,7 @@ import { nav } from './router.js';
 import { esc } from './dom.js';
 import { toggleLive } from './live.js';
 import { startTour } from './tour.js';
+import { openModal } from './components/modal.js';
 
 // chordRoutes lists the routes reachable with g followed by a key.
 const chordRoutes = ROUTES.filter((r) => r.chord);
@@ -23,11 +24,9 @@ function groups() {
 
 let overlay = null;
 
-// closeShortcuts removes the overlay.
+// closeShortcuts closes the overlay.
 function closeShortcuts() {
-  if (!overlay) return;
-  overlay.remove();
-  overlay = null;
+  if (overlay) overlay.close();
 }
 
 // toggleShortcuts opens or closes the overlay.
@@ -36,17 +35,15 @@ export function toggleShortcuts() {
     closeShortcuts();
     return;
   }
-  overlay = document.createElement('div');
-  overlay.className = 'overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', 'Keyboard shortcuts');
-  overlay.innerHTML = '<div class="overlay-card"><div class="overlay-head"><div class="fs-14 fw-600">Keyboard shortcuts</div><div class="note">Esc to close</div></div>' +
-    '<div class="overlay-body">' + groups().map((g) => `<div class="mb-12"><div class="eyebrow mb-4">${esc(g.group)}</div><table class="kbd-table">` +
-      g.items.map((it) => `<tr><td>${it.keys.map((k) => `<kbd>${esc(k)}</kbd>`).join('+')}</td><td>${esc(it.label)}</td></tr>`).join('') +
-      '</table></div>').join('') + '</div></div>';
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeShortcuts(); });
+  overlay = openModal({
+    className: 'overlay',
+    label: 'Keyboard shortcuts',
+    html: '<div class="overlay-card"><div class="overlay-head"><div class="fs-14 fw-600">Keyboard shortcuts</div><div class="note">Esc to close</div></div>' +
+      '<div class="overlay-body">' + groups().map((g) => `<div class="mb-12"><div class="eyebrow mb-4">${esc(g.group)}</div><table class="kbd-table">` +
+        g.items.map((it) => `<tr><td>${it.keys.map((k) => `<kbd>${esc(k)}</kbd>`).join('+')}</td><td>${esc(it.label)}</td></tr>`).join('') +
+        '</table></div>').join('') + '</div></div>',
+    onClose: () => { overlay = null; },
+  });
 }
 
 // isTyping reports whether keystrokes belong to a form field.

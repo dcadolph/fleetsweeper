@@ -6,6 +6,7 @@ import { nav } from './router.js';
 import { esc } from './dom.js';
 import { latestReport } from './views/dash.js';
 import { triggerScan } from './views/trigger.js';
+import { openModal } from './components/modal.js';
 
 let overlay = null;
 
@@ -17,24 +18,21 @@ function items() {
   return pages.concat(((rpt && rpt.clusters) || []).map((c) => ({ label: 'Cluster: ' + c, run: () => nav('detail', { cluster: c }) })));
 }
 
-// closePalette removes the palette.
+// closePalette closes the palette.
 function closePalette() {
-  if (!overlay) return;
-  overlay.remove();
-  overlay = null;
+  if (overlay) overlay.close();
 }
 
 // openPalette shows the palette with focus in its search box.
 function openPalette() {
   if (overlay) return;
-  overlay = document.createElement('div');
-  overlay.className = 'overlay';
-  overlay.setAttribute('role', 'dialog');
-  overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', 'Command palette');
-  overlay.innerHTML = '<div class="overlay-card"><input type="search" class="cmdk-input" placeholder="Type to search clusters, pages..." aria-label="Search">' +
-    '<div class="cmdk-list" role="listbox"></div><div class="overlay-foot">Up/Down to navigate &nbsp;|&nbsp; Enter to select &nbsp;|&nbsp; Esc to close</div></div>';
-  document.body.appendChild(overlay);
+  overlay = openModal({
+    className: 'overlay',
+    label: 'Command palette',
+    html: '<div class="overlay-card"><input type="search" class="cmdk-input" placeholder="Type to search clusters, pages..." aria-label="Search">' +
+      '<div class="cmdk-list" role="listbox"></div><div class="overlay-foot">Up/Down to navigate &nbsp;|&nbsp; Enter to select &nbsp;|&nbsp; Esc to close</div></div>',
+    onClose: () => { overlay = null; },
+  });
   const input = overlay.querySelector('input');
   const list = overlay.querySelector('.cmdk-list');
   let sel = 0;
@@ -53,7 +51,6 @@ function openPalette() {
     if (it) it.run();
   };
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closePalette();
     const item = e.target.closest('.cmdk-item');
     if (item) choose(Number(item.dataset.i));
   });
