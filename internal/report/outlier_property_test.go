@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -40,7 +41,8 @@ func TestOutlierThresholdMonotonic(t *testing.T) {
 
 		prev := math.MaxInt32
 		for _, th := range thresholds {
-			count := len(detectNumericOutliers(clusters, flat, "v", "metrics", th))
+			found, _ := detectNumericOutliers(clusters, flat, "v", "metrics", th)
+			count := len(found)
 			if count > prev {
 				t.Fatalf("trial %d: threshold %g gave %d outliers, more than the lower threshold's %d", trial, th, count, prev)
 			}
@@ -71,7 +73,18 @@ func FuzzDetectNumericOutliers(f *testing.F) {
 			return
 		}
 		clusters, flat, _ := numericFlat(values)
-		for _, o := range detectNumericOutliers(clusters, flat, "v", "metrics", 3.5) {
+		found, dist := detectNumericOutliers(clusters, flat, "v", "metrics", 3.5)
+		if dist != nil {
+			for _, v := range dist.Values {
+				if math.IsNaN(v.Z) || math.IsInf(v.Z, 0) {
+					t.Fatalf("non-finite distribution z %v for cluster %s", v.Z, v.Cluster)
+				}
+			}
+			if _, err := json.Marshal(dist); err != nil {
+				t.Fatalf("distribution does not marshal: %v", err)
+			}
+		}
+		for _, o := range found {
 			if math.IsNaN(o.Deviation) || math.IsInf(o.Deviation, 0) {
 				t.Fatalf("non-finite deviation %v for cluster %s", o.Deviation, o.Cluster)
 			}

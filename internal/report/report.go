@@ -57,6 +57,14 @@ type Report struct {
 	// minMADSample-1 use the leave-one-out majority diff, whose results are
 	// marked LimitedSample. Smaller fleets get none and a line in Notes.
 	Outliers []OutlierResult `json:"outliers,omitempty"`
+	// Distributions holds the population behind every field the fleet and
+	// cohort detectors evaluated, fleet scope first, most deviant first.
+	Distributions []Distribution `json:"distributions,omitempty"`
+	// DeviationMass sums, per cluster, the capped |z| of its numeric values
+	// across the fleet-scope distributions. Clusters at zero are left out.
+	DeviationMass map[string]float64 `json:"deviation_mass,omitempty"`
+	// ScoreAttribution is the full cost ledger behind FleetScore.
+	ScoreAttribution *ScoreAttribution `json:"score_attribution,omitempty"`
 	// Capacity holds smart capacity analysis per cluster, correlating
 	// utilization, pressure, events, and headroom.
 	Capacity []CapacityAnalysis `json:"capacity,omitempty"`
@@ -215,9 +223,9 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 
 	switch {
 	case len(clusters) >= minMADSample:
-		r.Outliers = DetectOutliers(r, opt.OutlierThreshold)
+		r.Outliers, r.Distributions = detectOutliers(r, opt.OutlierThreshold, NormScopeFleet)
 	case len(clusters) >= minMajoritySample:
-		r.Outliers = detectMajorityOutliers(r, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectMajorityOutliers(r, opt.OutlierThreshold, NormScopeFleet)
 	default:
 		r.Notes = append(r.Notes, fmt.Sprintf(
 			"Fleet-relative outlier detection needs at least %d clusters; this report has %d.",
@@ -226,12 +234,17 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	}
 
 	r.Capacity = AnalyzeCapacity(r, opt.Groups)
-	r.Cohorts = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
+	var cohortDists []Distribution
+	r.Cohorts, cohortDists = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
+	r.Distributions = append(r.Distributions, cohortDists...)
+	r.DeviationMass = deviationMass(r.Distributions)
 	r.Findings = GenerateFindings(r)
 	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
 	r.Incidents = FuseIncidents(r.Findings)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
-	r.FleetScore = ComputeFleetScore(r)
+	var attribution ScoreAttribution
+	r.FleetScore, attribution = scoreWithAttribution(r)
+	r.ScoreAttribution = &attribution
 	r.Brief = GenerateBrief(r)
 
 	return r
