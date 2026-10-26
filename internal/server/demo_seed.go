@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/crd"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -14,6 +17,14 @@ import (
 const (
 	demoScans = 24
 	demoStep  = 6 * time.Hour
+)
+
+// demoDriftCluster and demoDriftGroup are the scripted change live demo scans carry: every other
+// live scan, prod-eu-central-1 loses the cert-manager CRDs every other cluster runs, and the scan
+// after restores them, so a viewer sees a drift land and then clear.
+const (
+	demoDriftCluster = "prod-eu-central-1"
+	demoDriftGroup   = "cert-manager.io"
 )
 
 // ErrDemoSeed is returned when the demo store cannot be seeded.
@@ -67,4 +78,35 @@ func SeedDemo(ctx context.Context, st store.Store, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// demoLiveScan returns the clusters and results of live demo scan k, the k-th scan triggered
+// since startup: the newest seeded state of each requested cluster at now, with the scripted
+// drift on even k. Requested names outside the demo fleet are ignored.
+func demoLiveScan(k int, requested []string, now time.Time) ([]string, map[string]map[string]scanner.Result) {
+	all := demoResults(demoScans-1, demoScans, now, now)
+	if k%2 == 0 {
+		if res, ok := all[demoDriftCluster][crd.Name]; ok {
+			if d, isCRD := res.Data.(crd.Data); isCRD {
+				kept := make([]crd.CRDInfo, 0, len(d.CRDs))
+				for _, c := range d.CRDs {
+					if c.Group != demoDriftGroup {
+						kept = append(kept, c)
+					}
+				}
+				d.CRDs, d.Count = kept, len(kept)
+				res.Data = d
+				all[demoDriftCluster][crd.Name] = res
+			}
+		}
+	}
+	clusters := make([]string, 0, len(requested))
+	results := make(map[string]map[string]scanner.Result, len(requested))
+	for _, c := range demoClusterNames() {
+		if r, ok := all[c]; ok && slices.Contains(requested, c) {
+			clusters = append(clusters, c)
+			results[c] = r
+		}
+	}
+	return clusters, results
 }
