@@ -47,7 +47,7 @@ export async function renderCohorts() {
   cohorts.forEach((c, i) => {
     const tone = c.source === 'tagged' ? 'ok' : c.source === 'auto' ? 'info' : 'muted';
     h += '<div class="panel"><div class="flex between items-center mb-8">' +
-      `<div class="fs-18 fw-600 flex items-center gap-8"><span class="swatch ${cohortTone(c.name)}"></span>${esc(c.name)}</div><span class="badge bg-${tone} c-${tone === 'muted' ? 't2' : tone}">${esc(c.source)}</span></div>` +
+      `<div class="fs-18 fw-600 flex items-center gap-8"><span aria-hidden="true" class="swatch ${cohortTone(c.name)}"></span>${esc(c.name)}</div><span class="badge bg-${tone} c-${tone === 'muted' ? 't2' : tone}">${esc(c.source)}</span></div>` +
       `<div class="fs-12 c-t3 mb-8">${c.clusters ? c.clusters.length : 0} clusters</div><div class="flex flex-wrap gap-4 mb-8">` +
       (c.clusters || []).map((cl) => `<a class="pill-link" href="${esc(clusterHref(cl))}">${esc(cl)}</a>`).join('') + '</div>';
     if (stripSets[i].length) h += '<div class="top-rule"><div class="fs-12 c-t3 mb-4">Fields where a member leaves the cohort norm</div>' + renderStrips(stripSets[i]) + '</div>';

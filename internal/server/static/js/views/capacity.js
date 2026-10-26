@@ -28,7 +28,7 @@ function capacityCards(capacity) {
     if (ca.has_scheduling_failures) signals.push('<span class="c-warn">SchedFail</span>');
     if (ca.has_disk_pressure) signals.push('<span class="c-warn">DiskPressure</span>');
     if (!signals.length) signals.push('<span class="c-ok">None</span>');
-    h += `<div class="cd cc" data-href="${esc(clusterHref(ca.cluster))}" role="link" tabindex="0"><div class="ind fill-${tone}"></div>` +
+    h += `<a class="cd cc" href="${esc(clusterHref(ca.cluster))}"><div aria-hidden="true" class="ind fill-${tone}"></div>` +
       `<h4>${esc(ca.cluster)}</h4><span class="badge bg-${tone} c-${tone}" data-tip="Status based on correlated signals, not just utilization">${esc(ca.status)}</span>` +
       `<div class="row"><span data-tip="${esc(TIPS.avg_cpu_percent)}">CPU</span><span class="val c-${threshTone(ca.cpu_utilization)}">${pct(ca.cpu_utilization)}</span></div>` +
       `<div class="row"><span data-tip="${esc(TIPS.avg_memory_percent)}">Memory</span><span class="val c-${threshTone(ca.memory_utilization)}">${pct(ca.memory_utilization)}</span></div>` +
@@ -40,7 +40,7 @@ function capacityCards(capacity) {
     }
     h += `<div class="rec">${esc(ca.recommendation)}</div>`;
     if (ca.group_deviation) h += `<div class="rec italic">${esc(ca.group_deviation)}</div>`;
-    h += '</div>';
+    h += '</a>';
   });
   return h + '</div>';
 }
@@ -72,12 +72,12 @@ function loadCostPanel() {
       `<div class="share-bar" data-tip="Drift is ${share}% of fleet spend"><div class="fill-${tone}" style="width:${share}%"></div></div>` +
       `<div class="flex between fs-12 c-t3 mt-4"><span>drift $${fmtUSD(d.total_drift_usd)}</span><span>healthy $${fmtUSD(Math.max(0, d.total_fleet_usd - d.total_drift_usd))}</span></div></div>`;
     if (d.by_cluster && d.by_cluster.length) {
-      h += '<div class="tw"><table><thead><tr><th>Cluster</th>' +
-        '<th data-tip="Monthly cost from the billing CSV">Cost / mo</th>' +
-        '<th data-tip="Cluster health score, 0 to 100">Score</th>' +
-        '<th data-tip="100 minus the score: the unhealthy fraction of spend">Health gap</th>' +
-        '<th data-tip="Cost times health gap: spend attributed to drift">Drift cost</th>' +
-        '<th data-tip="This cluster as a share of total drift cost">% of drift</th></tr></thead><tbody>';
+      h += '<div class="tw"><table><thead><tr><th scope="col">Cluster</th>' +
+        '<th scope="col" data-tip="Monthly cost from the billing CSV">Cost / mo</th>' +
+        '<th scope="col" data-tip="Cluster health score, 0 to 100">Score</th>' +
+        '<th scope="col" data-tip="100 minus the score: the unhealthy fraction of spend">Health gap</th>' +
+        '<th scope="col" data-tip="Cost times health gap: spend attributed to drift">Drift cost</th>' +
+        '<th scope="col" data-tip="This cluster as a share of total drift cost">% of drift</th></tr></thead><tbody>';
       d.by_cluster.slice(0, 12).forEach((c) => {
         const ct = c.score < 60 ? 'crit' : c.score < 80 ? 'warn' : 'ok';
         const of = d.total_drift_usd > 0 ? Math.round(100 * c.drift_usd / d.total_drift_usd) : 0;

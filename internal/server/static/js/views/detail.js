@@ -1,4 +1,4 @@
-// The cluster detail page: status line, gauges, findings, and one collapsible
+// The cluster detail page: status line, meters, findings, and one collapsible
 // section per scanner the cluster reported.
 
 import { api } from '../api.js';
@@ -37,7 +37,7 @@ function table(headers, rows, id) {
 
 // th renders a header cell with an optional tooltip.
 function th(label, tipText) {
-  return `<th${tipText ? ` data-tip="${esc(tipText)}"` : ''}>${esc(label)}</th>`;
+  return `<th scope="col"${tipText ? ` data-tip="${esc(tipText)}"` : ''}>${esc(label)}</th>`;
 }
 
 // renderDetail builds the detail page of the cluster in P.cluster.
@@ -52,7 +52,7 @@ export async function renderDetail() {
   h += `<h2>${esc(c)}</h2>`;
   if (ch) {
     const tone = statusTone(ch.status);
-    h += `<p class="sub flex items-center gap-6"><span class="dot dot-lg fill-${tone}"></span><b>${esc(ch.status)}</b> &middot; ${esc(ch.kubernetes_version)} &middot; ${ch.warning_events} warning events</p>`;
+    h += `<p class="sub flex items-center gap-6"><span aria-hidden="true" class="dot dot-lg fill-${tone}"></span><b>${esc(ch.status)}</b> &middot; ${esc(ch.kubernetes_version)} &middot; ${ch.warning_events} warning events</p>`;
     const metered = !!sd.metrics && sd.metrics.available !== false;
     const enf = sd.security ? sd.security.enforced_count || 0 : 0;
     const unenf = sd.security ? sd.security.unenforced_count || 0 : 0;

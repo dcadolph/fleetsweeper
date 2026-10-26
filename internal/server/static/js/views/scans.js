@@ -41,8 +41,8 @@ export async function renderScanReport() {
   if (rpt.cluster_healths && rpt.cluster_healths.length) {
     h += '<h3>Cluster health</h3><div class="g g3">';
     rpt.cluster_healths.forEach((ch) => {
-      h += `<div class="cd cc" data-href="${esc(clusterHref(ch.name))}" role="link" tabindex="0"><div class="ind fill-${statusTone(ch.status)}"></div>` +
-        `<h4>${esc(ch.name)}</h4><div class="row"><span>${esc(ch.kubernetes_version)}</span><span class="val">${ch.healthy_nodes}/${ch.node_count} nodes</span></div></div>`;
+      h += `<a class="cd cc" href="${esc(clusterHref(ch.name))}"><div aria-hidden="true" class="ind fill-${statusTone(ch.status)}"></div>` +
+        `<h4>${esc(ch.name)}</h4><div class="row"><span>${esc(ch.kubernetes_version)}</span><span class="val">${ch.healthy_nodes}/${ch.node_count} nodes</span></div></a>`;
     });
     h += '</div>';
   }
@@ -54,8 +54,8 @@ export async function renderScanReport() {
 function scannerTable(rpt) {
   const keys = Object.keys(rpt.sections || {}).sort();
   if (!keys.length) return '';
-  let h = '<h3>Scanners</h3><div class="tw"><table><thead><tr><th>Scanner</th><th>Fleet</th>' +
-    '<th data-tip="Click a count to see per-cluster values">Divergent fields</th></tr></thead><tbody>';
+  let h = '<h3>Scanners</h3><div class="tw"><table><thead><tr><th scope="col">Scanner</th><th scope="col">Fleet</th>' +
+    '<th scope="col" data-tip="Click a count to see per-cluster values">Divergent fields</th></tr></thead><tbody>';
   keys.forEach((k) => {
     const sec = rpt.sections[k];
     const n = sec.divergences ? sec.divergences.length : 0;
@@ -79,12 +79,12 @@ function showScannerDivergences(key) {
   const clusters = rpt.clusters || [];
   let h = '<div class="panel inset mt-12"><div class="flex between items-center mb-8">' +
     `<h4>${esc(scannerLabel(key))} divergences</h4><button class="btn btn-sm" data-action="clear" data-target="scannerDivDetail">Close</button></div>`;
-  h += `<div class="tw"><table><thead><tr><th data-tip="${esc(TIPS.sev_critical)}">Severity</th><th>Field</th>` +
-    clusters.map((c) => `<th><a href="${esc(clusterHref(c))}">${esc(c)}</a></th>`).join('') + '</tr></thead><tbody>';
+  h += `<div class="tw"><table><thead><tr><th scope="col" data-tip="${esc(TIPS.sev_critical)}">Severity</th><th scope="col">Field</th>` +
+    clusters.map((c) => `<th scope="col"><a href="${esc(clusterHref(c))}">${esc(c)}</a></th>`).join('') + '</tr></thead><tbody>';
   sec.divergences.forEach((d) => {
     const tone = sevTone(d.severity);
     const first = d.values && d.values[clusters[0]] ? d.values[clusters[0]] : '';
-    h += `<tr><td data-tip="${esc(tip('sev_' + d.severity))}"><span class="flex items-center gap-4"><span class="dot fill-${tone}"></span><span class="fs-12">${esc(d.severity)}</span></span></td>` +
+    h += `<tr><td data-tip="${esc(tip('sev_' + d.severity))}"><span class="flex items-center gap-4"><span aria-hidden="true" class="dot fill-${tone}"></span><span class="fs-12">${esc(d.severity)}</span></span></td>` +
       `<td class="fw-500"${tip(d.field) ? ` data-tip="${esc(tip(d.field))}"` : ''}>${esc(d.field)}</td>`;
     clusters.forEach((c) => {
       const val = d.values && d.values[c] ? d.values[c] : '-';

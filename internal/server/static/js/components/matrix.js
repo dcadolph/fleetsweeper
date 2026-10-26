@@ -39,6 +39,6 @@ export function renderMatrix(dists, order, cohortOf) {
     });
   });
   h += '</div><div class="legend mt-8"><span>|z| below 1</span>' +
-    [0, 1, 2, 3, 4, 5].map((l) => `<span class="swatch z${l}"></span>`).join('') + '<span>10 or more</span><span class="swatch mx-none"></span><span>no reading</span><span class="ml-auto">rows grouped by cohort</span></div>';
+    [0, 1, 2, 3, 4, 5].map((l) => `<span aria-hidden="true" class="swatch z${l}"></span>`).join('') + '<span>10 or more</span><span aria-hidden="true" class="swatch mx-none"></span><span>no reading</span><span class="ml-auto">rows grouped by cohort</span></div>';
   return h;
 }

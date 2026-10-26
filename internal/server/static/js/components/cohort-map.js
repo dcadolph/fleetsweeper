@@ -45,8 +45,8 @@ export function renderCohortMap(map, costs, outliers, misplaced, tone) {
       `<circle class="pt ${cohortTone(p.cohort)}${outliers.has(p.cluster) ? ' out' : ''}${misplaced[p.cluster] ? ' misplaced' : ''}" cx="${p.px.toFixed(1)}" cy="${p.py.toFixed(1)}" r="${r.toFixed(1)}"/></a>`;
   });
   svg += '</svg>';
-  const legend = '<div class="legend">' + cohorts.map((c) => `<span><span class="swatch ${cohortTone(c)}"></span> ${esc(c)}</span>`).join('') +
-    '<span><span class="swatch ring-swatch"></span> has an outlier</span><span><span class="swatch dashed-swatch"></span> may be in the wrong cohort</span>' +
+  const legend = '<div class="legend">' + cohorts.map((c) => `<span><span aria-hidden="true" class="swatch ${cohortTone(c)}"></span> ${esc(c)}</span>`).join('') +
+    '<span><span aria-hidden="true" class="swatch ring-swatch"></span> has an outlier</span><span><span aria-hidden="true" class="swatch dashed-swatch"></span> may be in the wrong cohort</span>' +
     `<span class="ml-auto">stress ${esc(fmt(map.stress))}${map.stress > 0.2 ? ', a rough picture' : ''}</span></div>`;
   return svg + legend;
 }

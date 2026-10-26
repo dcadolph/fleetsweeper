@@ -25,8 +25,8 @@ export async function renderOutliers() {
   if (!data.outliers || !data.outliers.length) {
     h += '<div class="empty">No outliers detected. Fleet is consistent.</div>';
   } else {
-    h += '<div class="tw"><table><thead><tr><th>Severity</th><th>Cluster</th><th>Scanner</th><th>Field</th><th>Value</th><th>Fleet norm</th>' +
-      '<th data-tip="Modified z-score (standard deviations from median)">Deviation</th></tr></thead><tbody>';
+    h += '<div class="tw"><table><thead><tr><th scope="col">Severity</th><th scope="col">Cluster</th><th scope="col">Scanner</th><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Fleet norm</th>' +
+      '<th scope="col" data-tip="Modified z-score (standard deviations from median)">Deviation</th></tr></thead><tbody>';
     data.outliers.forEach((o) => {
       h += `<tr><td class="c-${sevTone(o.severity)}">${esc(o.severity)}</td><td class="fw-500"><a href="${esc(clusterHref(o.cluster))}">${esc(o.cluster)}</a></td>` +
         `<td>${esc(o.scanner)}</td><td>${esc(o.field)}</td><td class="mono">${esc(o.value)}</td><td class="mono">${esc(o.fleet_norm)}</td>` +

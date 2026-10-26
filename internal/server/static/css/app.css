@@ -135,6 +135,28 @@ select option { background: var(--surface-1); color: var(--text-1); }
 .btn-crit { border-color: var(--status-crit-border); color: var(--status-crit); background: var(--status-crit-bg); }
 .btn:disabled { opacity: 0.5; cursor: wait; }
 
+.skip-link { position: absolute; left: 8px; top: -48px; z-index: 100; padding: 6px 12px; border: 1px solid var(--accent-border); border-radius: var(--radius-2); background: var(--surface-1); color: var(--accent); font: inherit; }
+.skip-link:focus { top: 8px; }
+main.ct:focus { outline: none; }
+
+/* Modals are native dialogs. The reset has no specificity, so each overlay's
+   own class keeps its look. */
+:where(dialog.modal) {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: auto;
+}
+dialog.modal::backdrop { background: transparent; }
+
 /* Drawer and toasts */
 .drawer-root { position: fixed; inset: 0; z-index: 80; }
 .drawer-overlay { position: absolute; inset: 0; background: var(--overlay); }
@@ -230,14 +252,15 @@ button.cd { font: inherit; color: inherit; width: 100%; }
 
 /* Cluster card */
 .cc { cursor: pointer; }
+a.cc, a.globe-strip { display: block; color: inherit; text-decoration: none; }
 .cc:hover { border-color: var(--accent); }
+a.cc:hover { text-decoration: none; }
 .cc .ind { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 .cc h4 { margin-left: 6px; margin-bottom: 2px; }
 .cc .row { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-12); color: var(--text-2); padding: 1px 0 1px 6px; }
 .cc .row .val { font-weight: 500; font-family: var(--font-mono); font-size: var(--fs-12); }
 .cc .row .val:not([class*=" c-"]) { color: var(--text-1); }
 .cc .rec { font-size: var(--fs-12); color: var(--text-2); margin-top: 6px; padding: 0 6px; line-height: 1.3; }
-.cc .gauges { display: flex; gap: 6px; margin-top: 4px; }
 .badge {
   display: inline-block;
   font-size: var(--fs-12);

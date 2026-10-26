@@ -40,8 +40,8 @@ export async function renderClusters() {
     const ch = healthMap[c.name];
     const status = ch ? ch.status : 'unknown';
     const tone = statusTone(status);
-    h += `<div class="cd cc" data-cname="${esc((c.name || '').toLowerCase())}" data-href="${esc(clusterHref(c.name))}" role="link" tabindex="0" data-tip="Click for full cluster detail">` +
-      `<div class="ind fill-${tone}"></div><h4>${esc(c.name)}</h4><span class="badge bg-${tone} c-${tone === 'muted' ? 't3' : tone}">${esc(status)}</span>`;
+    h += `<a class="cd cc" data-cname="${esc((c.name || '').toLowerCase())}" href="${esc(clusterHref(c.name))}">` +
+      `<div aria-hidden="true" class="ind fill-${tone}"></div><h4>${esc(c.name)}</h4><span class="badge bg-${tone} c-${tone === 'muted' ? 't3' : tone}">${esc(status)}</span>`;
     if (ch) {
       const fc = ch.finding_counts || {};
       h += `<div class="row"><span data-tip="${esc(TIPS.git_version)}">Version</span><span class="val">${esc(ch.kubernetes_version || 'N/A')}</span></div>` +
@@ -57,7 +57,7 @@ export async function renderClusters() {
       h += '<div class="row"><span>Tags</span><span class="val tag-chips">' + tagKeys.map((k) => `<span class="tag-chip">${esc(k)}=${esc(c.tags[k])}</span>`).join('') + '</span></div>';
     }
     h += `<div class="row"><span>First seen</span><span class="val">${esc(new Date(c.first_seen).toLocaleDateString())}</span></div>` +
-      `<div class="row"><span>Last seen</span><span class="val">${esc(new Date(c.last_seen).toLocaleDateString())}</span></div></div>`;
+      `<div class="row"><span>Last seen</span><span class="val">${esc(new Date(c.last_seen).toLocaleDateString())}</span></div></a>`;
   });
   h += '</div><div class="my-8"><button class="btn hidden" id="cardsToggle" data-action="toggle-cards">Show all</button></div>';
 
@@ -66,16 +66,16 @@ export async function renderClusters() {
       '<input id="cSearch" type="search" class="grow" placeholder="Filter clusters..." data-change="cluster-table" aria-label="Filter clusters">' +
       '<select id="cSort" data-change="cluster-table" aria-label="Sort"><option value="status">Sort: Status</option><option value="name">Sort: Name</option><option value="cpu">Sort: CPU</option><option value="mem">Sort: Memory</option><option value="headroom">Sort: Headroom</option><option value="findings">Sort: Findings</option></select>' +
       '<select id="cSize" data-change="cluster-page-size" aria-label="Page size"><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option><option value="all">All</option></select></div>';
-    h += '<div class="tw"><table><thead><tr><th>Cluster</th>' +
-      '<th data-tip="Correlated status: healthy, busy, degraded, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>' +
-      `<th data-tip="${esc(TIPS.git_version)}">Version</th>` +
-      '<th data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>' +
-      `<th data-tip="${esc(TIPS.avg_cpu_percent)}">CPU</th><th data-tip="${esc(TIPS.avg_memory_percent)}">Memory</th>` +
-      '<th data-tip="Percentage of memory capacity still unused. Lower headroom means less ability to absorb traffic spikes.">Headroom</th>' +
-      '<th data-tip="Active pressure conditions or failure events detected on this cluster">Signals</th>' +
-      '<th data-tip="Namespaces missing PSS enforce labels. A security gap, not expected to vary.">PSS gaps</th>' +
-      '<th data-tip="Namespaces with no NetworkPolicy. A security gap, not expected to vary.">NetPol gaps</th>' +
-      '<th data-tip="Number of critical and warning findings for this cluster">Findings</th></tr></thead><tbody id="clusterCmpBody"></tbody></table></div>' +
+    h += '<div class="tw"><table><thead><tr><th scope="col">Cluster</th>' +
+      '<th scope="col" data-tip="Correlated status: healthy, busy, degraded, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>' +
+      `<th scope="col" data-tip="${esc(TIPS.git_version)}">Version</th>` +
+      '<th scope="col" data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>' +
+      `<th scope="col" data-tip="${esc(TIPS.avg_cpu_percent)}">CPU</th><th scope="col" data-tip="${esc(TIPS.avg_memory_percent)}">Memory</th>` +
+      '<th scope="col" data-tip="Percentage of memory capacity still unused. Lower headroom means less ability to absorb traffic spikes.">Headroom</th>' +
+      '<th scope="col" data-tip="Active pressure conditions or failure events detected on this cluster">Signals</th>' +
+      '<th scope="col" data-tip="Namespaces missing PSS enforce labels. A security gap, not expected to vary.">PSS gaps</th>' +
+      '<th scope="col" data-tip="Namespaces with no NetworkPolicy. A security gap, not expected to vary.">NetPol gaps</th>' +
+      '<th scope="col" data-tip="Number of critical and warning findings for this cluster">Findings</th></tr></thead><tbody id="clusterCmpBody"></tbody></table></div>' +
       '<div id="clusterPager" class="pager"></div>';
   }
   return { html: h, post: renderTable };
