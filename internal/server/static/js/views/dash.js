@@ -99,7 +99,8 @@ async function stripPanel(scope) {
 }
 
 // clusterRows joins the report's cluster health, capacity status, score
-// cost, and deviation mass with the per-cluster forecasts into table rows.
+// cost, and deviation mass with the per-cluster forecasts into table rows. A
+// row's status is the worse of its findings status and its capacity status.
 function clusterRows(rpt, forecasts) {
   const status = {};
   (rpt.capacity || []).forEach((ca) => { status[ca.cluster] = ca.status; });
@@ -109,12 +110,14 @@ function clusterRows(rpt, forecasts) {
   ((forecasts && forecasts.forecasts) || []).forEach((f) => {
     if (f.forecast && f.forecast.sufficient) projected[f.cluster] = f.forecast.predicted - f.current_score;
   });
+  const rank = { critical: 0, degraded: 1, busy: 2, healthy: 3 };
+  const worse = (a, b) => ((rank[a] ?? 3) <= (rank[b] ?? 3) ? a : b);
   return (rpt.cluster_healths || []).map((ch) => {
-    const st = status[ch.name] || ch.status;
+    const cap = status[ch.name] === 'strained' ? 'degraded' : status[ch.name];
     const counts = ch.finding_counts || {};
     return {
       cluster: ch.name,
-      status: st === 'strained' ? 'degraded' : st,
+      status: cap ? worse(ch.status, cap) : ch.status,
       cost: cost[ch.name] || 0,
       mass: mass[ch.name] || 0,
       critical: counts.critical || 0,
