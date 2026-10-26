@@ -173,17 +173,19 @@ func webhookPair(t *testing.T) (*admissionregv1.MutatingWebhookConfiguration, *a
 	if err != nil {
 		t.Fatalf("generate cert: %v", err)
 	}
-	return &admissionregv1.MutatingWebhookConfiguration{
+	mwc := &admissionregv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "mwc"},
 		Webhooks: []admissionregv1.MutatingWebhook{{
 			Name: "m.example.com", ClientConfig: admissionregv1.WebhookClientConfig{CABundle: caPEM},
 		}},
-	}, &admissionregv1.ValidatingWebhookConfiguration{
+	}
+	vwc := &admissionregv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "vwc"},
 		Webhooks: []admissionregv1.ValidatingWebhook{{
 			Name: "v.example.com", ClientConfig: admissionregv1.WebhookClientConfig{CABundle: caPEM},
 		}},
 	}
+	return mwc, vwc
 }
 
 // TestScanForbidden verifies denied lists never read as a cluster with zero certificates: one
