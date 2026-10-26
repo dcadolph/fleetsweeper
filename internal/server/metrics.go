@@ -71,6 +71,8 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 	emit(w, fmt.Sprintf(`fleetsweeper_alerts_received_total{source="alertmanager"} %d`, s.alertsReceivedAM.Load()))
 	emit(w, fmt.Sprintf(`fleetsweeper_alerts_received_total{source="falco"} %d`, s.alertsReceivedFalco.Load()))
 
+	_, _ = s.admissionMetrics.WriteTo(w)
+
 	dur := s.lastScanDuration.Load()
 	if dur > 0 {
 		emit(w, "# HELP fleetsweeper_last_scan_duration_seconds Duration of the most recent scan.")
