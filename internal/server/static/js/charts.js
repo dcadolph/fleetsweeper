@@ -2,7 +2,7 @@
 // vendored chart.min.js defines. Charts made through makeChart are destroyed
 // on every navigation.
 
-import { token, toneColor, threshTone } from './dom.js';
+import { token } from './dom.js';
 
 let instances = [];
 
@@ -30,46 +30,3 @@ export function destroyCharts() {
   instances = [];
 }
 
-// centerText returns a plugin that writes a big value and a small caption in
-// the middle of a doughnut.
-function centerText(id, big, small, offset) {
-  return {
-    id: 'center_' + id,
-    afterDraw(chart) {
-      const { ctx } = chart;
-      const w = chart.width / 2;
-      const h = chart.height / 2 + offset;
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = token('--text-1');
-      ctx.font = '700 18px ' + token('--font-sans');
-      ctx.fillText(big, w, h);
-      ctx.font = '12px ' + token('--font-sans');
-      ctx.fillStyle = token('--text-2');
-      ctx.fillText(small, w, h + 16);
-      ctx.restore();
-    },
-  };
-}
-
-// percentDoughnut draws a full doughnut of a percentage with the value in
-// the middle.
-export function percentDoughnut(id, val, label) {
-  makeChart(id, {
-    type: 'doughnut',
-    data: { labels: [label, 'Free'], datasets: [{ data: [val, 100 - val], backgroundColor: [toneColor(threshTone(val)), token('--surface-3')], borderWidth: 0 }] },
-    options: { cutout: '72%', plugins: { legend: { display: false } } },
-    plugins: [centerText(id, Math.round(val) + '%', label, 8)],
-  });
-}
-
-// partDoughnut draws a two-part doughnut, good part first, with "good/total"
-// in the middle and a legend underneath.
-export function partDoughnut(id, labels, good, bad, caption, badTone) {
-  makeChart(id, {
-    type: 'doughnut',
-    data: { labels, datasets: [{ data: [good, bad], backgroundColor: [toneColor('ok'), toneColor(badTone)], borderWidth: 0 }] },
-    options: { cutout: '72%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 6 } } } },
-    plugins: [centerText(id, good + '/' + (good + bad), caption, 0)],
-  });
-}
