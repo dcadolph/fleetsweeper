@@ -133,14 +133,15 @@ func TestHandlerAdvisoryAllows(t *testing.T) {
 	}
 }
 
-// TestHandlerEnforceDenies verifies enforce mode denies when a check fires.
+// TestHandlerEnforceDenies verifies enforce mode denies when a check fires on a norm that has
+// held for the stability window.
 func TestHandlerEnforceDenies(t *testing.T) {
 	t.Parallel()
 	h := &Handler{
-		Provider: fakeProvider{b: Baseline{
+		Provider: fakeProvider{b: heldFor(Baseline{
 			SamplePods: 50, SampleContainers: 100,
 			DigestPinFraction: 0.95,
-		}},
+		}, DefaultStableScans)},
 		Checks: DefaultChecks(),
 		Mode:   ModeEnforce,
 		Log:    zap.NewNop(),

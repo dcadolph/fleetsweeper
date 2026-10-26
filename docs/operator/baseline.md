@@ -9,8 +9,8 @@ fraction is a footgun. Every new pod silently passes a stricter check
 on Monday than it did on Friday, or vice versa.
 
 The `fleetsweeper baseline` subcommand exists so you can pin the
-fleet norm to a file, check it into git, and fail CI when the live
-baseline drifts beyond a tolerance you control.
+fleet norm to a file, check it into git, serve it to the webhook, and fail CI when
+the live baseline drifts beyond a tolerance you control.
 
 ## Inspect the current baseline
 
@@ -29,9 +29,28 @@ fleetsweeper baseline export --db=/var/lib/fleetsweeper/data.db \
 ```
 
 Commit `baseline/fleet.yaml` to the same repo that owns your Helm
-values. Pair the file with the
-[`admission.mode`](admission-webhook.md) you intend to roll out. A
-pinned baseline only matters when the webhook is running in enforce.
+values.
+
+## Serve the pinned baseline
+
+```bash
+fleetsweeper serve --db=/var/lib/fleetsweeper/data.db \
+  --admission-addr=:8443 --admission-mode=enforce \
+  --admission-baseline=./baseline/fleet.yaml
+```
+
+With `--admission-baseline` the webhook checks every pod against the
+file and ignores the scans in the store, so the bar only moves when you
+commit a new file. The file is read once at startup. It is validated
+strictly: an unknown field, a fraction outside `[0, 1]`, or a negative
+sample count stops `serve` with an error, so a typo cannot pin a norm
+you did not mean. A file below the minimum sample (30 containers across
+10 pods) loads with a warning, and the webhook then evaluates nothing.
+
+A pinned baseline skips the [stability gate](admission-webhook.md#stability-gate),
+since it does not change between scans. It matters most in enforce mode,
+where it is the difference between a rule you chose and a rule the last
+scan chose for you.
 
 ## Diff in CI
 
@@ -59,5 +78,6 @@ named_service_account_fraction         0.860     0.820    -0.040
 read_only_root_fs_fraction             0.420     0.430    +0.010
 ```
 
-A clean diff is a no-op; a regression is a hard failure that surfaces
+A clean diff is a no-op. A regression is a hard failure that surfaces
 the field, the saved value, the current value, and the signed delta.
+`diff` reads the saved file with the same strict validation as `serve`.

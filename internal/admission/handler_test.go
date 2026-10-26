@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"go.uber.org/zap"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -19,14 +21,24 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// sufficientBaseline is a fleet norm dense enough to activate every check.
-var sufficientBaseline = Baseline{
+// sufficientBaseline is a fleet norm dense enough to activate every check, held across the last
+// DefaultStableScans scans so enforce mode denies on it.
+var sufficientBaseline = heldFor(Baseline{
 	SamplePods: 50, SampleContainers: 100,
 	DigestPinFraction:             0.95,
 	NonRootFraction:               0.95,
 	NoPrivilegeEscalationFraction: 0.95,
 	NamedServiceAccountFraction:   0.95,
 	ReadOnlyRootFSFraction:        0.95,
+}, DefaultStableScans)
+
+// heldFor returns b with Previous filled by copies of b, so its norm has held for scans scans.
+func heldFor(b Baseline, scans int) Baseline {
+	b.Previous = nil
+	for range scans - 1 {
+		b.Previous = append(b.Previous, b)
+	}
+	return b
 }
 
 // dirtyPod returns a pod that violates every baseline check: an unpinned
@@ -443,5 +455,106 @@ func TestHandlerZeroMaxBytesConcurrent(t *testing.T) {
 	}
 	if h.MaxBytes != 0 {
 		t.Errorf("ServeHTTP mutated MaxBytes to %d", h.MaxBytes)
+	}
+}
+
+// TestHandlerStabilityGate verifies enforce mode denies only on a norm that has held for the
+// stability window, and otherwise allows with a warning naming the unstable check.
+func TestHandlerStabilityGate(t *testing.T) {
+	t.Parallel()
+	digest := func(frac float64) Baseline {
+		return Baseline{SamplePods: 50, SampleContainers: 100, DigestPinFraction: frac}
+	}
+	withPrev := func(b Baseline, prev ...Baseline) Baseline {
+		b.Previous = prev
+		return b
+	}
+	high, low := digest(0.95), digest(0.5)
+	thin := Baseline{SamplePods: 1, SampleContainers: 2, DigestPinFraction: 0.95}
+	unstable := func(name string, held, want int) string {
+		return fmt.Sprintf("fleetsweeper: %s not enforced: its fleet norm has held for %d of the %d consecutive scans enforcement needs",
+			name, held, want)
+	}
+	tests := []struct {
+		Baseline        Baseline
+		Mode            Mode
+		StableScans     int
+		WantAllowed     bool
+		WantNotEnforced []string
+		WantDeny        string
+	}{{ // Test 0: A norm that crossed the threshold only in the latest scan warns instead of denying.
+		Baseline: withPrev(high, low, high), Mode: ModeEnforce, WantAllowed: true,
+		WantNotEnforced: []string{unstable("digest-pin", 1, 3)},
+	}, { // Test 1: Two consecutive scans out of three still warn.
+		Baseline: withPrev(high, high, low), Mode: ModeEnforce, WantAllowed: true,
+		WantNotEnforced: []string{unstable("digest-pin", 2, 3)},
+	}, { // Test 2: After three consecutive scans the norm denies.
+		Baseline: withPrev(high, high, high), Mode: ModeEnforce, WantDeny: "digest-pin",
+	}, { // Test 3: A store with fewer scans than the window warns.
+		Baseline: withPrev(high, high), Mode: ModeEnforce, WantAllowed: true,
+		WantNotEnforced: []string{unstable("digest-pin", 2, 3)},
+	}, { // Test 4: A thin earlier baseline breaks the run.
+		Baseline: withPrev(high, thin, high), Mode: ModeEnforce, WantAllowed: true,
+		WantNotEnforced: []string{unstable("digest-pin", 1, 3)},
+	}, { // Test 5: A pinned baseline denies with no history.
+		Baseline: NewPinnedBaselineProvider(high).Current(context.Background()), Mode: ModeEnforce,
+		WantDeny: "digest-pin",
+	}, { // Test 6: A window of one denies on the latest scan alone.
+		Baseline: high, Mode: ModeEnforce, StableScans: 1, WantDeny: "digest-pin",
+	}, { // Test 7: A longer window counts further back.
+		Baseline: withPrev(high, high, high, low), Mode: ModeEnforce, StableScans: 5, WantAllowed: true,
+		WantNotEnforced: []string{unstable("digest-pin", 3, 5)},
+	}, { // Test 8: Advisory mode adds no stability warning.
+		Baseline: withPrev(high, low), Mode: ModeAdvisory, WantAllowed: true,
+	}, { // Test 9: A stable check denies while an unstable one in the same pod only warns.
+		Baseline: withPrev(
+			Baseline{SamplePods: 50, SampleContainers: 100, DigestPinFraction: 0.95, NonRootFraction: 0.95},
+			Baseline{SamplePods: 50, SampleContainers: 100, DigestPinFraction: 0.95, NonRootFraction: 0.5},
+			Baseline{SamplePods: 50, SampleContainers: 100, DigestPinFraction: 0.95, NonRootFraction: 0.95},
+		),
+		Mode: ModeEnforce, WantDeny: "digest-pin",
+		WantNotEnforced: []string{unstable("non-root", 1, 3)},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			pod := dirtyPod()
+			raw, err := json.Marshal(pod)
+			if err != nil {
+				t.Fatalf("marshal pod: %v", err)
+			}
+			h := NewHandler(fakeProvider{b: test.Baseline}, DefaultChecks(), test.Mode, zap.NewNop())
+			if test.StableScans != 0 {
+				h.StableScans = test.StableScans
+			}
+			resp := h.evaluate(context.Background(), &admissionv1.AdmissionRequest{
+				UID: "u", Kind: metav1.GroupVersionKind{Kind: "Pod"}, Object: runtime.RawExtension{Raw: raw},
+			})
+			if resp.Allowed != test.WantAllowed {
+				t.Errorf("allowed = %v, want %v", resp.Allowed, test.WantAllowed)
+			}
+			var notEnforced []string
+			for _, w := range resp.Warnings {
+				if strings.Contains(w, "not enforced") {
+					notEnforced = append(notEnforced, w)
+				}
+			}
+			if diff := cmp.Diff(test.WantNotEnforced, notEnforced, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("stability warnings mismatch (-want +got):\n%s", diff)
+			}
+			msg := ""
+			if resp.Result != nil {
+				msg = resp.Result.Message
+			}
+			if test.WantDeny == "" && msg != "" {
+				t.Errorf("deny message = %q, want none", msg)
+			}
+			if test.WantDeny != "" && !strings.HasPrefix(msg, "fleetsweeper enforce: "+test.WantDeny+":") {
+				t.Errorf("deny message = %q, want the %s check alone", msg, test.WantDeny)
+			}
+			if test.WantDeny != "" && strings.Count(msg, "% of fleet") != 1 {
+				t.Errorf("deny message = %q, want one check", msg)
+			}
+		})
 	}
 }

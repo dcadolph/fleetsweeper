@@ -11,28 +11,55 @@ does, it warns (advisory mode) or denies (enforce mode).
 The baseline is a small set of fleet-wide fractions, refreshed once a
 minute from the latest scan in the Fleetsweeper database:
 
-| Fraction | What it measures |
-| --- | --- |
-| `DigestPinFraction` | Containers using `image@sha256:...` rather than tag references. |
-| `NonRootFraction` | Containers not declared to run as UID 0. |
-| `NoPrivilegeEscalationFraction` | Containers with `allowPrivilegeEscalation=false`. |
+| Fraction&nbsp;                     | What it measures                                            |
+|------------------------------------|-------------------------------------------------------------|
+| `digest_pin_fraction`              | Containers using `image@sha256:...` rather than a tag.      |
+| `non_root_fraction`                | Containers not declared to run as UID 0.                    |
+| `no_privilege_escalation_fraction` | Containers with `allowPrivilegeEscalation=false`.           |
+| `named_service_account_fraction`   | Pods running under a ServiceAccount other than `default`.   |
+| `read_only_root_fs_fraction`       | Containers with `readOnlyRootFilesystem=true`.              |
 
-A check fires only when its fraction is at least **70%** of the fleet. Below
-that threshold the fleet itself is inconsistent and the check stays silent
-to avoid noisy false positives.
+Each cluster contributes its own counts, and a scanner that did not
+complete on a cluster contributes nothing, so a blind cluster cannot
+drag the norm. A check fires only when its fraction is at least **70%**.
+Below that the fleet itself is inconsistent and the check stays silent.
+
+To freeze the norm instead of following the latest scan, pin it to a
+file. See [Pinning and auditing the admission baseline](baseline.md).
 
 ## Modes
 
 - **Advisory** (default): the webhook always allows but adds warnings to
   the AdmissionResponse. The apiserver echoes those back to `kubectl` so
   the human submitting the manifest sees them.
-- **Enforce**: the webhook denies admission when any check fires, returning
-  a 403 with a concrete reason. Use only after you have observed the
-  advisory-mode warnings for a release cycle.
+- **Enforce**: the webhook denies admission when a check fires on a norm
+  that has held for the stability window (below), returning a 403 with a
+  concrete reason. Use only after you have observed the advisory-mode
+  warnings for a release cycle.
 
 Any mode value other than `enforce` behaves as advisory, and a malformed or
 missing AdmissionReview is allowed with a warning in every mode, enforce
 included.
+
+## Stability gate
+
+A norm that appeared in one scan is not yet a norm. In enforce mode a
+check denies only when its fraction has been at or above 70% in each of
+the last N consecutive scans, where N is `--admission-stable-scans`
+(default 3, Helm value `admission.stableScans`). Until then the pod is
+allowed, and the response carries the check's usual warning plus one
+that names the check and how far along it is:
+
+```
+fleetsweeper: digest-pin not enforced: its fleet norm has held for 1 of the 3 consecutive scans enforcement needs
+```
+
+The run is broken by any scan whose fraction was below the threshold or
+whose sample was too small to evaluate. A fresh install therefore
+enforces nothing until N scans have landed, and a norm that flickers
+around 70% never enforces at all. Each baseline refresh reads the last N
+scans from the store, once a minute. A pinned baseline is exempt: it is
+a norm an operator chose, and it does not move between scans.
 
 ## Rollout: warn first, enforce on purpose
 
@@ -57,6 +84,7 @@ run on a production apiserver from day one:
 - It refuses to evaluate at all until the baseline clears the minimum
   sample (30 containers across 10 pods), so a statistical claim needs a
   sample before it gets teeth.
+- It denies only on a norm that has held for the stability window.
 - A pod it cannot decode is allowed with a warning, never denied.
 - Warnings are emitted in every mode, so operators see what enforcement
   would do long before enabling it.
@@ -101,10 +129,14 @@ restart.
 
 ## Tuning
 
-The 70% threshold and 60s baseline cache TTL are not yet exposed as flags
-in this release. Their defaults are tuned for fleets where pod-level
-attributes are stable across days; if your fleet churns more aggressively,
-file an issue and we will surface them.
+| Flag&nbsp;                 | Default  | Effect                                                    |
+|----------------------------|----------|-----------------------------------------------------------|
+| `--admission-mode`         | advisory | `enforce` turns on denials.                               |
+| `--admission-stable-scans` | 3        | Consecutive scans a norm must hold before enforce denies. |
+| `--admission-baseline`     | empty    | Pinned baseline file used instead of the latest scans.    |
+
+The 70% threshold and the 60s baseline refresh are fixed in this
+release.
 
 ## Verifying
 
