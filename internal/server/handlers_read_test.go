@@ -723,3 +723,22 @@ func (brokenStore) DeleteGroup(context.Context, string) error {
 func (brokenStore) GetAlert(context.Context, string) (*store.AlertRecord, error) {
 	return nil, errBrokenStore
 }
+
+// TestListScanners verifies GET /api/scanners returns the full catalog
+// through the served handler.
+func TestListScanners(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/scanners", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var got []report.ScannerInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if diff := cmp.Diff(report.ScannerCatalog(), got); diff != "" {
+		t.Errorf("catalog mismatch (-want +got):\n%s", diff)
+	}
+}

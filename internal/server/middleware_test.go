@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -141,5 +142,26 @@ func TestWrappersForwardFlush(t *testing.T) {
 				t.Errorf("flush through a non-flusher: want ErrNotSupported, got %v", err)
 			}
 		})
+	}
+}
+
+// TestSecurityHeaders verifies every response through the served handler,
+// static and API alike, carries the Content-Security-Policy and nosniff.
+func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	h := srv.Handler()
+	for _, path := range []string{"/", "/index.html", "/vendor/chart.min.js", "/api/scanners", "/healthz", "/missing"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if got := w.Header().Get("Content-Security-Policy"); got != contentSecurityPolicy {
+			t.Errorf("%s: Content-Security-Policy %q", path, got)
+		}
+		if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options %q", path, got)
+		}
+	}
+	if !strings.Contains(contentSecurityPolicy, "default-src 'self'") || strings.Contains(contentSecurityPolicy, "http") {
+		t.Errorf("policy must default to self and name no remote origin: %s", contentSecurityPolicy)
 	}
 }

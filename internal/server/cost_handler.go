@@ -13,8 +13,13 @@ import (
 // handleGetCost returns a cost-correlation Analysis for the most recent
 // scan, joined against the operator-supplied CSV at --cost-csv. In demo
 // mode with no CSV configured, a built-in synthetic CSV is used so the
-// dashboard renders the cost panel without operator setup.
+// dashboard renders the cost panel without operator setup. An unknown ?scan= is a 404 whether
+// or not costs are configured.
 func (s *Server) handleGetCost(w http.ResponseWriter, r *http.Request) {
+	latest, ok := s.latestScan(w, r, "cost: get scan")
+	if !ok {
+		return
+	}
 	var costs cost.Map
 	switch {
 	case s.costCSVPath != "":
@@ -33,12 +38,13 @@ func (s *Server) handleGetCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rpt *report.Report
-	scans, err := s.store.ListScans(r.Context(), 1)
-	if err == nil && len(scans) > 0 {
-		results, err := s.store.GetScanResults(r.Context(), scans[0].ID)
-		if err == nil {
-			rpt = report.Build(scans[0].Clusters, results, report.BuildOptions{Timestamp: scans[0].Timestamp})
+	if latest != nil {
+		results, err := s.store.GetScanResults(r.Context(), latest.ID)
+		if err != nil {
+			s.writeStoreError(w, err, "cost: get scan results", "scan results not found")
+			return
 		}
+		rpt = report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
 	}
 	if rpt == nil && s.demo {
 		rpt = demoReport()

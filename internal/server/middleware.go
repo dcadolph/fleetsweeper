@@ -8,6 +8,25 @@ import (
 	"go.uber.org/zap"
 )
 
+// contentSecurityPolicy lets the dashboard load scripts, styles, images, and data only from its
+// own origin. Inline script and style stay allowed until the dashboard moves to ES modules; the
+// globe's WebGL textures and workers need data: and blob: URLs.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; " +
+	"worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; " +
+	"frame-ancestors 'none'"
+
+// securityHeaders sets the Content-Security-Policy and stops browsers from sniffing a response
+// into a different content type, on every response.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // jsonMiddleware sets the Content-Type header for API responses.
 func jsonMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

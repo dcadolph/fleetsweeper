@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Fleetsweeper API
-  version: 0.9.0
+  version: 0.10.0
   description: |
     HTTP API for the Fleetsweeper server. Read endpoints are unauthenticated
     when --insecure is set; mutating endpoints require a bearer token unless
@@ -32,6 +32,16 @@ components:
       type: http
       scheme: bearer
       description: Token configured via --auth-token. Required for POST/DELETE.
+
+  parameters:
+    Scan:
+      in: query
+      name: scan
+      required: false
+      description: >-
+        Scan ID to report on. Empty means the latest scan. An unknown ID is a
+        404.
+      schema: {type: string}
 
   schemas:
     Severity:
@@ -66,6 +76,9 @@ components:
             properties:
               reason: {type: string}
               impact: {type: integer}
+        sample_size: {type: integer, description: Clusters that contributed scanner data.}
+        dimensions: {type: integer, description: Scan dimensions with data from at least one cluster.}
+        excluded_clusters: {type: integer, description: Scanned clusters with no usable data.}
 
     FleetScoreForecast:
       type: object
@@ -233,6 +246,158 @@ components:
           type: array
           description: Analysis the report could not run, such as outlier detection on a fleet of fewer than 3 clusters.
           items: {type: string}
+        distributions:
+          type: array
+          description: >-
+            The population behind every field the fleet and cohort detectors
+            evaluated, fleet scope first, most deviant first.
+          items: {$ref: "#/components/schemas/Distribution"}
+        deviation_mass:
+          type: object
+          description: >-
+            Per cluster, the sum of capped |z| over its fleet-scope numeric
+            values. Clusters at zero are left out.
+          additionalProperties: {type: number}
+        score_attribution: {$ref: "#/components/schemas/ScoreAttribution"}
+        cohorts:
+          type: array
+          items: {$ref: "#/components/schemas/CohortSummary"}
+
+    Distribution:
+      type: object
+      required: [scope, scanner, field, kind, values, median, mad, band, threshold, sample_size, mass]
+      properties:
+        scope: {type: string, description: '"fleet" or the cohort name.'}
+        scanner: {type: string}
+        field: {type: string}
+        kind: {type: string, enum: [numeric, string, set]}
+        values:
+          type: array
+          items:
+            type: object
+            required: [cluster]
+            properties:
+              cluster: {type: string}
+              number: {type: number, description: Value of a numeric field.}
+              text: {type: string, description: Value of a string field.}
+              size: {type: integer, description: Members of a set field on this cluster.}
+              missing:
+                type: array
+                description: Consensus members this cluster lacks.
+                items: {type: string}
+              z: {type: number, description: Signed modified z-score, zero when MAD is zero.}
+              outlier: {type: boolean}
+        median: {type: number}
+        mad: {type: number}
+        band: {type: number, description: "Distance from the median at which a value flags: threshold * MAD / 0.6745."}
+        threshold: {type: number}
+        mode: {type: string}
+        mode_share: {type: number}
+        consensus:
+          type: array
+          items: {type: string}
+        sample_size: {type: integer}
+        limited_sample: {type: boolean}
+        mass: {type: number, description: Sum of |z| capped at 10 per value.}
+
+    ScoreAttribution:
+      type: object
+      description: The cost ledger behind the fleet score. Applied costs sum to total.
+      required: [terms, entries, total]
+      properties:
+        terms:
+          type: array
+          items:
+            type: object
+            required: [term, reason, count, raw, cost]
+            properties:
+              term:
+                type: string
+                enum: [critical-findings, warning-findings, info-findings, critical-clusters, degraded-clusters, version-skew, worst-node]
+              reason: {type: string}
+              count: {type: integer}
+              raw: {type: number, description: Cost before the cap.}
+              cap: {type: number, description: Most the term may cost. Absent when uncapped.}
+              cost: {type: number, description: Points the term removed.}
+        entries:
+          type: array
+          items:
+            type: object
+            required: [term, raw, cost]
+            properties:
+              term: {type: string}
+              rule: {type: string}
+              cluster: {type: string}
+              raw: {type: number}
+              cost: {type: number}
+        total: {type: number}
+        by_cluster:
+          type: object
+          additionalProperties: {type: number}
+        by_rule:
+          type: object
+          additionalProperties: {type: number}
+
+    CohortSummary:
+      type: object
+      required: [name, source, clusters]
+      properties:
+        name: {type: string}
+        source: {type: string, enum: [tagged, auto, fleet]}
+        clusters:
+          type: array
+          items: {type: string}
+        outliers:
+          type: array
+          items: {$ref: "#/components/schemas/OutlierResult"}
+
+    ScannerInfo:
+      type: object
+      required: [id, label, description, category]
+      properties:
+        id: {type: string, example: node-health}
+        label: {type: string, example: Node Health}
+        description: {type: string}
+        category: {type: string}
+
+    APIKey:
+      type: object
+      required: [id, name, role, cluster_scope, created_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        role: {type: string, enum: [admin, operator, viewer]}
+        cluster_scope:
+          type: array
+          description: Cluster names or group:<name> entries. ["*"] is unrestricted.
+          items: {type: string}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+        created_by: {type: string}
+
+    AuditEntry:
+      type: object
+      required: [id, timestamp, method, path, status, duration_ms]
+      properties:
+        id: {type: string}
+        timestamp: {type: string, format: date-time}
+        actor_id: {type: string}
+        actor_name: {type: string}
+        actor_role: {type: string}
+        method: {type: string}
+        path: {type: string}
+        status: {type: integer}
+        remote_addr: {type: string}
+        user_agent: {type: string}
+        duration_ms: {type: integer}
+        error: {type: string}
+
+    TagMap:
+      type: object
+      description: Tag key to value.
+      additionalProperties: {type: string}
 
     CostAnalysis:
       type: object
@@ -441,6 +606,7 @@ paths:
           name: name
           required: true
           schema: {type: string}
+        - {$ref: "#/components/parameters/Scan"}
       responses:
         "200":
           description: OK
@@ -527,6 +693,7 @@ paths:
         - in: query
           name: threshold
           schema: {type: number, default: 3.5}
+        - {$ref: "#/components/parameters/Scan"}
       responses:
         "200":
           description: OK
@@ -546,6 +713,8 @@ paths:
   /api/capacity:
     get:
       summary: Capacity correlator output
+      parameters:
+        - {$ref: "#/components/parameters/Scan"}
       responses:
         "200":
           description: OK
@@ -607,6 +776,8 @@ paths:
   /api/cost:
     get:
       summary: Cost correlation (requires --cost-csv)
+      parameters:
+        - {$ref: "#/components/parameters/Scan"}
       responses:
         "200":
           description: OK
@@ -873,6 +1044,8 @@ paths:
   /api/geo:
     get:
       summary: Cluster placements and health for the latest scan
+      parameters:
+        - {$ref: "#/components/parameters/Scan"}
       responses:
         "200": {description: OK}
 
@@ -928,3 +1101,332 @@ paths:
                   properties:
                     name: {type: string}
                     scanned: {type: boolean}
+
+  /openapi.yaml:
+    get:
+      summary: This specification
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/yaml:
+              schema: {type: string}
+
+  /oidc/login:
+    get:
+      summary: Start an OIDC sign-in
+      description: Redirects to the identity provider. 404 when OIDC is not configured.
+      security: []
+      responses:
+        "302": {description: Redirect to the identity provider}
+        "404": {description: OIDC is not configured}
+
+  /oidc/callback:
+    get:
+      summary: Finish an OIDC sign-in
+      description: >-
+        The identity provider redirects here with a code and state. On success
+        a session cookie is set and the browser is sent to the dashboard.
+      security: []
+      parameters:
+        - {in: query, name: code, schema: {type: string}}
+        - {in: query, name: state, schema: {type: string}}
+      responses:
+        "302": {description: Signed in, redirect to the dashboard}
+        "400": {description: Missing or mismatched state, missing code, or undecodable claims}
+        "401": {description: Token exchange failed or the id_token is missing or invalid}
+        "404": {description: OIDC is not configured}
+
+  /oidc/logout:
+    get:
+      summary: End the OIDC session
+      security: []
+      responses:
+        "302": {description: Session cleared, redirect to the dashboard}
+
+  /api/scanners:
+    get:
+      summary: Every scanner with its label, description, and category
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/ScannerInfo"}
+
+  /api/scans/{id}/seal:
+    get:
+      summary: HMAC seal of a scan's export bundle
+      description: >-
+        Rebuilds the bundle a default `fleetsweeper export --seal-key` writes
+        for the scan and returns the signature of its MANIFEST. The same scan
+        returns the same signature on every call. 404 when the server runs
+        without --seal-key.
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scan_id, algorithm, source, signature, manifest]
+                properties:
+                  scan_id: {type: string}
+                  algorithm: {type: string, enum: [HMAC-SHA256]}
+                  source: {type: string, enum: [MANIFEST]}
+                  signature: {type: string, example: "sha256=3f1c..."}
+                  manifest: {type: string, description: "One \"<sha256>  <path>\" line per bundle file."}
+        "404": {description: Sealing disabled or scan not found}
+
+  /api/cohorts:
+    get:
+      summary: Cohort partition of the latest scan with within-cohort outliers
+      parameters:
+        - in: query
+          name: threshold
+          schema: {type: number, default: 3.5}
+        - {$ref: "#/components/parameters/Scan"}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan_id: {type: string}
+                  cohorts:
+                    type: array
+                    items: {$ref: "#/components/schemas/CohortSummary"}
+        "404": {description: No scans, or the named scan does not exist}
+
+  /api/tags:
+    get:
+      summary: Every cluster's tags, limited to the caller's cluster scope
+      responses:
+        "200":
+          description: Cluster name to its tags
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {$ref: "#/components/schemas/TagMap"}
+
+  /api/clusters/{name}/tags:
+    get:
+      summary: One cluster's tags
+      parameters:
+        - {in: path, name: name, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TagMap"}
+        "403": {description: Cluster outside the caller's scope}
+
+  /api/clusters/{name}/tags/{key}:
+    put:
+      summary: Set one tag on a cluster
+      parameters:
+        - {in: path, name: name, required: true, schema: {type: string}}
+        - {in: path, name: key, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value: {type: string}
+      responses:
+        "200":
+          description: The tag as set
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TagMap"}
+        "403": {description: Cluster outside the caller's scope}
+    delete:
+      summary: Remove one tag from a cluster
+      parameters:
+        - {in: path, name: name, required: true, schema: {type: string}}
+        - {in: path, name: key, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Removed, or was not set}
+        "403": {description: Cluster outside the caller's scope}
+
+  /api/events:
+    get:
+      summary: Server-sent event stream of scan and alert events
+      description: >-
+        A text/event-stream that stays open. Each event names its type, for
+        example scan.complete, and carries a JSON payload.
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: {type: string}
+
+  /api/webhooks/scan-trigger:
+    post:
+      summary: Start a scan from a signed inbound webhook
+      description: >-
+        The body is signed with HMAC-SHA256 under the inbound webhook secret and
+        the signature sent as X-Fleetsweeper-Signature: sha256=<hex>. 404 when
+        no inbound secret is configured.
+      security: []
+      parameters:
+        - in: header
+          name: X-Fleetsweeper-Signature
+          required: true
+          schema: {type: string, example: "sha256=..."}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contexts:
+                  type: array
+                  items: {type: string}
+                all_contexts: {type: boolean}
+                group: {type: string}
+      responses:
+        "202":
+          description: Scan accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan_id: {type: string}
+                  status: {type: string}
+        "400": {description: Unreadable body, unknown group, or no contexts}
+        "401": {description: Missing or invalid signature}
+        "404": {description: Inbound webhook disabled}
+        "429": {description: A scan is already in progress}
+
+  /api/admin/keys:
+    get:
+      summary: List API keys (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/APIKey"}
+    post:
+      summary: Create an API key (admin)
+      description: The raw token is returned once and cannot be read again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role]
+              properties:
+                name: {type: string}
+                role: {type: string, enum: [admin, operator, viewer]}
+                cluster_scope:
+                  type: array
+                  description: Empty means ["*"].
+                  items: {type: string}
+                ttl: {type: string, description: Go duration such as 720h. Empty means no expiry.}
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key, token]
+                properties:
+                  key: {$ref: "#/components/schemas/APIKey"}
+                  token: {type: string}
+        "400": {description: Missing name, unknown role, or bad ttl}
+
+  /api/admin/keys/{id}:
+    delete:
+      summary: Revoke an API key (admin)
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      responses:
+        "204": {description: Revoked}
+        "404": {description: Key not found}
+
+  /api/admin/audit:
+    get:
+      summary: Query the audit log of mutating requests (admin)
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, maximum: 1000}}
+        - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: actor, schema: {type: string}}
+        - {in: query, name: min_status, schema: {type: integer}}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/AuditEntry"}
+
+  /api/admin/whoami:
+    get:
+      summary: The calling actor's identity (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, role, cluster_scope]
+                properties:
+                  id: {type: string, description: Key ID, bootstrap, or anonymous.}
+                  name: {type: string}
+                  role: {type: string}
+                  cluster_scope:
+                    type: array
+                    items: {type: string}
+
+  /api/admin/system:
+    get:
+      summary: Process snapshot for the admin panel (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: {type: string}
+                  commit: {type: string}
+                  build_date: {type: string}
+                  go_version: {type: string}
+                  uptime: {type: string}
+                  started_at: {type: string, format: date-time}
+                  features:
+                    type: object
+                    additionalProperties: {type: boolean}
+                  counters:
+                    type: object
+                    properties:
+                      scans_ok: {type: integer}
+                      scans_err: {type: integer}
+                      last_scan_duration_ms: {type: integer}
+                  storage:
+                    type: object
+                    properties:
+                      driver: {type: string}
+                      healthy: {type: boolean}

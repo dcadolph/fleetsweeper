@@ -73,9 +73,10 @@ func (c *Client) ListClusters(ctx context.Context) ([]ClusterRecord, error) {
 
 // GetClusterDetail returns full scanner data, health, and findings for a
 // cluster.
-func (c *Client) GetClusterDetail(ctx context.Context, name string) (*ClusterDetail, error) {
+func (c *Client) GetClusterDetail(ctx context.Context, name string, opts ...ReadOption) (*ClusterDetail, error) {
 	var out ClusterDetail
-	if err := c.do(ctx, http.MethodGet, "/api/clusters/"+url.PathEscape(name)+"/detail", nil, nil, &out); err != nil {
+	q := readQuery(nil, opts)
+	if err := c.do(ctx, http.MethodGet, "/api/clusters/"+url.PathEscape(name)+"/detail", q, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -128,11 +129,12 @@ func (c *Client) ClusterTrends(ctx context.Context, cluster string) (json.RawMes
 
 // Outliers returns outlier detection for the latest scan. A non-positive
 // threshold uses the server default.
-func (c *Client) Outliers(ctx context.Context, threshold float64) (*OutliersResponse, error) {
+func (c *Client) Outliers(ctx context.Context, threshold float64, opts ...ReadOption) (*OutliersResponse, error) {
 	var q url.Values
 	if threshold > 0 {
 		q = url.Values{"threshold": []string{strconv.FormatFloat(threshold, 'f', -1, 64)}}
 	}
+	q = readQuery(q, opts)
 	var out OutliersResponse
 	if err := c.do(ctx, http.MethodGet, "/api/outliers", q, nil, &out); err != nil {
 		return nil, err
@@ -141,9 +143,9 @@ func (c *Client) Outliers(ctx context.Context, threshold float64) (*OutliersResp
 }
 
 // Capacity returns the capacity correlator output for the latest scan.
-func (c *Client) Capacity(ctx context.Context) (*CapacityResponse, error) {
+func (c *Client) Capacity(ctx context.Context, opts ...ReadOption) (*CapacityResponse, error) {
 	var out CapacityResponse
-	if err := c.do(ctx, http.MethodGet, "/api/capacity", nil, nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/capacity", readQuery(nil, opts), nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -175,9 +177,9 @@ func (c *Client) ClustersForecast(ctx context.Context) (*ClustersForecastRespons
 
 // Cost returns cost correlation for the latest scan. With no cost CSV loaded
 // the server returns an empty USD analysis rather than an error.
-func (c *Client) Cost(ctx context.Context) (*CostAnalysis, error) {
+func (c *Client) Cost(ctx context.Context, opts ...ReadOption) (*CostAnalysis, error) {
 	var out CostAnalysis
-	if err := c.do(ctx, http.MethodGet, "/api/cost", nil, nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/cost", readQuery(nil, opts), nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -293,9 +295,9 @@ func (c *Client) ClusterTimeline(ctx context.Context, name string, limit int) (*
 // Geo returns cluster placements and health for the latest scan. The response
 // shape is not yet fixed in the OpenAPI document, so it is returned as raw
 // JSON.
-func (c *Client) Geo(ctx context.Context) (json.RawMessage, error) {
+func (c *Client) Geo(ctx context.Context, opts ...ReadOption) (json.RawMessage, error) {
 	var out json.RawMessage
-	if err := c.do(ctx, http.MethodGet, "/api/geo", nil, nil, &out); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/geo", readQuery(nil, opts), nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -329,4 +331,52 @@ func (c *Client) Contexts(ctx context.Context) ([]Context, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// ReadOption adjusts the query of a read that reports on one scan.
+type ReadOption func(url.Values)
+
+// WithScan makes a read report on the scan with the given ID instead of the
+// latest one.
+func WithScan(id string) ReadOption {
+	return func(q url.Values) { q.Set("scan", id) }
+}
+
+// readQuery applies opts to q, allocating it when needed, and returns nil
+// when the result is empty.
+func readQuery(q url.Values, opts []ReadOption) url.Values {
+	if len(opts) == 0 {
+		return q
+	}
+	if q == nil {
+		q = url.Values{}
+	}
+	for _, o := range opts {
+		o(q)
+	}
+	return q
+}
+
+// Scanners returns every scanner with its label, description, and category.
+func (c *Client) Scanners(ctx context.Context) ([]ScannerInfo, error) {
+	var out []ScannerInfo
+	if err := c.do(ctx, http.MethodGet, "/api/scanners", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Cohorts returns the cohort partition of the latest scan with the outliers
+// each cohort finds against its own baseline. A non-positive threshold uses
+// the server default.
+func (c *Client) Cohorts(ctx context.Context, threshold float64, opts ...ReadOption) (*CohortsResponse, error) {
+	var q url.Values
+	if threshold > 0 {
+		q = url.Values{"threshold": []string{strconv.FormatFloat(threshold, 'f', -1, 64)}}
+	}
+	var out CohortsResponse
+	if err := c.do(ctx, http.MethodGet, "/api/cohorts", readQuery(q, opts), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

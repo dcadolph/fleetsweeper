@@ -131,10 +131,19 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error, op, notFound 
 	writeError(w, http.StatusInternalServerError, op+" failed")
 }
 
-// latestScan returns the newest stored scan. On a store error it writes a 500 and returns
-// ok=false. When no scan exists it returns a nil record with ok=true so the caller can choose
-// its demo fallback or 404.
+// latestScan returns the scan a read endpoint reports on: the one named by the request's ?scan=
+// parameter, else the newest stored scan. A named scan that does not exist writes a 404 and a
+// store error writes a 500, both returning ok=false. When no scan exists at all it returns a nil
+// record with ok=true so the caller can choose its demo fallback or 404.
 func (s *Server) latestScan(w http.ResponseWriter, r *http.Request, op string) (*store.ScanRecord, bool) {
+	if id := r.URL.Query().Get("scan"); id != "" {
+		rec, err := s.store.GetScan(r.Context(), id)
+		if err != nil {
+			s.writeStoreError(w, err, op, "scan not found")
+			return nil, false
+		}
+		return rec, true
+	}
 	scans, err := s.store.ListScans(r.Context(), 1)
 	if err != nil {
 		s.writeStoreError(w, err, op, "no scans available")
