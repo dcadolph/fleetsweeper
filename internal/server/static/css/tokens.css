@@ -1,0 +1,121 @@
+/* Design tokens. Every color, size, and radius the dashboard uses comes from
+   here, so the light theme and the charts follow one source. Dark is the
+   default; light applies under prefers-color-scheme: light unless the viewer
+   picked a theme, and the toggle sets data-theme on the root element. */
+
+:root {
+  color-scheme: dark;
+
+  --surface-0: #0d1117;
+  --surface-1: #161b22;
+  --surface-2: #1c2128;
+  --surface-3: #262c36;
+  --border: #30363d;
+  --border-soft: #21262d;
+
+  --text-1: #e6edf3;
+  --text-2: #9ba5b0;
+  --text-3: #7d8590;
+
+  --accent: #58a6ff;
+  --accent-bg: rgba(88, 166, 255, 0.1);
+  --accent-border: rgba(88, 166, 255, 0.35);
+
+  --status-crit: #f85149;
+  --status-crit-bg: rgba(248, 81, 73, 0.12);
+  --status-crit-border: rgba(248, 81, 73, 0.4);
+  --status-warn: #d29922;
+  --status-warn-bg: rgba(210, 153, 34, 0.12);
+  --status-warn-border: rgba(210, 153, 34, 0.4);
+  --status-ok: #3fb950;
+  --status-ok-bg: rgba(63, 185, 80, 0.1);
+  --status-ok-border: rgba(63, 185, 80, 0.4);
+  --status-info: #58a6ff;
+  --status-info-bg: rgba(88, 166, 255, 0.1);
+  --status-info-border: rgba(88, 166, 255, 0.35);
+  --status-muted-bg: rgba(139, 148, 158, 0.1);
+
+  --overlay: rgba(1, 4, 9, 0.65);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 8px;
+  --radius-pill: 999px;
+
+  --fs-12: 12px;
+  --fs-14: 14px;
+  --fs-18: 18px;
+  --fs-28: 28px;
+  --fs-display: 48px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+
+  --sidebar-w: 220px;
+  --rail-w: 64px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --surface-0: #f6f8fa;
+    --surface-1: #ffffff;
+    --surface-2: #f0f3f6;
+    --surface-3: #e4e8ed;
+    --border: #d0d7de;
+    --border-soft: #e4e8ed;
+    --text-1: #1f2328;
+    --text-2: #4d5761;
+    --text-3: #636c76;
+    --accent: #0969da;
+    --accent-bg: rgba(9, 105, 218, 0.08);
+    --accent-border: rgba(9, 105, 218, 0.35);
+    --status-crit: #cf222e;
+    --status-crit-bg: rgba(207, 34, 46, 0.08);
+    --status-crit-border: rgba(207, 34, 46, 0.35);
+    --status-warn: #9a6700;
+    --status-warn-bg: rgba(154, 103, 0, 0.1);
+    --status-warn-border: rgba(154, 103, 0, 0.35);
+    --status-ok: #1a7f37;
+    --status-ok-bg: rgba(26, 127, 55, 0.08);
+    --status-ok-border: rgba(26, 127, 55, 0.35);
+    --status-info: #0969da;
+    --status-info-bg: rgba(9, 105, 218, 0.08);
+    --status-info-border: rgba(9, 105, 218, 0.3);
+    --status-muted-bg: rgba(99, 108, 118, 0.1);
+    --overlay: rgba(31, 35, 40, 0.45);
+    --shadow: 0 8px 24px rgba(31, 35, 40, 0.15);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface-0: #f6f8fa;
+  --surface-1: #ffffff;
+  --surface-2: #f0f3f6;
+  --surface-3: #e4e8ed;
+  --border: #d0d7de;
+  --border-soft: #e4e8ed;
+  --text-1: #1f2328;
+  --text-2: #4d5761;
+  --text-3: #636c76;
+  --accent: #0969da;
+  --accent-bg: rgba(9, 105, 218, 0.08);
+  --accent-border: rgba(9, 105, 218, 0.35);
+  --status-crit: #cf222e;
+  --status-crit-bg: rgba(207, 34, 46, 0.08);
+  --status-crit-border: rgba(207, 34, 46, 0.35);
+  --status-warn: #9a6700;
+  --status-warn-bg: rgba(154, 103, 0, 0.1);
+  --status-warn-border: rgba(154, 103, 0, 0.35);
+  --status-ok: #1a7f37;
+  --status-ok-bg: rgba(26, 127, 55, 0.08);
+  --status-ok-border: rgba(26, 127, 55, 0.35);
+  --status-info: #0969da;
+  --status-info-bg: rgba(9, 105, 218, 0.08);
+  --status-info-border: rgba(9, 105, 218, 0.3);
+  --status-muted-bg: rgba(99, 108, 118, 0.1);
+  --overlay: rgba(31, 35, 40, 0.45);
+  --shadow: 0 8px 24px rgba(31, 35, 40, 0.15);
+}
