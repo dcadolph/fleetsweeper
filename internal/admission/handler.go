@@ -40,7 +40,12 @@ type Handler struct {
 	// warning naming the check. A pinned baseline is exempt. NewHandler sets it to
 	// DefaultStableScans; a zero value on a literal Handler is read as the default.
 	StableScans int
+	// Metrics counts decisions and check failures. Nil means nothing is counted.
+	Metrics *Metrics
 }
+
+// DryRunAnnotation marks a pod that is evaluated and warned about but never denied.
+const DryRunAnnotation = "fleetsweeper.dev/admission-dry-run"
 
 // DefaultMaxBytes is the request body cap NewHandler applies, matching the apiserver's own
 // 1 MiB limit.
@@ -92,10 +97,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	in := &admissionv1.AdmissionReview{}
 	if _, _, err := codecs.UniversalDeserializer().Decode(body, nil, in); err != nil {
+		h.Metrics.RecordDecision(h.Mode, DecisionSkipped)
 		h.writeUnevaluated(w, "", fmt.Errorf("decode: %w", err))
 		return
 	}
 	if in.Request == nil {
+		h.Metrics.RecordDecision(h.Mode, DecisionSkipped)
 		h.writeUnevaluated(w, "", errors.New("missing request"))
 		return
 	}
@@ -120,29 +127,42 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // evaluate runs every check against the incoming pod and returns an
 // AdmissionResponse honoring the configured Mode.
 func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionRequest) *admissionv1.AdmissionResponse {
+	resp, decision := h.evaluateDecision(ctx, req)
+	h.Metrics.RecordDecision(h.Mode, decision)
+	return resp
+}
+
+// evaluateDecision does the work of evaluate and also returns the decision label to count.
+func (h *Handler) evaluateDecision(
+	ctx context.Context, req *admissionv1.AdmissionRequest,
+) (*admissionv1.AdmissionResponse, string) {
 	resp := &admissionv1.AdmissionResponse{UID: req.UID, Allowed: true}
 
 	pod, err := decodePod(req)
 	if err != nil {
 		h.Log.Warn("admission: decode pod", zap.Error(err))
 		resp.Warnings = append(resp.Warnings, "fleetsweeper: failed to decode pod; allowing")
-		return resp
+		return resp, DecisionSkipped
 	}
 
 	baseline := h.Provider.Current(ctx)
 	if !baseline.Sufficient() {
 		resp.Warnings = append(resp.Warnings,
 			"fleetsweeper: baseline below sample threshold; not evaluating")
-		return resp
+		return resp, DecisionSkipped
 	}
 
 	window := h.StableScans
 	if window <= 0 {
 		window = DefaultStableScans
 	}
+	dryRun := pod.Annotations[DryRunAnnotation] == "true"
 	var denies []string
 	for _, chk := range h.Checks {
 		ws, deny := chk.Evaluate(pod, baseline)
+		if deny != "" || len(ws) > 0 {
+			h.Metrics.RecordCheckFailure(chk.Name())
+		}
 		for _, w := range ws {
 			resp.Warnings = append(resp.Warnings, "fleetsweeper: "+w)
 		}
@@ -158,6 +178,11 @@ func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionReques
 		denies = append(denies, deny)
 	}
 
+	if dryRun && len(denies) > 0 {
+		resp.Warnings = append(resp.Warnings,
+			"fleetsweeper: dry-run: would deny: "+joinDenies(denies))
+		return resp, DecisionWarned
+	}
 	if h.Mode.enforcing() && len(denies) > 0 {
 		resp.Allowed = false
 		resp.Result = &metav1.Status{
@@ -165,8 +190,12 @@ func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionReques
 			Reason:  metav1.StatusReasonForbidden,
 			Message: "fleetsweeper enforce: " + joinDenies(denies),
 		}
+		return resp, DecisionDenied
 	}
-	return resp
+	if len(resp.Warnings) > 0 {
+		return resp, DecisionWarned
+	}
+	return resp, DecisionAllowed
 }
 
 // heldScans counts the consecutive recent scans, the latest first, whose baseline makes chk deny

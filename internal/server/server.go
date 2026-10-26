@@ -15,6 +15,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/dcadolph/fleetsweeper/internal/admission"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -33,6 +34,8 @@ type Server struct {
 	// mux is the primary HTTP request multiplexer.
 	mux *http.ServeMux
 
+	// admissionMetrics holds the admission webhook counters, or nil.
+	admissionMetrics *admission.Metrics
 	// kubeconfigPath is the kubeconfig file path used for triggered and scheduled scans.
 	kubeconfigPath string
 	// workers is the maximum concurrent operations for scans.
@@ -207,6 +210,8 @@ type Config struct {
 	// Leave it empty unless every request arrives through that proxy, since clients can set
 	// the header themselves.
 	TrustedProxyHeader string
+	// AdmissionMetrics, when non-nil, has its counters written on /metrics.
+	AdmissionMetrics *admission.Metrics
 }
 
 // New creates a Server. Panics if store, registry, or log is nil.
@@ -226,6 +231,7 @@ func New(cfg Config) *Server {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
+		admissionMetrics:      cfg.AdmissionMetrics,
 		store:                 cfg.Store,
 		registry:              cfg.Registry,
 		log:                   cfg.Log,

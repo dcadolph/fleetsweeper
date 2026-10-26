@@ -132,7 +132,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	writeRPM, _ := cmd.Flags().GetInt("rate-limit-write-rpm")
 	trustedProxyHeader, _ := cmd.Flags().GetString("trusted-proxy-header")
 
+	admMetrics := &admission.Metrics{}
 	srv := server.New(server.Config{
+		AdmissionMetrics:      admMetrics,
 		Addr:                  addr,
 		AdminAddr:             adminAddr,
 		Store:                 s,
@@ -252,6 +254,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		handler := admission.NewHandler(provider, admission.DefaultChecks(), mode, log)
 		handler.StableScans = stableScans
+		handler.Metrics = admMetrics
 		admServer, err := admission.NewServer(admission.ServerConfig{
 			Addr:     admAddr,
 			CertPath: certPath,

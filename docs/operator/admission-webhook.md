@@ -138,6 +138,28 @@ restart.
 The 70% threshold and the 60s baseline refresh are fixed in this
 release.
 
+## Opting out and dry runs
+
+Label a namespace `fleetsweeper.dev/admission=ignore` and the apiserver
+stops sending its pods to the webhook. The chart's default
+`admission.namespaceSelector` also excludes `kube-system`. Setting
+`admission.namespaceSelector` replaces that default, and an empty selector
+matches every namespace, including `kube-system`.
+
+Annotate a pod `fleetsweeper.dev/admission-dry-run=true` and it is
+evaluated and warned about, including the stability warnings, but never
+denied. A would-be denial appears as a `dry-run: would deny` warning.
+
+## Metrics
+
+The metrics endpoint exposes two counters:
+
+- `fleetsweeper_admission_decisions_total{mode,decision}` where decision is
+  `allowed`, `denied`, `warned` (allowed with at least one warning), or
+  `skipped` (not evaluated: thin baseline or an undecodable request).
+- `fleetsweeper_admission_check_failures_total{check}` counts pods that
+  fired each check.
+
 ## Verifying
 
 After enabling, submit a pod that diverges from the norm:

@@ -124,9 +124,18 @@ admission:
   # CA bundle used by the apiserver to verify the webhook. Leave empty to
   # rely on cert-manager (or another sidecar) to inject it.
   caBundle: ""
-  # Selectors restrict which namespaces/pods are evaluated. Empty selects
-  # every namespace except kube-system (set via namespaceSelector to taste).
-  namespaceSelector: {}
+  # Selectors restrict which namespaces/pods are evaluated. An empty
+  # namespaceSelector selects every namespace, including kube-system. The
+  # default excludes kube-system and any namespace labeled
+  # fleetsweeper.dev/admission=ignore. Setting this value replaces the default.
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: [kube-system]
+      - key: fleetsweeper.dev/admission
+        operator: NotIn
+        values: [ignore]
   objectSelector: {}
   serviceAnnotations: {}
   webhookAnnotations: {}
