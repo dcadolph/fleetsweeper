@@ -128,15 +128,20 @@ type ClusterHealth struct {
 	DegradedScanners int `json:"degraded_scanners,omitempty"`
 }
 
+// pairwiseFleetLimit is the largest fleet that keeps the fleet-wide version,
+// namespace, and RBAC drift findings alongside outlier findings. Above it a
+// fleet-wide finding lists too many clusters to act on, so outlier findings,
+// which name the deviant, replace it.
+const pairwiseFleetLimit = 20
+
 // GenerateFindings analyzes a report and produces human-readable findings.
-// At scale (more than 20 clusters), outlier-based findings replace pairwise
-// comparison for version and namespace drift.
+// Above pairwiseFleetLimit clusters, outlier findings replace the fleet-wide
+// version, namespace, and RBAC drift findings when any outlier exists.
 func GenerateFindings(r *Report) []Finding {
 	var findings []Finding
 
-	if len(r.Outliers) > 0 {
-		findings = append(findings, outlierFindings(r)...)
-	} else {
+	findings = append(findings, outlierFindings(r)...)
+	if len(r.Outliers) == 0 || len(r.Clusters) <= pairwiseFleetLimit {
 		findings = append(findings, versionFindings(r)...)
 		findings = append(findings, namespaceFindings(r)...)
 		findings = append(findings, rbacFindings(r)...)

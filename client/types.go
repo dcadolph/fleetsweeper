@@ -277,6 +277,8 @@ type Report struct {
 	Outliers []OutlierResult `json:"outliers,omitempty"`
 	// Capacity is the per-cluster capacity analysis.
 	Capacity []CapacityAnalysis `json:"capacity,omitempty"`
+	// Notes explain analysis the report could not run.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // CostByCluster is the cost correlation for one cluster.

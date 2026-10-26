@@ -229,6 +229,10 @@ components:
         capacity:
           type: array
           items: {$ref: "#/components/schemas/CapacityAnalysis"}
+        notes:
+          type: array
+          description: Analysis the report could not run, such as outlier detection on a fleet of fewer than 3 clusters.
+          items: {type: string}
 
     CostAnalysis:
       type: object

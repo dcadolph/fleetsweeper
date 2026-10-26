@@ -49,8 +49,10 @@ func GenerateBrief(r *Report) Brief {
 	}
 
 	var cohortOutliers int
-	for _, c := range r.Cohorts {
-		cohortOutliers += len(c.Outliers)
+	for _, f := range r.Findings {
+		if f.Norm != nil && f.Norm.Scope != NormScopeFleet {
+			cohortOutliers++
+		}
 	}
 	if cohortOutliers > 0 {
 		b.Lines = append(b.Lines, fmt.Sprintf("%d cluster metric(s) drifted from their cohort baseline.", cohortOutliers))
