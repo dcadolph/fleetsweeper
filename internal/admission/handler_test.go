@@ -388,3 +388,60 @@ func TestCheckThresholdBoundary(t *testing.T) {
 		}
 	}
 }
+
+// TestNewHandler verifies the constructor applies the body cap default and panics on missing
+// dependencies.
+func TestNewHandler(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Provider     BaselineProvider
+		Log          *zap.Logger
+		WantPanic    bool
+		WantMaxBytes int64
+	}{{ // Test 0: Every dependency present sets the 1 MiB default.
+		Provider: fakeProvider{b: sufficientBaseline}, Log: zap.NewNop(), WantMaxBytes: 1 << 20,
+	}, { // Test 1: A nil provider panics.
+		Log: zap.NewNop(), WantPanic: true,
+	}, { // Test 2: A nil logger panics.
+		Provider: fakeProvider{b: sufficientBaseline}, WantPanic: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				if r := recover(); (r != nil) != test.WantPanic {
+					t.Errorf("panic = %v, want panic %v", r, test.WantPanic)
+				}
+			}()
+			h := NewHandler(test.Provider, DefaultChecks(), ModeEnforce, test.Log)
+			if h.MaxBytes != test.WantMaxBytes {
+				t.Errorf("MaxBytes = %d, want %d", h.MaxBytes, test.WantMaxBytes)
+			}
+		})
+	}
+}
+
+// TestHandlerZeroMaxBytesConcurrent verifies a literal Handler with no MaxBytes serves concurrent
+// requests without writing to itself, which the race detector would report.
+func TestHandlerZeroMaxBytesConcurrent(t *testing.T) {
+	t.Parallel()
+	h := &Handler{Provider: fakeProvider{b: sufficientBaseline}, Checks: DefaultChecks(), Mode: ModeAdvisory,
+		Log: zap.NewNop()}
+	body := reviewBody(t, dirtyPod())
+	done := make(chan int, 8)
+	for range 8 {
+		go func() {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/validate", bytes.NewReader(body)))
+			done <- rec.Code
+		}()
+	}
+	for range 8 {
+		if code := <-done; code != http.StatusOK {
+			t.Errorf("status = %d, want 200", code)
+		}
+	}
+	if h.MaxBytes != 0 {
+		t.Errorf("ServeHTTP mutated MaxBytes to %d", h.MaxBytes)
+	}
+}

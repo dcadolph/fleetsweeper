@@ -32,9 +32,24 @@ type Handler struct {
 	Mode Mode
 	// Log is the structured logger.
 	Log *zap.Logger
-	// MaxBytes caps the request body the handler will read. Defaults to
-	// 1 MiB which matches the apiserver's default.
+	// MaxBytes caps the request body the handler will read. NewHandler sets it to
+	// DefaultMaxBytes; a zero value on a literal Handler is read as the default.
 	MaxBytes int64
+}
+
+// DefaultMaxBytes is the request body cap NewHandler applies, matching the apiserver's own
+// 1 MiB limit.
+const DefaultMaxBytes int64 = 1 << 20
+
+// NewHandler returns a Handler with every default applied. Panics if provider or log is nil.
+func NewHandler(provider BaselineProvider, checks []Check, mode Mode, log *zap.Logger) *Handler {
+	if provider == nil {
+		panic("admission: NewHandler: BaselineProvider required")
+	}
+	if log == nil {
+		panic("admission: NewHandler: Log required")
+	}
+	return &Handler{Provider: provider, Checks: checks, Mode: mode, Log: log, MaxBytes: DefaultMaxBytes}
 }
 
 // codecs is the shared serializer factory used to decode incoming
@@ -58,10 +73,11 @@ var admissionReviewGVK = schema.GroupVersionKind{
 // ServeHTTP implements http.Handler. It decodes the AdmissionReview,
 // evaluates each registered check, and encodes the response.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.MaxBytes <= 0 {
-		h.MaxBytes = 1 << 20
+	limit := h.MaxBytes
+	if limit <= 0 {
+		limit = DefaultMaxBytes
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.MaxBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("read body: %v", err), http.StatusBadRequest)
 		return

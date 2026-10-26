@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/admission"
 	"github.com/dcadolph/fleetsweeper/internal/controller"
@@ -87,7 +88,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer s.Close()
 
-	ctx := cmdContext(cmd)
+	ctx, stop := context.WithCancel(cmdContext(cmd))
+	defer stop()
 	log := logutil.UnwrapLogger(ctx)
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
 	addr, _ := cmd.Flags().GetString("addr")
@@ -129,6 +131,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	trustedProxyHeader, _ := cmd.Flags().GetString("trusted-proxy-header")
 
 	srv := server.New(server.Config{
+		Addr:                  addr,
+		AdminAddr:             adminAddr,
 		Store:                 s,
 		Registry:              registry,
 		Log:                   log,
@@ -204,20 +208,21 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	errCh := make(chan error, 2)
 	if useLeader {
 		go func() {
-			err := leader.Run(ctx, leader.Config{
-				Namespace: leaderNamespace,
-				Name:      leaderName,
-				Identity:  os.Getenv("POD_NAME"),
-				Log:       log,
-			}, leader.Callbacks{
-				OnStartedLeading: startSideEffects,
+			err := campaign(ctx, log, func(ctx context.Context) error {
+				return leader.Run(ctx, leader.Config{
+					Namespace: leaderNamespace,
+					Name:      leaderName,
+					Identity:  os.Getenv("POD_NAME"),
+					Log:       log,
+				}, leader.Callbacks{
+					OnStartedLeading: startSideEffects,
+				})
 			})
 			if err != nil {
-				log.Warn("leader election failed; falling back to single-instance mode",
-					logutil.ErrorField(err))
-				startSideEffects(ctx)
+				errCh <- err
 			}
 		}()
 	} else {
@@ -242,12 +247,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			KeyPath:  keyPath,
 			DNSNames: dns,
 			Log:      log,
-			Handler: &admission.Handler{
-				Provider: admission.NewStoreBaselineProvider(s, 60*time.Second),
-				Checks:   admission.DefaultChecks(),
-				Mode:     mode,
-				Log:      log,
-			},
+			Handler: admission.NewHandler(admission.NewStoreBaselineProvider(s, 60*time.Second),
+				admission.DefaultChecks(), mode, log),
 		})
 		if err != nil {
 			return fmt.Errorf("admission server: %w", err)
@@ -262,30 +263,46 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	if adminAddr != "" {
 		go func() {
-			if err := srv.ListenAndServeAdmin(adminAddr); err != nil {
+			if err := srv.ListenAndServeAdmin(); err != nil {
 				log.Warn("admin server stopped", logutil.ErrorField(err))
 			}
 		}()
 	}
 
-	errCh := make(chan error, 1)
 	go func() {
 		fmt.Fprintf(cmd.ErrOrStderr(), "fleetsweeper server listening on %s\n", addr)
-		errCh <- srv.ListenAndServe(addr)
+		errCh <- srv.ListenAndServe()
 	}()
 
+	var runErr error
 	select {
-	case err := <-errCh:
-		return err
+	case runErr = <-errCh:
 	case <-ctx.Done():
 		fmt.Fprintln(cmd.ErrOrStderr(), "shutdown signal received; draining...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown: %w", err)
-		}
-		return nil
 	}
+	stop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+		runErr = fmt.Errorf("shutdown: %w", err)
+	}
+	return runErr
+}
+
+// campaign runs one leader election term after another until ctx is canceled. Each term's
+// side effects stop when that term's lease is lost, and the replica then stands for election
+// again. An election error is returned rather than retried, because running the scheduler and
+// controller without a lease would let every replica fire them at once.
+func campaign(ctx context.Context, log *zap.Logger, term func(ctx context.Context) error) error {
+	for ctx.Err() == nil {
+		if err := term(ctx); err != nil {
+			return fmt.Errorf("leader election: %w", err)
+		}
+		if ctx.Err() == nil {
+			log.Info("leader: term ended; standing for election again")
+		}
+	}
+	return nil
 }
 
 // resolveScheduleContexts determines which contexts to use for scheduled scans.

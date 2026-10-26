@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -91,5 +94,54 @@ func TestServeFlagsRegistered(t *testing.T) {
 			rootCmd.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("flag --%s is read by runServe but never registered", name)
 		}
+	}
+}
+
+// errLeaseAPI stands in for a leader election failure in TestCampaign.
+var errLeaseAPI = errors.New("lease api unavailable")
+
+// TestCampaign verifies campaign stands for election again after each lost term, stops when its
+// context ends, and returns an election error instead of falling back to running unelected.
+func TestCampaign(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Want        error
+		Outcomes    []error
+		CancelAfter int
+		PreCanceled bool
+		WantTerms   int
+	}{{ // Test 0: Two lost terms, then the process shuts down during the third.
+		Outcomes: []error{nil, nil, nil}, CancelAfter: 3, WantTerms: 3,
+	}, { // Test 1: An election error on the second term is returned and nothing runs after it.
+		Outcomes: []error{nil, errLeaseAPI, nil}, CancelAfter: 99, WantTerms: 2, Want: errLeaseAPI,
+	}, { // Test 2: An already canceled context runs no term.
+		Outcomes: []error{nil}, CancelAfter: 99, PreCanceled: true, WantTerms: 0,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if test.PreCanceled {
+				cancel()
+			}
+			terms := 0
+			err := campaign(ctx, zap.NewNop(), func(context.Context) error {
+				terms++
+				if terms >= test.CancelAfter {
+					cancel()
+				}
+				if terms > len(test.Outcomes) {
+					t.Fatalf("term %d ran past the scripted outcomes", terms)
+				}
+				return test.Outcomes[terms-1]
+			})
+			if !errors.Is(err, test.Want) {
+				t.Errorf("err = %v, want %v", err, test.Want)
+			}
+			if terms != test.WantTerms {
+				t.Errorf("terms = %d, want %d", terms, test.WantTerms)
+			}
+		})
 	}
 }

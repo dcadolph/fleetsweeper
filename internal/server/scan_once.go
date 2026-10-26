@@ -115,6 +115,9 @@ func (s *Server) scanAndSave(ctx context.Context, log *zap.Logger, scanID string
 
 	s.scanMu.Lock()
 	defer s.scanMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, 0, fmt.Errorf("canceled while waiting for the scan lock: %w", err)
+	}
 
 	log.Info("scan starting", zap.Int("contexts", len(req.Contexts)))
 	clients := kube.ConnectAll(ctx, s.kubeconfigPath, req.Contexts, s.workers)
