@@ -53,6 +53,10 @@ type Finding struct {
 	Affected []string `json:"affected,omitempty"`
 	// Remediation is the suggested fix. Empty when no automated suggestion fits.
 	Remediation *Remediation `json:"remediation,omitempty"`
+	// Norm is the fleet or cohort norm a fleet-relative finding was measured
+	// against. It is nil on absolute-rule findings, which is how a reader
+	// tells the two classes apart.
+	Norm *NormBasis `json:"norm,omitempty"`
 }
 
 // SystemNamespacePrefixes are the namespace name prefixes excluded from
@@ -176,7 +180,8 @@ func outlierFindings(r *Report) []Finding {
 			Cluster:     o.Cluster,
 			Scanner:     o.Scanner,
 			Affected:    []string{o.Field},
-			Remediation: normRemediation(o, "fleet"),
+			Remediation: normRemediation(o, NormScopeFleet),
+			Norm:        o.Basis(),
 		})
 	}
 	return findings
@@ -212,6 +217,7 @@ func cohortOutlierFindings(r *Report) []Finding {
 				Scanner:     o.Scanner,
 				Affected:    []string{o.Field},
 				Remediation: normRemediation(o, fmt.Sprintf("cohort %q", c.Name)),
+				Norm:        o.Basis(),
 			})
 		}
 	}

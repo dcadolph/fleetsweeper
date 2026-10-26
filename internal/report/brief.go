@@ -1,6 +1,11 @@
 package report
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
+)
 
 // Brief is a short, deterministic executive summary of a fleet report, suitable
 // for the top of a dashboard or a status email. It is templated from the report
@@ -26,6 +31,10 @@ func GenerateBrief(r *Report) Brief {
 			r.FleetScore.Score, r.FleetScore.Grade, r.FleetScore.SampleSize,
 			r.FleetScore.Dimensions, crit, warn, len(r.Incidents),
 		),
+	}
+
+	if line := normLine(r.Findings); line != "" {
+		b.Lines = append(b.Lines, line)
 	}
 
 	if r.FleetScore.ExcludedClusters > 0 {
@@ -63,6 +72,56 @@ func GenerateBrief(r *Report) Brief {
 	}
 
 	return b
+}
+
+// normLine quotes the norm behind the most severe fleet-relative finding, the
+// one with the largest deviation among equals, e.g. "edge-nyc-42
+// enforced_count is 30 vs a fleet median of 12 across 26 clusters". It returns
+// "" when no finding carries a norm.
+func normLine(findings []Finding) string {
+	var best *Finding
+	for i := range findings {
+		f := &findings[i]
+		if f.Norm == nil {
+			continue
+		}
+		if best == nil || util.SeverityRank(f.Severity) > util.SeverityRank(best.Severity) ||
+			(f.Severity == best.Severity && math.Abs(f.Norm.Z) > math.Abs(best.Norm.Z)) {
+			best = f
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	n := best.Norm
+	field := best.Rule
+	if len(best.Affected) > 0 {
+		field = best.Affected[0]
+	}
+	scope := "a fleet"
+	if n.Scope != NormScopeFleet {
+		scope = fmt.Sprintf("the cohort %q", n.Scope)
+	}
+	switch n.Kind {
+	case NormKindNumeric:
+		return fmt.Sprintf("Largest deviation: %s %s is %s vs %s median of %s across %d clusters.",
+			best.Cluster, field, n.Value, scope, formatNum(n.Median), n.SampleSize)
+	case NormKindString:
+		return fmt.Sprintf("Largest deviation: %s %s is %q vs %s mode of %q held by %.0f%% of %d clusters.",
+			best.Cluster, field, n.Value, scope, n.Mode, n.ModeShare*100, n.SampleSize)
+	case NormKindSet:
+		return fmt.Sprintf("Largest deviation: %s %s lacks %d of the %d members %s holds in common across %d clusters.",
+			best.Cluster, field, len(n.Missing), len(n.Consensus), scopeNoun(n.Scope), n.SampleSize)
+	}
+	return ""
+}
+
+// scopeNoun names a norm scope as the subject of a sentence.
+func scopeNoun(scope string) string {
+	if scope == NormScopeFleet {
+		return "the fleet"
+	}
+	return fmt.Sprintf("cohort %q", scope)
 }
 
 // countFindingsBySeverity tallies findings of a given severity.

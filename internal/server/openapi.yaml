@@ -115,6 +115,43 @@ components:
           type: array
           items: {type: string}
         remediation: {$ref: "#/components/schemas/Remediation"}
+        norm: {$ref: "#/components/schemas/NormBasis"}
+
+    NormBasis:
+      type: object
+      description: >-
+        The norm a fleet-relative finding was measured against. Absent on
+        absolute-rule findings. Which fields apply depends on kind.
+      required: [scope, kind, median, mad, sample_size, threshold, value, z, limited_sample]
+      properties:
+        scope:
+          type: string
+          description: '"fleet" or the name of the cohort the norm was computed over.'
+          example: fleet
+        kind: {type: string, enum: [numeric, string, set]}
+        median: {type: number, description: Population median of a numeric field.}
+        mad: {type: number, description: Median absolute deviation of a numeric field.}
+        mode: {type: string, description: Most common value of a string field.}
+        mode_share: {type: number, description: Fraction of the population holding the mode.}
+        consensus:
+          type: array
+          description: Set members present in at least the threshold share of clusters.
+          items: {type: string}
+        missing:
+          type: array
+          description: Consensus members this cluster lacks.
+          items: {type: string}
+        sample_size: {type: integer, description: Number of clusters in the population.}
+        threshold:
+          type: number
+          description: >-
+            Cutoff the detector applied: modified z-score for numeric, minimum
+            mode share for string, minimum presence share for set membership.
+        value: {type: string, description: This cluster's value for the field.}
+        z: {type: number, description: Signed modified z-score for a numeric field.}
+        limited_sample:
+          type: boolean
+          description: True when the population was too small for MAD.
 
     ClusterHealth:
       type: object
@@ -134,16 +171,18 @@ components:
           additionalProperties: {type: integer}
 
     OutlierResult:
-      type: object
-      required: [cluster, field, value, fleet_norm, scanner, severity]
-      properties:
-        cluster: {type: string}
-        field: {type: string}
-        value: {type: string}
-        fleet_norm: {type: string}
-        deviation: {type: number}
-        scanner: {type: string}
-        severity: {$ref: "#/components/schemas/Severity"}
+      description: One deviating field on one cluster, with the norm it was measured against.
+      allOf:
+        - {$ref: "#/components/schemas/NormBasis"}
+        - type: object
+          required: [cluster, field, fleet_norm, scanner, severity]
+          properties:
+            cluster: {type: string}
+            field: {type: string}
+            fleet_norm: {type: string}
+            deviation: {type: number}
+            scanner: {type: string}
+            severity: {$ref: "#/components/schemas/Severity"}
 
     CapacityAnalysis:
       type: object

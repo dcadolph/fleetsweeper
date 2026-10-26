@@ -112,6 +112,43 @@ type Finding struct {
 	Affected []string `json:"affected,omitempty"`
 	// Remediation is the suggested fix, when available.
 	Remediation *Remediation `json:"remediation,omitempty"`
+	// Norm is the fleet or cohort norm a fleet-relative finding was measured
+	// against. It is nil on absolute-rule findings.
+	Norm *NormBasis `json:"norm,omitempty"`
+}
+
+// NormBasis states the norm a fleet-relative finding was measured against.
+// Which fields apply depends on Kind.
+type NormBasis struct {
+	// Scope is "fleet" or the name of the cohort the norm was computed over.
+	Scope string `json:"scope"`
+	// Kind is "numeric", "string", or "set".
+	Kind string `json:"kind"`
+	// Median is the population median of a numeric field.
+	Median float64 `json:"median"`
+	// MAD is the median absolute deviation of a numeric field from Median.
+	MAD float64 `json:"mad"`
+	// Mode is the most common value of a string field.
+	Mode string `json:"mode,omitempty"`
+	// ModeShare is the fraction of the population holding Mode.
+	ModeShare float64 `json:"mode_share,omitempty"`
+	// Consensus lists the members of a set field present in at least
+	// Threshold of the population, sorted.
+	Consensus []string `json:"consensus,omitempty"`
+	// Missing lists the consensus members this cluster lacks, sorted.
+	Missing []string `json:"missing,omitempty"`
+	// SampleSize is the number of clusters in the population.
+	SampleSize int `json:"sample_size"`
+	// Threshold is the cutoff the detector applied: the modified z-score for
+	// numeric, the minimum mode share for string, and the minimum presence
+	// share for set membership.
+	Threshold float64 `json:"threshold"`
+	// Value is this cluster's value for the field.
+	Value string `json:"value"`
+	// Z is this cluster's signed modified z-score for a numeric field.
+	Z float64 `json:"z"`
+	// LimitedSample marks a norm drawn from a population too small for MAD.
+	LimitedSample bool `json:"limited_sample"`
 }
 
 // ClusterHealth is the rolled-up health of one cluster.
@@ -154,6 +191,30 @@ type OutlierResult struct {
 	Scanner string `json:"scanner"`
 	// Severity is the outlier severity.
 	Severity Severity `json:"severity"`
+	// Scope is "fleet" or the name of the cohort the norm was computed over.
+	Scope string `json:"scope"`
+	// Kind is "numeric", "string", or "set".
+	Kind string `json:"kind"`
+	// Median is the population median of a numeric field.
+	Median float64 `json:"median"`
+	// MAD is the median absolute deviation of a numeric field from Median.
+	MAD float64 `json:"mad"`
+	// Mode is the most common value of a string field.
+	Mode string `json:"mode,omitempty"`
+	// ModeShare is the fraction of the population holding Mode.
+	ModeShare float64 `json:"mode_share,omitempty"`
+	// Consensus lists the consensus members of a set field, sorted.
+	Consensus []string `json:"consensus,omitempty"`
+	// Missing lists the consensus members this cluster lacks, sorted.
+	Missing []string `json:"missing,omitempty"`
+	// SampleSize is the number of clusters in the population.
+	SampleSize int `json:"sample_size"`
+	// Threshold is the cutoff the detector applied (see NormBasis.Threshold).
+	Threshold float64 `json:"threshold"`
+	// Z is the signed modified z-score for a numeric field.
+	Z float64 `json:"z"`
+	// LimitedSample marks a norm drawn from a population too small for MAD.
+	LimitedSample bool `json:"limited_sample"`
 }
 
 // CapacityAnalysis is the capacity correlator output for one cluster.

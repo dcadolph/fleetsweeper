@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -414,9 +415,12 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Name:     "fleet outliers",
 		Generate: outlierFindings,
 		Report: &Report{Outliers: []OutlierResult{
-			{Cluster: "c", Field: "enforced_count", Value: "4", FleetNorm: "12", Deviation: 5, Scanner: "security", Severity: SeverityCritical},
-			{Cluster: "c", Field: "git_version", Value: "v1.29.0", FleetNorm: "v1.31.0", Scanner: "version", Severity: SeverityWarning},
-			{Cluster: "c", Field: "names", Value: "missing 2: [a b]", FleetNorm: "5 consensus items", Scanner: "crds", Severity: SeverityInfo},
+			{Cluster: "c", Field: "enforced_count", Value: "4", FleetNorm: "12", Deviation: 5, Scanner: "security", Severity: SeverityCritical,
+				Scope: "fleet", Kind: NormKindNumeric, Median: 12, MAD: 1.079, SampleSize: 9, Threshold: 3.5, Z: -5},
+			{Cluster: "c", Field: "git_version", Value: "v1.29.0", FleetNorm: "v1.31.0", Scanner: "version", Severity: SeverityWarning,
+				Scope: "fleet", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
+			{Cluster: "c", Field: "names", Value: "missing 2: [a b]", FleetNorm: "5 consensus items", Scanner: "crds", Severity: SeverityInfo,
+				Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"}, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel", Severity: SeverityInfo},
 		}},
 		WantResult: []Finding{{
@@ -425,33 +429,40 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityCritical, Cluster: "c", Scanner: "security", Affected: []string{"enforced_count"},
 			Remediation: &Remediation{Command: "# enforced_count is 4 here, 8 below the fleet median of 12\n" +
 				"kubectl --context c get namespaces -L pod-security.kubernetes.io/enforce"},
+			Norm: &NormBasis{Scope: "fleet", Kind: NormKindNumeric, Median: 12, MAD: 1.079, SampleSize: 9, Threshold: 3.5, Value: "4", Z: -5},
 		}, {
 			Rule: "version/outlier-git-version", Title: "c deviates from fleet norm on git_version",
 			Description: "c reports git_version=v1.29.0 while the fleet norm is v1.31.0 (scanner: Kubernetes Version).",
 			Severity:    SeverityWarning, Cluster: "c", Scanner: "version", Affected: []string{"git_version"},
 			Remediation: &Remediation{Command: "# git_version is \"v1.29.0\" here, the fleet norm is \"v1.31.0\"\nkubectl --context c version"},
+			Norm:        &NormBasis{Scope: "fleet", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6, Value: "v1.29.0"},
 		}, {
 			Rule: "crds/outlier-names", Title: "c deviates from fleet norm on names",
 			Description: "c reports names=missing 2: [a b] while the fleet norm is 5 consensus items (scanner: Custom Resource Definitions).",
 			Severity:    SeverityInfo, Cluster: "c", Scanner: "crds", Affected: []string{"names"},
 			Remediation: &Remediation{Command: "# names is missing 2: [a b] of the fleet's 5 consensus items\nkubectl --context c get crds"},
+			Norm: &NormBasis{Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"},
+				SampleSize: 10, Threshold: 0.6, Value: "missing 2: [a b]"},
 		}, {
 			Rule: "novel/outlier-count", Title: "c deviates from fleet norm on count",
 			Description: "c reports count=9 while the fleet norm is 2.5 (scanner: ).",
 			Severity:    SeverityInfo, Cluster: "c", Scanner: "novel", Affected: []string{"count"},
 			Remediation: &Remediation{Command: "# count is 9 here, 6.5 above the fleet median of 2.5\nkubectl --context c get all -A"},
+			Norm:        &NormBasis{Value: "9"},
 		}},
 	}, { // Test 24: A cohort outlier names its cohort as the norm's scope.
 		Name:     "cohort outliers",
 		Generate: cohortOutlierFindings,
 		Report: &Report{Cohorts: []CohortSummary{{Name: "edge", Outliers: []OutlierResult{
-			{Cluster: "b", Field: "crd_count", Value: "9", FleetNorm: "2", Scanner: "crds", Severity: SeverityWarning},
+			{Cluster: "b", Field: "crd_count", Value: "9", FleetNorm: "2", Scanner: "crds", Severity: SeverityWarning,
+				Scope: "edge", Kind: NormKindNumeric, Median: 2, MAD: 1, SampleSize: 8, Threshold: 3.5, Z: 4.72},
 		}}}},
 		WantResult: []Finding{{
 			Rule: "crds/cohort-outlier-crd-count", Title: "b deviates from its cohort on crd_count",
 			Description: `Within cohort "edge", b reports crd_count=9 while the cohort norm is 2 (scanner: Custom Resource Definitions).`,
 			Severity:    SeverityWarning, Cluster: "b", Scanner: "crds", Affected: []string{"crd_count"},
 			Remediation: &Remediation{Command: "# crd_count is 9 here, 7 above the cohort \"edge\" median of 2\nkubectl --context b get crds"},
+			Norm:        &NormBasis{Scope: "edge", Kind: NormKindNumeric, Median: 2, MAD: 1, SampleSize: 8, Threshold: 3.5, Value: "9", Z: 4.72},
 		}},
 	}}
 
@@ -461,6 +472,175 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			got := test.Generate(test.Report)
 			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("findings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// normFixture returns a 10-cluster report whose security section holds two
+// numeric fields with one deviant each, an absolute-rule privileged count on
+// the high deviant, and every cluster tagged into one cohort.
+func normFixture() (*Report, map[string]string) {
+	enforced := []float64{20, 22, 24, 24, 24, 26, 26, 28, 30, 80}
+	quota := []float64{48, 49, 50, 50, 50, 51, 51, 52, 53, 2}
+	perCluster := make(map[string]any, len(enforced))
+	tags := make(map[string]string, len(enforced))
+	var clusters []string
+	for i := range enforced {
+		c := fmt.Sprintf("c%02d", i)
+		clusters = append(clusters, c)
+		perCluster[c] = map[string]any{"enforced_count": enforced[i], "quota_count": quota[i]}
+		tags[c] = "edge"
+	}
+	r := &Report{Clusters: clusters, Sections: map[string]*SectionReport{
+		"security": compare(clusters, perCluster),
+		"workload-security": {PerCluster: map[string]any{"c09": map[string]any{
+			"privileged_containers": 3, "total_pods": 10,
+		}}},
+	}}
+	return r, tags
+}
+
+// TestNormProvenance verifies fleet and cohort outlier findings carry the norm
+// they were measured against, with values computed by hand, and that
+// absolute-rule findings carry none.
+func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+
+	// enforced_count: sorted 20 22 24 24 24 26 26 28 30 80, median 25.
+	// Absolute deviations 1 1 1 1 1 3 3 5 5 55, MAD (1+3)/2 = 2.
+	// c09 at 80: z = 0.6745 * 55 / 2 = 18.548750.
+	// quota_count: sorted 2 48 49 50 50 50 51 51 52 53, median 50.
+	// Absolute deviations 0 0 0 1 1 1 2 2 3 48, MAD 1.
+	// c09 at 2: z = 0.6745 * -48 / 1 = -32.376.
+	wantEnforced := &NormBasis{
+		Scope: "fleet", Kind: NormKindNumeric, Median: 25, MAD: 2, SampleSize: 10,
+		Threshold: 3.5, Value: "80", Z: 18.54875,
+	}
+	wantQuota := &NormBasis{
+		Scope: "fleet", Kind: NormKindNumeric, Median: 50, MAD: 1, SampleSize: 10,
+		Threshold: 3.5, Value: "2", Z: -32.376,
+	}
+	approx := cmpopts.EquateApprox(0, 1e-9)
+
+	r, tags := normFixture()
+	r.Outliers = DetectOutliers(r, 3.5)
+	r.Cohorts = buildCohorts(r, tags, 3.5)
+	fleet := outlierFindings(r)
+	byRule := map[string]Finding{}
+	for _, f := range fleet {
+		byRule[f.Rule] = f
+	}
+
+	tests := []struct {
+		Name     string
+		Finding  Finding
+		WantNorm *NormBasis
+	}{{ // Test 0: The high deviant reports the hand-computed median, MAD, and z.
+		Name: "fleet high", Finding: byRule["security/outlier-enforced-count"], WantNorm: wantEnforced,
+	}, { // Test 1: The low deviant reports a negative z.
+		Name: "fleet low", Finding: byRule["security/outlier-quota-count"], WantNorm: wantQuota,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			if test.Finding.Cluster != "c09" {
+				t.Fatalf("want a finding on c09, got %+v", test.Finding)
+			}
+			if diff := cmp.Diff(test.WantNorm, test.Finding.Norm, approx); diff != "" {
+				t.Errorf("norm mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+	if len(fleet) != 2 {
+		t.Errorf("want 2 fleet outlier findings, got %d: %+v", len(fleet), fleet)
+	}
+
+	t.Run("cohort scope", func(t *testing.T) {
+		t.Parallel()
+		r, tags := normFixture()
+		r.Cohorts = buildCohorts(r, tags, 3.5)
+		got := cohortOutlierFindings(r)
+		if len(got) != 2 {
+			t.Fatalf("want 2 cohort findings, got %d: %+v", len(got), got)
+		}
+		for _, f := range got {
+			want := wantEnforced
+			if f.Rule == "security/cohort-outlier-quota-count" {
+				want = wantQuota
+			}
+			want = &NormBasis{
+				Scope: "edge", Kind: want.Kind, Median: want.Median, MAD: want.MAD,
+				SampleSize: want.SampleSize, Threshold: want.Threshold, Value: want.Value, Z: want.Z,
+			}
+			if diff := cmp.Diff(want, f.Norm, approx); diff != "" {
+				t.Errorf("%s norm mismatch (-want +got):\n%s", f.Rule, diff)
+			}
+		}
+	})
+
+	t.Run("absolute rule", func(t *testing.T) {
+		t.Parallel()
+		r, _ := normFixture()
+		var absolute int
+		for _, f := range GenerateFindings(r) {
+			if strings.Contains(f.Rule, "/"+ruleOutlierPrefix) || strings.Contains(f.Rule, "/"+ruleCohortOutlierPrefix) {
+				continue
+			}
+			absolute++
+			if f.Norm != nil {
+				t.Errorf("absolute finding %s carries a norm: %+v", f.Rule, f.Norm)
+			}
+		}
+		if absolute == 0 {
+			t.Fatal("fixture produced no absolute-rule finding")
+		}
+	})
+
+	t.Run("brief quotes the basis", func(t *testing.T) {
+		t.Parallel()
+		r, _ := normFixture()
+		r.Outliers = DetectOutliers(r, 3.5)
+		r.Findings = GenerateFindings(r)
+		brief := GenerateBrief(r)
+		want := "Largest deviation: c09 enforced_count is 80 vs a fleet median of 25 across 10 clusters."
+		if !slices.Contains(brief.Lines, want) {
+			t.Errorf("brief lines %q do not contain %q", brief.Lines, want)
+		}
+	})
+}
+
+// TestNormLine verifies the brief's norm line for each kind and scope.
+func TestNormLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Findings   []Finding
+		WantResult string
+	}{{ // Test 0: No finding carries a norm.
+		Findings: []Finding{{Severity: SeverityCritical, Cluster: "a", Rule: "node-health/not-ready"}},
+	}, { // Test 1: Severity outranks deviation.
+		Findings: []Finding{
+			{Severity: SeverityInfo, Cluster: "a", Affected: []string{"x"},
+				Norm: &NormBasis{Scope: "fleet", Kind: NormKindNumeric, Median: 1, SampleSize: 9, Value: "90", Z: 90}},
+			{Severity: SeverityWarning, Cluster: "b", Affected: []string{"y"},
+				Norm: &NormBasis{Scope: "fleet", Kind: NormKindNumeric, Median: 12, SampleSize: 26, Value: "30", Z: 4}},
+		},
+		WantResult: "Largest deviation: b y is 30 vs a fleet median of 12 across 26 clusters.",
+	}, { // Test 2: A cohort string norm quotes the mode and its share.
+		Findings: []Finding{{Severity: SeverityWarning, Cluster: "a", Affected: []string{"git_version"},
+			Norm: &NormBasis{Scope: "edge", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.875, SampleSize: 8, Value: "v1.29.0"}}},
+		WantResult: `Largest deviation: a git_version is "v1.29.0" vs the cohort "edge" mode of "v1.31.0" held by 88% of 8 clusters.`,
+	}, { // Test 3: A set norm counts the missing consensus members.
+		Findings: []Finding{{Severity: SeverityInfo, Cluster: "a", Affected: []string{"names"},
+			Norm: &NormBasis{Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c"}, Missing: []string{"b"}, SampleSize: 10}}},
+		WantResult: "Largest deviation: a names lacks 1 of the 3 members the fleet holds in common across 10 clusters.",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if diff := cmp.Diff(test.WantResult, normLine(test.Findings)); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
