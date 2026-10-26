@@ -1,8 +1,8 @@
 # Webhooks
 
-Fleetsweeper has two webhook surfaces: inbound (trigger a scan) and
-outbound (notify subscribers when a scan completes). Both use the same
-HMAC-SHA256 signing scheme.
+Fleetsweeper has two webhook surfaces: inbound (trigger a scan, signed with
+HMAC-SHA256) and outbound (send findings to subscribers after each scan,
+authenticated with headers you configure).
 
 ## Inbound: trigger a scan
 
@@ -33,27 +33,38 @@ unsigned endpoint cannot be left exposed by mistake.
 
 ## Outbound: notify subscribers
 
-Subscribe in a YAML file referenced via `--webhook-config`:
+Subscribe in a YAML file referenced via `--webhook-config`. A complete example
+lives in `deploy/examples/webhooks.yaml`:
 
 ```yaml
-subscribers:
-  - url: https://internal.example.com/fleetsweeper-events
-    secret: "subscriber-shared-secret"
-    events:
-      - scan.complete
-      - finding.critical.new
-  - url: https://internal.example.com/cost-alerts
-    secret: "another-shared-secret"
-    events:
-      - cost.spike
+webhooks:
+  - name: oncall
+    url: https://hooks.example.internal/fleetsweeper
+    min_severity: critical
+    cluster_regex: "^prod-"
+    headers:
+      Authorization: "Bearer $ONCALL_HOOK_TOKEN"
+  - name: platform-chat
+    url: https://chat.example.internal/hooks/platform
+    min_severity: warning
+    scanner_regex: "^(certs|admission)$"
+    body_template: |
+      {"text": "{{ .Severity }} on {{ .Cluster }}: {{ .Title }}"}
 ```
 
-Fleetsweeper posts a JSON envelope with the event type plus the relevant
-payload (scan summary, finding fingerprint, cluster name) signed with the
-subscriber's shared secret. Subscribers verify the signature and act on
-the event.
+After every scan, each finding at or above a subscriber's `min_severity`
+(default `info`) whose scanner and cluster match its optional regexes is
+POSTed to its `url`, one request per finding. A finding already sent to a
+subscriber in the last six hours is not sent again. Without a
+`body_template` the body is a JSON object with `severity`, `cluster`,
+`scanner`, `title`, `description`, `affected`, and `remediation`. A template
+is Go `text/template` over the same fields, capitalized, plus `.Env`.
+Header values and rendered bodies expand `$VARS` from the server's
+environment, so tokens stay out of the file. `content_type` defaults to
+`application/json`. Outbound requests are not signed: authenticate them with
+a header. A failed delivery is logged and never fails the scan.
 
-## Signature format
+## Inbound signature format
 
 `X-Fleetsweeper-Signature: sha256=<lowercase hex digest of HMAC-SHA256(secret, body)>`
 
