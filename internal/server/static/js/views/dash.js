@@ -8,6 +8,8 @@ import { TIPS, tip } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
 import { miniGauge, utilizationBars } from '../charts.js';
+import { renderWaterfall, mountWaterfall } from '../components/waterfall.js';
+import { openFindingsFiltered } from './findings.js';
 import { on } from '../actions.js';
 import { triggerScan } from './trigger.js';
 
@@ -57,6 +59,7 @@ export async function renderDash() {
   }
 
   h += `<div id="dash-score">${fleetScoreHero(rpt.fleet_score, prevScore, prevTs, forecast)}</div>`;
+  if (rpt.score_attribution) h += renderWaterfall(rpt.score_attribution);
   if (rpt.brief && rpt.brief.headline) {
     h += '<div class="panel"><div class="eyebrow mb-4">Scan summary</div>' +
       `<div class="fs-14 fw-600 mb-4">${esc(rpt.brief.headline)}</div>` +
@@ -102,11 +105,20 @@ export async function renderDash() {
         utilizationBars('dashCpu', labels, rpt.cluster_healths.map((c) => c.avg_cpu));
         utilizationBars('dashMem', labels, rpt.cluster_healths.map((c) => c.avg_memory));
       }
+      if (rpt.score_attribution) mountWaterfall(rpt.score_attribution, rpt.fleet_score.score, openTerm);
       loadForecastPanel();
       loadCostPanel();
       loadIntegrationsPanel();
     },
   };
+}
+
+// openTerm lists the findings behind a waterfall bar: one severity for a
+// findings term, every finding otherwise.
+function openTerm(term) {
+  const sev = { 'critical-findings': 'critical', 'warning-findings': 'warning', 'info-findings': 'info' }[term];
+  if (sev) openFindingsFiltered('', sev);
+  else if (term === 'version-skew') openFindingsFiltered('version/skew');
 }
 
 // canvasId turns a cluster name into a safe element id fragment.
@@ -374,6 +386,7 @@ function showScannerDivergences(key) {
 }
 
 on('drill', (el) => showDrilldown(el.dataset.drill));
+on('rule-findings', (el) => openFindingsFiltered(el.dataset.rule));
 on('nav-clusters', () => { location.hash = '#/clusters'; });
 on('scanner-divergences', (el) => showScannerDivergences(el.dataset.scanner));
 on('trigger-scan', () => triggerScan());

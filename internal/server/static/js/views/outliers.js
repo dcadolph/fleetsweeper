@@ -1,15 +1,27 @@
-// The outliers page: clusters that deviate from the fleet norm.
+// The outliers page: every distribution the detectors measured, as strips,
+// in fleet or cohort scope, then the outlier table and its findings.
 
 import { api } from '../api.js';
-import { esc, clusterHref, sevTone } from '../dom.js';
+import { esc, clusterHref, sevTone, byId } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
+import { renderStrips } from '../components/strip.js';
+import { on } from '../actions.js';
 
-// renderOutliers lists the latest scan's outliers and their findings.
+let scope = 'fleet';
+
+// renderOutliers builds the strips for the chosen scope and the outlier
+// table for the latest scan.
 export async function renderOutliers() {
   renderBar();
-  const data = await api('/outliers');
-  let h = '<h2>Outlier detection</h2><p class="sub">Clusters that deviate from fleet norms (latest scan)</p>';
+  const [data, cohorts] = await Promise.all([api('/outliers'), api('/cohorts').catch(() => ({ cohorts: [] }))]);
+  const scopes = ['fleet'].concat((cohorts.cohorts || []).filter((c) => c.outliers && c.outliers.length).map((c) => c.name));
+  if (!scopes.includes(scope)) scope = 'fleet';
+  let h = '<h2>Outlier detection</h2><p class="sub">Each strip is one field across the fleet. The line is the median, the shaded band is the range a value may sit in before it is flagged, and red dots sit outside it.</p>';
+  h += '<div class="scope-bar" role="group" aria-label="Norm scope"><span class="eyebrow">Norm</span>' +
+    scopes.map((s) => `<button class="btn${s === scope ? ' on' : ''}" data-action="outlier-scope" data-scope="${esc(s)}" aria-pressed="${s === scope}">${esc(s)}</button>`).join('') + '</div>';
+  h += `<div id="outlierStrips">${await stripsFor(scope)}</div>`;
+  h += '<h3>Outlier table</h3>';
   if (!data.outliers || !data.outliers.length) {
     h += '<div class="empty">No outliers detected. Fleet is consistent.</div>';
   } else {
@@ -25,3 +37,25 @@ export async function renderOutliers() {
   if (data.findings && data.findings.length) h += '<h3>Findings from outlier analysis</h3>' + data.findings.map(renderFinding).join('');
   return h;
 }
+
+// stripsFor renders the distributions of one scope: fields with outliers
+// first, the rest folded away.
+async function stripsFor(s) {
+  const resp = await api('/distributions?scope=' + encodeURIComponent(s));
+  const dists = resp.distributions || [];
+  const flagged = dists.filter((d) => d.values.some((v) => v.outlier));
+  const calm = dists.filter((d) => !d.values.some((v) => v.outlier));
+  let h = renderStrips(flagged, { empty: 'No field has a cluster outside the norm in this scope.' });
+  if (calm.length) h += `<details class="mb-12"><summary class="fs-12 c-t2">${calm.length} more fields where every cluster is inside the norm</summary>${renderStrips(calm)}</details>`;
+  return h;
+}
+
+on('outlier-scope', async (btn) => {
+  scope = btn.dataset.scope;
+  document.querySelectorAll('[data-action="outlier-scope"]').forEach((b) => {
+    b.classList.toggle('on', b === btn);
+    b.setAttribute('aria-pressed', String(b === btn));
+  });
+  const box = byId('outlierStrips');
+  if (box) box.innerHTML = await stripsFor(scope);
+});

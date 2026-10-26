@@ -9,7 +9,7 @@ import { renderSidebar } from './shell.js';
 import { esc } from './dom.js';
 
 // P is the current page state.
-export const P = { page: 'dash', cluster: null, scanId: null, diffA: null, diffB: null, findingsQuery: '' };
+export const P = { page: 'dash', cluster: null, scanId: null, diffA: null, diffB: null, findingsQuery: '', findingsSeverity: '' };
 
 const leaveHooks = [];
 

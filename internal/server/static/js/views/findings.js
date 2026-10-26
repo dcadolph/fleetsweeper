@@ -11,9 +11,10 @@ import { on, onChange } from '../actions.js';
 let findings = [];
 
 // openFindingsFiltered moves to the findings page with the search box set to
-// q.
-export function openFindingsFiltered(q) {
+// q and, when given, the severity filter set to sev.
+export function openFindingsFiltered(q, sev) {
   P.findingsQuery = q;
+  P.findingsSeverity = sev || '';
   if (location.hash === '#/findings') {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   } else {
@@ -36,10 +37,13 @@ export async function renderFindings() {
   const clusters = [...new Set(findings.map((f) => f.cluster))].sort();
   h += '<div class="controls">' +
     `<input type="search" id="fSearch" class="input-w" placeholder="Filter findings..." data-change="filter-findings" aria-label="Filter findings" value="${esc(P.findingsQuery || '')}">` +
-    '<select id="fSev" data-change="filter-findings" aria-label="Severity"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>' +
+    '<select id="fSev" data-change="filter-findings" aria-label="Severity">' +
+    [['', 'All severities'], ['critical', 'Critical'], ['warning', 'Warning'], ['info', 'Info']]
+      .map(([v, l]) => `<option value="${v}"${v && v === P.findingsSeverity ? ' selected' : ''}>${l}</option>`).join('') + '</select>' +
     '<select id="fCluster" data-change="filter-findings" aria-label="Cluster"><option value="">All clusters</option>' +
     clusters.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('') + '</select></div>';
   P.findingsQuery = '';
+  P.findingsSeverity = '';
   if (!findings.length) return h + '<div class="empty">No findings. Fleet is healthy.</div>';
 
   const groups = {};

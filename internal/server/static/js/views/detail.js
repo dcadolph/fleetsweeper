@@ -2,10 +2,11 @@
 // section per scanner the cluster reported.
 
 import { api } from '../api.js';
-import { esc, pct, csvExport, statusTone, threshTone } from '../dom.js';
+import { esc, pct, csvExport, statusTone, threshTone, clusterHref } from '../dom.js';
 import { TIPS } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
+import { renderStrips } from '../components/strip.js';
 import { percentDoughnut, partDoughnut } from '../charts.js';
 import { P } from '../router.js';
 import { on, onChange } from '../actions.js';
@@ -57,6 +58,11 @@ export async function renderDetail() {
       '<div class="chc"><h4>Memory</h4><canvas id="detMem" height="120"></canvas></div>' +
       '<div class="chc"><h4>Nodes</h4><canvas id="detNodes" height="120"></canvas></div>' +
       '<div class="chc"><h4>Security posture</h4><canvas id="detSec" height="120"></canvas></div></div>';
+  }
+  h += '<h3>Where this cluster sits</h3>' + renderStrips(data.distributions || [], { highlight: c, empty: 'This cluster sits inside the norm on every field the detectors measured.' });
+  if (data.peers && data.peers.length) {
+    h += '<div class="eyebrow mb-4">Nearest peers by scanner profile</div><div class="peers mb-12">' +
+      data.peers.map((p) => `<a class="chip" href="${esc(clusterHref(p.cluster))}" data-tip="feature distance ${p.distance.toFixed(2)}">${esc(p.cluster)}</a>`).join('') + '</div>';
   }
   if (data.findings && data.findings.length) {
     h += `<h3 data-tour="findings-list">Findings (${data.findings.length})</h3>` + data.findings.map(renderFinding).join('');

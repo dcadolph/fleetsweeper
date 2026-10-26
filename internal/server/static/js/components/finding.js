@@ -22,7 +22,7 @@ function copyBlock(text, tipText) {
 // renderFinding returns the markup of one finding card.
 export function renderFinding(f) {
   const tone = sevTone(f.severity);
-  const text = [f.title, f.description, f.cluster, f.scanner].join(' ').toLowerCase();
+  const text = [f.title, f.description, f.cluster, f.scanner, f.rule].join(' ').toLowerCase();
   let h = `<div class="fi ${esc(f.severity)}${f.acked ? ' acked' : ''}" data-sev="${esc(f.severity)}" data-cluster="${esc(f.cluster)}"` +
     ` data-scanner="${esc(f.scanner)}" data-title="${esc(f.title)}" data-fp="${esc(f.fingerprint || '')}" data-text="${esc(text)}">`;
   h += '<div class="fi-head">';
