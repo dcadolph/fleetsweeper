@@ -263,9 +263,8 @@ func addMembers(data map[string]any, fix Fix, missing []string) error {
 		data[fix.Field] = arr
 		return nil
 	}
-	if p.Build == nil {
-		return fmt.Errorf("%w: adding %s to %s/%s would invent the objects that carry them",
-			ErrWhatIf, fix.Field, fix.Scanner, p.From)
+	if reason := WhatIfRefusal(fix.Scanner, fix.Field); reason != "" {
+		return fmt.Errorf("%w: %s", ErrWhatIf, reason)
 	}
 	arr, _ := data[p.From].([]any)
 	for _, m := range missing {
@@ -273,6 +272,19 @@ func addMembers(data map[string]any, fix Fix, missing []string) error {
 	}
 	data[p.From] = arr
 	return nil
+}
+
+// WhatIfRefusal returns why no what-if can project a fix to scanner/field, or
+// "" when one can. A set field derived from objects that a member alone cannot
+// rebuild, such as the ingress classes read off ingresses, has no fix that
+// does not invent those objects.
+func WhatIfRefusal(scanner, field string) string {
+	p, ok := setProjections[scanner]
+	if !ok || p.To != field || p.Build != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s is derived from the %s list, so projecting a fix would mean inventing entries in it.",
+		scanner, field, p.From)
 }
 
 // memberObject returns a Build func that splits a member on "/" into keys,

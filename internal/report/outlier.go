@@ -78,6 +78,9 @@ type NormBasis struct {
 	Z float64 `json:"z"`
 	// LimitedSample marks a norm drawn from a population too small for MAD.
 	LimitedSample bool `json:"limited_sample"`
+	// NoWhatIf explains why no what-if can project a fix toward this norm.
+	// Empty when one can.
+	NoWhatIf string `json:"no_what_if,omitempty"`
 }
 
 // OutlierResult describes a cluster that deviates from the fleet norm.
@@ -142,6 +145,7 @@ func (o OutlierResult) Basis() *NormBasis {
 		Value:         o.Value,
 		Z:             o.Z,
 		LimitedSample: o.LimitedSample,
+		NoWhatIf:      WhatIfRefusal(o.Scanner, o.Field),
 	}
 }
 
