@@ -11,6 +11,21 @@ import (
 //go:embed templates/report.html
 var templateFS embed.FS
 
+// ChartJS is the vendored Chart.js build. The standalone report inlines it so
+// the file renders offline from file://, and the server serves the same bytes
+// at /vendor/chart.min.js.
+//
+//go:embed templates/chart.min.js
+var ChartJS []byte
+
+// htmlTemplateData is what the report template renders.
+type htmlTemplateData struct {
+	// Payload is the report data as a JSON blob.
+	Payload template.JS
+	// ChartJS is the Chart.js source to inline.
+	ChartJS template.JS
+}
+
 // ClusterColors assigns a consistent color to each cluster for visual tracking.
 var ClusterColors = []string{
 	"#58a6ff", "#f85149", "#3fb950", "#d29922",
@@ -132,7 +147,7 @@ func RenderHTML(r *Report) ([]byte, error) {
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, template.JS(payloadJSON)); err != nil {
+	if err := tmpl.Execute(&buf, htmlTemplateData{Payload: template.JS(payloadJSON), ChartJS: template.JS(ChartJS)}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

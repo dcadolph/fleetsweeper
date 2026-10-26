@@ -7,6 +7,8 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
+// TestRenderHTML verifies the report HTML embeds the data payload and the shell, and inlines
+// Chart.js rather than loading it.
 func TestRenderHTML(t *testing.T) {
 	t.Parallel()
 
@@ -42,5 +44,12 @@ func TestRenderHTML(t *testing.T) {
 		if !strings.Contains(content, check) {
 			t.Errorf("HTML output missing expected content: %q", check)
 		}
+	}
+	// The report renders offline from file://, so Chart.js is inline and nothing loads remotely.
+	if !strings.Contains(content, string(ChartJS[:200])) {
+		t.Error("HTML output does not inline the vendored Chart.js")
+	}
+	if strings.Contains(content, "<script src=") {
+		t.Error("HTML output loads a remote script")
 	}
 }
