@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sort"
 
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
@@ -41,12 +41,8 @@ type NodeMetrics struct {
 
 // Data holds cluster-wide resource utilization metrics.
 type Data struct {
-	// Available is false when metrics-server is not installed or not authorized.
+	// Available is false when the cluster does not serve the metrics API.
 	Available bool `json:"available"`
-	// Forbidden is true when the API returned 403 (metrics-server installed but
-	// RBAC denied). Distinguishing this from "not installed" lets operators fix
-	// the right thing.
-	Forbidden bool `json:"forbidden,omitempty"`
 	// NodeCount is the number of nodes with metrics.
 	NodeCount int `json:"node_count"`
 	// AvgCPUPercent is the average CPU utilization across all nodes.
@@ -65,43 +61,30 @@ type Data struct {
 	Nodes []NodeMetrics `json:"nodes"`
 }
 
-// NewScanner returns a scanner that collects node resource utilization from
-// the metrics API. A missing metrics API yields StateUnavailable, while a 403
-// or any other API failure propagates a wrapped ErrScan so a denied read is
-// never mistaken for a healthy, zero-utilization cluster.
+// NewScanner returns a scanner that collects node resource utilization from the metrics API.
+// A metrics API the cluster does not serve yields StateUnavailable. A denied or failed metrics
+// read errors, so it is never mistaken for a healthy, zero-utilization cluster. A failed node
+// read leaves usage without percentages and marks the result StateDegraded.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
 		if dyn == nil {
-			return scanner.Result{Scanner: Name, Data: Data{Available: false}}, nil
+			return scanner.Result{Scanner: Name, State: scanner.StateErrored, Reason: "no dynamic client"},
+				fmt.Errorf("%w: %s: no dynamic client", scanner.ErrScan, Name)
 		}
 
-		metricsList, err := dyn.Resource(nodeMetricsGVR).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			if meta.IsNoMatchError(err) || errors.IsNotFound(err) {
-				return scanner.Result{
-					Scanner: Name,
-					State:   scanner.StateUnavailable,
-					Reason:  "metrics-server not installed",
-					Data:    Data{Available: false},
-				}, nil
-			}
-			if errors.IsForbidden(err) {
-				return scanner.Result{
-					Scanner: Name,
-					Data:    Data{Available: false, Forbidden: true},
-				}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
-			}
-			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		metricsItems, err := scanner.ListAll(ctx, metav1.ListOptions{}, dyn.Resource(nodeMetricsGVR).List,
+			func(l *unstructured.UnstructuredList) []unstructured.Unstructured { return l.Items })
+		if !cov.Observe("node metrics", err) {
+			return cov.Finish(Name, Data{Available: false})
 		}
 
-		nodeList, nodeErr := client.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		allocatable := make(map[string]allocInfo)
-		if nodeErr == nil {
-			for _, n := range nodeList.Items {
+		nodes, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
+			func(l *corev1.NodeList) []corev1.Node { return l.Items })
+		allocatable := make(map[string]allocInfo, len(nodes))
+		if cov.Observe("nodes", err) {
+			for _, n := range nodes {
 				cpu := n.Status.Allocatable["cpu"]
 				mem := n.Status.Allocatable["memory"]
 				allocatable[n.Name] = allocInfo{
@@ -113,12 +96,12 @@ func NewScanner() scanner.Scanner {
 
 		data := Data{
 			Available: true,
-			NodeCount: len(metricsList.Items),
+			NodeCount: len(metricsItems),
 		}
 
 		var totalCPUPct, totalMemPct float64
 
-		for _, item := range metricsList.Items {
+		for _, item := range metricsItems {
 			nm := extractNodeMetrics(item.Object, allocatable)
 			data.Nodes = append(data.Nodes, nm)
 
@@ -147,10 +130,7 @@ func NewScanner() scanner.Scanner {
 			return data.Nodes[i].Name < data.Nodes[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data:    data,
-		}, nil
+		return cov.Finish(Name, data)
 	})
 }
 
