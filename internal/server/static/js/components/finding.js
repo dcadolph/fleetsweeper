@@ -10,6 +10,7 @@ import { on } from '../actions.js';
 import { send } from '../auth.js';
 import { openDrawer } from './drawer.js';
 import { toast } from './toast.js';
+import { openWhatIf } from './whatif.js';
 
 // PERSISTENCE_TIPS explains each persistence class.
 const PERSISTENCE_TIPS = {
@@ -49,6 +50,19 @@ function metaLine(f, persistence) {
   return `<div class="fi-meta">${parts.join('<span class="c-t3" aria-hidden="true">&middot;</span>')}</div>`;
 }
 
+// normAttrs returns the data attributes a what-if needs for a finding the norm raised: the
+// field and the scope of the norm. Absolute-rule findings carry none.
+function normAttrs(f) {
+  if (!f.norm || !f.affected || !f.affected.length) return '';
+  return ` data-field="${esc(f.affected[0])}" data-scope="${esc(f.norm.scope || '')}"`;
+}
+
+// whatIfControl renders the What if button for a finding the norm raised.
+function whatIfControl(f) {
+  if (!f.norm || !f.affected || !f.affected.length || f.cluster === 'fleet') return '';
+  return '<button class="btn btn-sm" data-action="whatif" data-tip="Project the fleet with this value fixed to the norm. Nothing is changed.">What if</button>';
+}
+
 // ackControl renders the ack state and the button that changes it.
 function ackControl(f) {
   if (!f.fingerprint) return '';
@@ -66,9 +80,9 @@ export function renderFinding(f, opts) {
   const text = [f.title, f.description, f.cluster, f.scanner, f.rule].join(' ').toLowerCase();
   let h = `<article class="fi ${esc(f.severity)}${f.acked ? ' acked' : ''}" data-sev="${esc(f.severity)}" data-cluster="${esc(f.cluster)}"` +
     ` data-scanner="${esc(f.scanner)}" data-title="${esc(f.title)}" data-fp="${esc(f.fingerprint || '')}" data-kind="${esc(f.kind || 'finding')}"` +
-    ` data-acked="${f.acked ? '1' : ''}" data-text="${esc(text)}">`;
+    ` data-acked="${f.acked ? '1' : ''}" data-text="${esc(text)}"${normAttrs(f)}>`;
   h += `<div class="fi-head"><span class="tag bg-${tone} c-${tone}" data-tip="${esc(tip('sev_' + f.severity))}">${esc(f.severity)}</span>` +
-    `<span class="fi-title">${esc(f.title)}</span><span class="fi-ack">${ackControl(f)}</span></div>`;
+    `<span class="fi-title">${esc(f.title)}</span>${whatIfControl(f)}<span class="fi-ack">${ackControl(f)}</span></div>`;
   h += metaLine(f, o.persistence);
   if (f.description) h += `<div class="fi-desc">${esc(f.description)}</div>`;
   if (f.affected && f.affected.length) {
@@ -159,4 +173,10 @@ on('ack', (btn, ev) => {
   ev.preventDefault();
   const el = btn.closest('.fi');
   if (el && el.dataset.fp) openAckDrawer(el);
+});
+
+on('whatif', (btn, ev) => {
+  ev.preventDefault();
+  const el = btn.closest('.fi');
+  if (el && el.dataset.field) openWhatIf(el);
 });
