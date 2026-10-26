@@ -67,19 +67,6 @@ func (s *Server) fleetScoreHistory(ctx context.Context, limit int) []report.Flee
 	return out
 }
 
-
-// clampScore keeps a score within the 0-100 range so the synthetic curve
-// never goes out of bounds even if the demo's base score shifts.
-func clampScore(v int) int {
-	if v < 0 {
-		return 0
-	}
-	if v > 100 {
-		return 100
-	}
-	return v
-}
-
 // clusterForecast is the per-cluster row returned by /api/forecast/clusters.
 type clusterForecast struct {
 	// Cluster is the kubeconfig context name.
@@ -169,4 +156,3 @@ func (s *Server) clusterScoreHistories(ctx context.Context, limit int) (map[stri
 	}
 	return histories, current
 }
-

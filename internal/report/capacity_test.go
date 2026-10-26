@@ -58,7 +58,9 @@ func TestRecommendNodeCount(t *testing.T) {
 // nor gets compared, and one hot peer does not make the rest look deviant.
 func TestGroupComparison(t *testing.T) {
 	t.Parallel()
-	read := func(cpu, mem float64) clusterSignals { return clusterSignals{hasMetrics: true, cpuPct: cpu, memPct: mem} }
+	read := func(cpu, mem float64) clusterSignals {
+		return clusterSignals{hasMetrics: true, cpuPct: cpu, memPct: mem}
+	}
 	peers := []string{"a", "b", "c", "d", "e"}
 	tests := []struct {
 		Signals   map[string]clusterSignals
