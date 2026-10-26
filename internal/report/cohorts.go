@@ -35,10 +35,11 @@ func (l cohortSectionLookup) PerCluster(name string) map[string]any {
 	return sec.PerCluster
 }
 
-// buildCohorts assigns clusters to cohorts and runs MAD-based outlier
-// detection within each cohort that is large enough to be statistically
-// meaningful. Cohorts below minMADSample participants contribute their
-// members and source but no outliers.
+// buildCohorts assigns clusters to cohorts and runs outlier detection within
+// each one: MAD for cohorts of minMADSample clusters or more, the
+// leave-one-out majority diff for cohorts of minMajoritySample to
+// minMADSample-1. Smaller cohorts contribute their members and source but no
+// outliers.
 func buildCohorts(r *Report, tags map[string]string, threshold float64) []CohortSummary {
 	if len(r.Clusters) == 0 {
 		return nil
@@ -53,8 +54,12 @@ func buildCohorts(r *Report, tags map[string]string, threshold float64) []Cohort
 			Source:   string(g.Source),
 			Clusters: g.Clusters,
 		}
-		if len(g.Clusters) >= minMADSample {
+		switch {
+		case len(g.Clusters) >= minMADSample:
 			summary.Outliers = detectCohortOutliers(r, g.Name, g.Clusters, threshold)
+		case len(g.Clusters) >= minMajoritySample:
+			sub := &Report{Clusters: g.Clusters, Sections: r.Sections}
+			summary.Outliers = detectMajorityOutliers(sub, threshold, g.Name)
 		}
 		out = append(out, summary)
 	}

@@ -180,7 +180,13 @@ func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult 
 	for i := range outliers {
 		outliers[i].Scope = scope
 	}
+	sortOutliers(outliers)
+	return outliers
+}
 
+// sortOutliers orders outliers by severity, then scanner, cluster, and field,
+// so report output is stable across runs.
+func sortOutliers(outliers []OutlierResult) {
 	sevOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	sort.Slice(outliers, func(i, j int) bool {
 		if sevOrder[outliers[i].Severity] != sevOrder[outliers[j].Severity] {
@@ -189,10 +195,11 @@ func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult 
 		if outliers[i].Scanner != outliers[j].Scanner {
 			return outliers[i].Scanner < outliers[j].Scanner
 		}
-		return outliers[i].Cluster < outliers[j].Cluster
+		if outliers[i].Cluster != outliers[j].Cluster {
+			return outliers[i].Cluster < outliers[j].Cluster
+		}
+		return outliers[i].Field < outliers[j].Field
 	})
-
-	return outliers
 }
 
 // detectNumericOutliers flags clusters where a numeric field is beyond threshold

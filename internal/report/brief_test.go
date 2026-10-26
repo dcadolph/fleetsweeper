@@ -20,6 +20,9 @@ func TestGenerateBrief(t *testing.T) {
 				Remediation: &Remediation{Command: "kubectl get validatingwebhookconfiguration"}},
 			{Title: "b cert expiring", Severity: SeverityWarning, Cluster: "b", Scanner: "certs"},
 			{Title: "c note", Severity: SeverityInfo, Cluster: "c", Scanner: "version"},
+			{Title: "b deviates from its cohort on node_count", Severity: SeverityInfo, Cluster: "b",
+				Scanner: "resources", Affected: []string{"node_count"},
+				Norm: &NormBasis{Scope: "prod", Kind: NormKindNumeric, Median: 3, SampleSize: 5, Value: "9"}},
 		},
 		Incidents: []Incident{
 			{Cluster: "a", Title: "a: admission path degraded (2 signals)", Theme: "admission-control", Severity: SeverityCritical},

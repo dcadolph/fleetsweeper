@@ -1,6 +1,7 @@
 package report
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -49,8 +50,10 @@ type Report struct {
 	Findings []Finding `json:"findings"`
 	// ClusterHealths holds per-cluster health summaries.
 	ClusterHealths []ClusterHealth `json:"cluster_healths"`
-	// Outliers lists clusters that deviate from fleet norms. Populated when
-	// the fleet has more than 20 clusters.
+	// Outliers lists clusters that deviate from fleet norms. Fleets of
+	// minMADSample clusters or more use MAD. Fleets of minMajoritySample to
+	// minMADSample-1 use the leave-one-out majority diff, whose results are
+	// marked LimitedSample. Smaller fleets get none and a line in Notes.
 	Outliers []OutlierResult `json:"outliers,omitempty"`
 	// Capacity holds smart capacity analysis per cluster, correlating
 	// utilization, pressure, events, and headroom.
@@ -72,6 +75,9 @@ type Report struct {
 	Incidents []Incident `json:"incidents,omitempty"`
 	// Brief is a short, deterministic executive summary of this report.
 	Brief Brief `json:"brief"`
+	// Notes explain analysis the report could not run, such as outlier
+	// detection on a fleet too small to have a norm.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // ScannerStatus records a scanner run that did not return complete,
@@ -198,8 +204,16 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Categories = buildCategories(scannerNames)
 	r.Summary = buildSummary(clusters, r.Sections)
 
-	if len(clusters) > 20 {
+	switch {
+	case len(clusters) >= minMADSample:
 		r.Outliers = DetectOutliers(r, opt.OutlierThreshold)
+	case len(clusters) >= minMajoritySample:
+		r.Outliers = detectMajorityOutliers(r, opt.OutlierThreshold, NormScopeFleet)
+	default:
+		r.Notes = append(r.Notes, fmt.Sprintf(
+			"Fleet-relative outlier detection needs at least %d clusters; this report has %d.",
+			minMajoritySample, len(clusters),
+		))
 	}
 
 	r.Capacity = AnalyzeCapacity(r, opt.Groups)
