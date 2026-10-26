@@ -23,7 +23,7 @@ spec:
     from inside a cluster.
   caveats: |
     Fleetsweeper writes its data to a SQLite file or PostgreSQL database.
-    For the default --demo mode no persistence is required.
+    The --demo mode runs on its own in-memory store and takes no --db.
     For production: pass --db with a writable path or DSN.
   platforms:
     - selector:
