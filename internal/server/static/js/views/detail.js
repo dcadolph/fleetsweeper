@@ -7,7 +7,7 @@ import { TIPS } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
 import { renderStrips } from '../components/strip.js';
-import { percentDoughnut, partDoughnut } from '../charts.js';
+import { renderMeter } from '../components/meter.js';
 import { P } from '../router.js';
 import { on, onChange } from '../actions.js';
 
@@ -52,35 +52,29 @@ export async function renderDetail() {
   h += `<h2>${esc(c)}</h2>`;
   if (ch) {
     const tone = statusTone(ch.status);
-    h += `<p class="sub flex items-center gap-6"><span class="dot dot-lg fill-${tone}"></span><b>${esc(ch.status)}</b> &middot; ${esc(ch.kubernetes_version)} &middot; ${ch.node_count} nodes &middot; CPU ${pct(ch.avg_cpu)} &middot; Mem ${pct(ch.avg_memory)} &middot; ${ch.warning_events} warning events</p>`;
+    h += `<p class="sub flex items-center gap-6"><span class="dot dot-lg fill-${tone}"></span><b>${esc(ch.status)}</b> &middot; ${esc(ch.kubernetes_version)} &middot; ${ch.warning_events} warning events</p>`;
+    const metered = !!sd.metrics && sd.metrics.available !== false;
+    const enf = sd.security ? sd.security.enforced_count || 0 : 0;
+    const unenf = sd.security ? sd.security.unenforced_count || 0 : 0;
+    const nodeShare = ch.node_count ? ch.healthy_nodes / ch.node_count : null;
     h += '<div class="g g4">' +
-      '<div class="chc"><h4>CPU</h4><canvas id="detCpu" height="120"></canvas></div>' +
-      '<div class="chc"><h4>Memory</h4><canvas id="detMem" height="120"></canvas></div>' +
-      '<div class="chc"><h4>Nodes</h4><canvas id="detNodes" height="120"></canvas></div>' +
-      '<div class="chc"><h4>Security posture</h4><canvas id="detSec" height="120"></canvas></div></div>';
+      renderMeter('CPU', metered ? pct(ch.avg_cpu) : 'n/a', metered ? 'average across nodes' : 'metrics unavailable', metered ? ch.avg_cpu / 100 : null, threshTone(ch.avg_cpu)) +
+      renderMeter('Memory', metered ? pct(ch.avg_memory) : 'n/a', metered ? 'average across nodes' : 'metrics unavailable', metered ? ch.avg_memory / 100 : null, threshTone(ch.avg_memory)) +
+      renderMeter('Nodes', `${ch.healthy_nodes}/${ch.node_count}`, 'healthy', nodeShare, ch.healthy_nodes === ch.node_count ? 'ok' : 'crit') +
+      renderMeter('Pod Security', `${enf}/${enf + unenf}`, 'namespaces enforced', enf + unenf ? enf / (enf + unenf) : null, unenf ? 'warn' : 'ok') +
+      '</div>';
   }
   h += '<h3>Where this cluster sits</h3>' + renderStrips(data.distributions || [], { highlight: c, empty: 'This cluster sits inside the norm on every field the detectors measured.' });
   if (data.peers && data.peers.length) {
     h += '<div class="eyebrow mb-4">Nearest peers by scanner profile</div><div class="peers mb-12">' +
-      data.peers.map((p) => `<a class="chip" href="${esc(clusterHref(p.cluster))}" data-tip="feature distance ${p.distance.toFixed(2)}">${esc(p.cluster)}</a>`).join('') + '</div>';
+      data.peers.map((p) => `<a class="pill-link" href="${esc(clusterHref(p.cluster))}" data-tip="feature distance ${p.distance.toFixed(2)}">${esc(p.cluster)}</a>`).join('') + '</div>';
   }
   if (data.findings && data.findings.length) {
     h += `<h3 data-tour="findings-list">Findings (${data.findings.length})</h3>` + data.findings.map(renderFinding).join('');
   }
   h += sections(sd);
 
-  return {
-    html: h,
-    post() {
-      if (!ch) return;
-      percentDoughnut('detCpu', ch.avg_cpu, 'CPU');
-      percentDoughnut('detMem', ch.avg_memory, 'Memory');
-      partDoughnut('detNodes', ['Healthy', 'Unhealthy'], ch.healthy_nodes, ch.node_count - ch.healthy_nodes, 'Nodes', 'crit');
-      const enf = sd.security ? sd.security.enforced_count || 0 : 0;
-      const unenf = sd.security ? sd.security.unenforced_count || 0 : 0;
-      if (enf + unenf > 0) partDoughnut('detSec', ['Enforced', 'Unenforced'], enf, unenf, 'PSS', unenf ? 'warn' : 'ok');
-    },
-  };
+  return h;
 }
 
 // sections renders one section per scanner the cluster reported.
