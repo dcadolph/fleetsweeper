@@ -16,7 +16,7 @@ import (
 // subscribe to. The Type field is the SSE event name; Data is JSON-
 // serialized on the wire.
 type Event struct {
-	// Type categorises the event (for example "scan.complete").
+	// Type categorizes the event (for example "scan.complete").
 	Type string `json:"type"`
 	// At is when the event was emitted.
 	At time.Time `json:"at"`

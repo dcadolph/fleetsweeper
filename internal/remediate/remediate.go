@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // defaultBaseURL is the GitHub REST API endpoint. Overridable for tests.
@@ -115,7 +116,7 @@ func Open(ctx context.Context, opts Options) (Result, error) {
 		opts.HTTPClient = &http.Client{Timeout: requestTimeout}
 	}
 
-	title := "fleetsweeper: " + truncate(opts.Finding.Title, 100)
+	title := "fleetsweeper: " + util.Truncate(opts.Finding.Title, 100)
 	body := renderPRBody(opts.Finding, opts.Cluster, opts.TargetPath)
 
 	res := Result{
@@ -223,18 +224,6 @@ func slugify(s string) string {
 		return "finding"
 	}
 	return cleaned
-}
-
-// truncate shortens s to n runes, appending an ellipsis when cut.
-func truncate(s string, n int) string {
-	if n <= 0 || len(s) <= n {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "..."
 }
 
 // repoInfo is the JSON shape of GET /repos/{owner}/{repo}.

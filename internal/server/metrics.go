@@ -22,7 +22,7 @@ import (
 // (new scan) the next scrape rebuilds.
 const metricsTTL = 20 * time.Second
 
-// metricsCache memoises the latest report build keyed by scan ID so two
+// metricsCache memoizes the latest report build keyed by scan ID so two
 // scrapes within metricsTTL only do the work once. Safe for concurrent use.
 type metricsCache struct {
 	mu      sync.Mutex

@@ -41,7 +41,7 @@ type AuditEntry struct {
 	// DurationMS is the request handler duration in milliseconds.
 	DurationMS int64 `json:"duration_ms"`
 	// Error, when non-empty, is a short message describing why the request
-	// failed authorisation or processing.
+	// failed authorization or processing.
 	Error string `json:"error,omitempty"`
 }
 

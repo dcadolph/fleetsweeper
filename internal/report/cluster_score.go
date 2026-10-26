@@ -3,6 +3,8 @@ package report
 import (
 	"fmt"
 	"math"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // ClusterScore is the per-cluster analogue of FleetScore. Same 0-100 scale,
@@ -106,12 +108,12 @@ func clusterHeadline(score, critical, warning int) string {
 	case score >= 95:
 		return "Healthy. No meaningful drift."
 	case score >= 85:
-		return fmt.Sprintf("Mostly healthy. %d warning%s to triage.", warning, plural(warning))
+		return fmt.Sprintf("Mostly healthy. %d warning%s to triage.", warning, util.Plural(warning))
 	case score >= 70:
 		return fmt.Sprintf("Drift building. %d critical, %d warning.", critical, warning)
 	case score >= 50:
 		return fmt.Sprintf("Significant drift. %d critical, %d warning.", critical, warning)
 	default:
-		return fmt.Sprintf("Degraded. %d critical finding%s.", critical, plural(critical))
+		return fmt.Sprintf("Degraded. %d critical finding%s.", critical, util.Plural(critical))
 	}
 }

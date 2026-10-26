@@ -193,7 +193,7 @@ func (s *Server) clusterScoreHistories(ctx context.Context, limit int) (map[stri
 	return histories, current
 }
 
-// demoClusterScoreHistories synthesises a per-cluster history for demo mode
+// demoClusterScoreHistories synthesizes a per-cluster history for demo mode
 // so the forecast endpoint has data to return. Critical clusters get a clear
 // degradation trajectory; healthy clusters get a flat line.
 func demoClusterScoreHistories() (map[string][]report.FleetScoreHistoryPoint, map[string]int) {

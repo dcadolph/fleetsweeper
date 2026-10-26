@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -161,19 +162,7 @@ func shortID() string {
 	now := time.Now().UnixMilli()
 	raw, _ := store.GenerateToken()
 	if len(raw) < 12 {
-		return formatHex(now)
+		return fmt.Sprintf("%012x", now)
 	}
-	return formatHex(now) + "-" + raw[4:12]
-}
-
-// formatHex renders a uint64 millisecond timestamp as a fixed-width hex string
-// so identifiers sort lexicographically.
-func formatHex(ms int64) string {
-	const hexdigits = "0123456789abcdef"
-	out := make([]byte, 12)
-	for i := 11; i >= 0; i-- {
-		out[i] = hexdigits[ms&0xf]
-		ms >>= 4
-	}
-	return string(out)
+	return fmt.Sprintf("%012x", now) + "-" + raw[4:12]
 }

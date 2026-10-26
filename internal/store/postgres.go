@@ -205,7 +205,7 @@ func (p *Postgres) SaveScanRecord(ctx context.Context, rec ScanRecord, results m
 	now := ts.UTC().Format(time.RFC3339)
 	clusters := rec.Clusters
 
-	scannerNames := collectScannerNames(results)
+	scannerNames := scanner.Names(results)
 	clustersJSON, _ := json.Marshal(clusters)
 	scannersJSON, _ := json.Marshal(scannerNames)
 

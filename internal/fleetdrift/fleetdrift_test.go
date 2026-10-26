@@ -1,7 +1,6 @@
 package fleetdrift
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 func TestReportsFor_Basic(t *testing.T) {
@@ -33,7 +33,7 @@ func TestReportsFor_Basic(t *testing.T) {
 		if rep.Metadata.Name == "" {
 			t.Errorf("empty name on report %+v", rep.Metadata)
 		}
-		if rep.Metadata.Name != sanitizeName(rep.Spec.Cluster) {
+		if rep.Metadata.Name != util.SanitizeName(rep.Spec.Cluster) {
 			t.Errorf("name sanitization mismatch for %q", rep.Spec.Cluster)
 		}
 		if rep.Metadata.Namespace != "fleetsweeper" {
@@ -69,26 +69,6 @@ func TestReportsFor_Basic(t *testing.T) {
 	}
 	if prodUS.Status.Summary.Critical != 1 {
 		t.Errorf("prod-us critical count: want 1, got %d", prodUS.Status.Summary.Critical)
-	}
-}
-
-func TestSanitizeName(t *testing.T) {
-	t.Parallel()
-	cases := []struct{ In, Want string }{
-		{"prod-us-east-1", "prod-us-east-1"},
-		{"Prod_EU-west-1", "prod-eu-west-1"},
-		{"store-nyc-#42", "store-nyc-42"},
-		{"foo.bar.baz", "foo.bar.baz"},
-		{"---", "unnamed"},
-		{"", "unnamed"},
-	}
-	for i, c := range cases {
-		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
-			t.Parallel()
-			if got := sanitizeName(c.In); got != c.Want {
-				t.Errorf("sanitizeName(%q): want %q, got %q", c.In, c.Want, got)
-			}
-		})
 	}
 }
 

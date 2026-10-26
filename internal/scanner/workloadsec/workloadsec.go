@@ -186,8 +186,8 @@ func NewScanner() scanner.Scanner {
 }
 
 // allContainers returns every container that can run in the pod: init,
-// regular, and ephemeral. The previous implementation ignored ephemeral
-// containers entirely, which hid the kubectl-debug attack surface.
+// regular, and ephemeral. Ephemeral containers are included because a
+// running pod can carry kubectl-debug containers that admission never saw.
 func allContainers(pod *corev1.Pod) []corev1.Container {
 	out := make([]corev1.Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers)+len(pod.Spec.EphemeralContainers))
 	out = append(out, pod.Spec.InitContainers...)

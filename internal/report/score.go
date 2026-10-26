@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // FleetScore is a single 0-100 indicator of overall fleet health, suitable for
@@ -162,19 +164,19 @@ func findingCost(findings []Finding) (float64, []FleetScoreDriver) {
 	var drivers []FleetScoreDriver
 	if critCost > 0 {
 		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d critical finding%s", crit, plural(crit)),
+			Reason: fmt.Sprintf("%d critical finding%s", crit, util.Plural(crit)),
 			Impact: int(math.Round(critCost)),
 		})
 	}
 	if warnCost > 0 {
 		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d warning finding%s", warn, plural(warn)),
+			Reason: fmt.Sprintf("%d warning finding%s", warn, util.Plural(warn)),
 			Impact: int(math.Round(warnCost)),
 		})
 	}
 	if infoCost > 0 {
 		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d info finding%s", info, plural(info)),
+			Reason: fmt.Sprintf("%d info finding%s", info, util.Plural(info)),
 			Impact: int(math.Round(infoCost)),
 		})
 	}
@@ -205,13 +207,13 @@ func clusterHealthCost(healths []ClusterHealth) (float64, []FleetScoreDriver) {
 	var drivers []FleetScoreDriver
 	if critCost > 0 {
 		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d of %d cluster%s critical", crit, total, plural(total)),
+			Reason: fmt.Sprintf("%d of %d cluster%s critical", crit, total, util.Plural(total)),
 			Impact: int(math.Round(critCost)),
 		})
 	}
 	if degCost > 0 {
 		drivers = append(drivers, FleetScoreDriver{
-			Reason: fmt.Sprintf("%d of %d cluster%s degraded", deg, total, plural(total)),
+			Reason: fmt.Sprintf("%d of %d cluster%s degraded", deg, total, util.Plural(total)),
 			Impact: int(math.Round(degCost)),
 		})
 	}
@@ -298,22 +300,14 @@ func headline(score int, r *Report) string {
 	clusters := len(r.Clusters)
 	switch {
 	case score >= 95:
-		return fmt.Sprintf("%d cluster%s, no meaningful drift.", clusters, plural(clusters))
+		return fmt.Sprintf("%d cluster%s, no meaningful drift.", clusters, util.Plural(clusters))
 	case score >= 85:
-		return fmt.Sprintf("%d cluster%s, light drift worth a glance.", clusters, plural(clusters))
+		return fmt.Sprintf("%d cluster%s, light drift worth a glance.", clusters, util.Plural(clusters))
 	case score >= 70:
-		return fmt.Sprintf("%d cluster%s, real drift to investigate.", clusters, plural(clusters))
+		return fmt.Sprintf("%d cluster%s, real drift to investigate.", clusters, util.Plural(clusters))
 	case score >= 50:
-		return fmt.Sprintf("%d cluster%s, significant drift across the fleet.", clusters, plural(clusters))
+		return fmt.Sprintf("%d cluster%s, significant drift across the fleet.", clusters, util.Plural(clusters))
 	default:
-		return fmt.Sprintf("%d cluster%s, fleet health is degraded.", clusters, plural(clusters))
+		return fmt.Sprintf("%d cluster%s, fleet health is degraded.", clusters, util.Plural(clusters))
 	}
-}
-
-// plural returns "s" when n is not 1.
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }

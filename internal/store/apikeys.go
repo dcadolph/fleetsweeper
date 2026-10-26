@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// APIKeyRecord is a persisted API key authorised to call the server.
+// APIKeyRecord is a persisted API key authorized to call the server.
 // Tokens are never stored in plaintext: only TokenHash is persisted, and the
 // raw token is returned to the operator exactly once at creation time.
 type APIKeyRecord struct {
@@ -24,7 +24,7 @@ type APIKeyRecord struct {
 	TokenHash string `json:"-"`
 	// Name is a human-readable label for the key (for example "ci-runner").
 	Name string `json:"name"`
-	// Role is the authorisation role: admin, operator, or viewer.
+	// Role is the authorization role: admin, operator, or viewer.
 	Role string `json:"role"`
 	// ClusterScope lists cluster names (or "group:<name>" entries) this key may
 	// act on. The single element "*" grants unrestricted access.
@@ -42,7 +42,7 @@ type APIKeyRecord struct {
 	CreatedBy string `json:"created_by,omitempty"`
 }
 
-// Role enumerates the authorisation levels Fleetsweeper recognizes.
+// Role enumerates the authorization levels Fleetsweeper recognizes.
 const (
 	// RoleAdmin grants unrestricted access including key management and audit log.
 	RoleAdmin = "admin"

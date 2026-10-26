@@ -11,9 +11,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// recommendCmd synthesises an ordered "do this next" list from the
+// recommendCmd synthesizes an ordered "do this next" list from the
 // remediations attached to the most recent scan. The ordering favors
 // remediations that would fix the same problem on many clusters at
 // once — that's where the operator's effort goes furthest.
@@ -93,7 +94,7 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		if f.Remediation == nil {
 			continue
 		}
-		if !severityAtLeast(f.Severity, minSeverity) {
+		if !util.SeverityAtLeast(f.Severity, minSeverity) {
 			continue
 		}
 		k := key{Scanner: f.Scanner, Title: f.Title}

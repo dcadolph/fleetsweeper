@@ -85,7 +85,7 @@ func (d *ScanDiff) populateScore(a, b *report.Report) {
 	}
 }
 
-// populateFindings categorises every finding in A and B into New, Resolved,
+// populateFindings categorizes every finding in A and B into New, Resolved,
 // or Persisted. Identity is fingerprint (cluster+scanner+title) so wording
 // tweaks to descriptions do not flip a persisted finding into resolved+new.
 func (d *ScanDiff) populateFindings(a, b *report.Report) {

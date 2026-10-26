@@ -166,7 +166,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		Sections:  make(map[string]*SectionReport),
 	}
 
-	scannerNames := collectScannerNames(results)
+	scannerNames := scanner.Names(results)
 	for _, name := range scannerNames {
 		perCluster := make(map[string]any, len(clusters))
 		for _, cluster := range clusters {
@@ -289,18 +289,16 @@ func buildSummary(clusters []string, sections map[string]*SectionReport) Summary
 	return s
 }
 
-// collectScannerNames gathers unique scanner names across all clusters in sorted order.
-func collectScannerNames(results map[string]map[string]scanner.Result) []string {
-	seen := make(map[string]struct{})
-	for _, scanners := range results {
-		for name := range scanners {
-			seen[name] = struct{}{}
+// GroupFindingsByCluster buckets findings by cluster, using "fleet" as the key for
+// cross-cluster findings.
+func GroupFindingsByCluster(findings []Finding) map[string][]Finding {
+	out := map[string][]Finding{}
+	for _, f := range findings {
+		key := f.Cluster
+		if key == "" {
+			key = "fleet"
 		}
+		out[key] = append(out[key], f)
 	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return out
 }

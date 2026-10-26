@@ -12,6 +12,7 @@ import (
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/store"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // whatChangedCmd diffs two scans and prints what's new, what cleared,
@@ -189,23 +190,13 @@ func computeWhatChanged(a, b *report.Report, idA, idB, minSeverity string) whatC
 func indexFindings(in []report.Finding, minSeverity string) map[string]report.Finding {
 	out := make(map[string]report.Finding, len(in))
 	for _, f := range in {
-		if !severityAtLeast(f.Severity, minSeverity) {
+		if !util.SeverityAtLeast(f.Severity, minSeverity) {
 			continue
 		}
 		k := f.Cluster + "|" + f.Scanner + "|" + f.Severity + "|" + f.Title
 		out[k] = f
 	}
 	return out
-}
-
-// severityAtLeast reports whether got is >= want in the
-// critical>warning>info ordering. Empty want means "always pass."
-func severityAtLeast(got, want string) bool {
-	if want == "" {
-		return true
-	}
-	rank := map[string]int{"info": 1, "warning": 2, "critical": 3}
-	return rank[got] >= rank[want]
 }
 
 // sortFindings sorts in place: critical first, then by cluster, then title.

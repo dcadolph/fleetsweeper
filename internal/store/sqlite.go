@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -207,7 +206,7 @@ func (s *SQLite) SaveScanRecord(ctx context.Context, rec ScanRecord, results map
 	now := ts.UTC().Format(time.RFC3339)
 	clusters := rec.Clusters
 
-	scannerNames := collectScannerNames(results)
+	scannerNames := scanner.Names(results)
 	clustersJSON, _ := json.Marshal(clusters)
 	scannersJSON, _ := json.Marshal(scannerNames)
 
@@ -578,22 +577,6 @@ func scanRecordFromRows(rows *sql.Rows) (*ScanRecord, error) {
 		return nil, fmt.Errorf("%w: unmarshal scanners: %w", ErrQuery, err)
 	}
 	return &r, nil
-}
-
-// collectScannerNames gathers unique scanner names from results.
-func collectScannerNames(results map[string]map[string]scanner.Result) []string {
-	seen := make(map[string]struct{})
-	for _, scanners := range results {
-		for name := range scanners {
-			seen[name] = struct{}{}
-		}
-	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 // generateID produces a time-sortable unique identifier. The leading millisecond

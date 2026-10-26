@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,12 +173,29 @@ func TestReportsFor_NilSafe(t *testing.T) {
 	}
 }
 
-func TestSanitizeName(t *testing.T) {
+// TestReportsForNameLength verifies the prefixed metadata.name never exceeds the Kubernetes name
+// limit, however long the cluster name is.
+func TestReportsForNameLength(t *testing.T) {
 	t.Parallel()
-	if got := sanitizeName("Prod_US-east-1!"); got != "prod-us-east-1" {
-		t.Errorf("sanitize: got %q", got)
-	}
-	if got := sanitizeName(""); got != "unnamed" {
-		t.Errorf("sanitize empty: got %q", got)
+	tests := []struct {
+		Cluster    string
+		WantResult string
+	}{{ // Test 0: A short name keeps the prefix.
+		Cluster: "Prod_East", WantResult: "fleetsweeper-prod-east",
+	}, { // Test 1: A long name is cut to 253 characters including the 13-character prefix.
+		Cluster: strings.Repeat("a", 300), WantResult: "fleetsweeper-" + strings.Repeat("a", 240),
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := &report.Report{Clusters: []string{test.Cluster}}
+			out := ReportsFor(r, "scan-1", "fleetsweeper")
+			if len(out) != 1 {
+				t.Fatalf("want 1 report, got %d", len(out))
+			}
+			if got := out[0].Metadata.Name; got != test.WantResult {
+				t.Errorf("name = %q (%d chars), want %q", got, len(got), test.WantResult)
+			}
+		})
 	}
 }

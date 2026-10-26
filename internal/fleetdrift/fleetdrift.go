@@ -13,13 +13,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // APIVersion is the FleetDriftReport CRD apiVersion. Bumped if and only if
@@ -123,16 +122,6 @@ type RemediationSpec struct {
 	RunbookURL string `json:"runbookURL,omitempty"`
 }
 
-// nameSanitize replaces runs of characters outside the DNS-1123 set with a
-// single dash so generated metadata.name values are accepted by the API
-// server. Adjacent dashes are then collapsed by collapseDashes.
-var nameSanitize = regexp.MustCompile(`[^a-z0-9.-]+`)
-
-// collapseDashes squashes runs of two or more dashes into a single dash.
-// Without this pass, an input like "store-nyc-#42" yields "store-nyc--42",
-// which is still valid DNS-1123 but visually noisy.
-var collapseDashes = regexp.MustCompile(`-{2,}`)
-
 // ReportsFor builds one FleetDriftReport per cluster in the supplied
 // report.Report. Fleet-scoped findings (Cluster == "fleet") are duplicated
 // onto every cluster's report so a single GitOps reconciler does not have to
@@ -145,7 +134,7 @@ func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
 	for _, h := range r.ClusterHealths {
 		healthByName[h.Name] = h
 	}
-	findingsByCluster := groupFindings(r.Findings)
+	findingsByCluster := report.GroupFindingsByCluster(r.Findings)
 
 	scanTime, err := time.Parse(time.RFC3339, r.Timestamp)
 	if err != nil {
@@ -161,7 +150,7 @@ func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
 			APIVersion: APIVersion,
 			Kind:       Kind,
 			Metadata: Metadata{
-				Name:      sanitizeName(cluster),
+				Name:      util.SanitizeName(cluster),
 				Namespace: namespace,
 				Labels: map[string]string{
 					"fleetsweeper.io/cluster":      cluster,
@@ -209,19 +198,6 @@ func Write(reports []FleetDriftReport, dir string) error {
 	return nil
 }
 
-// groupFindings buckets findings by cluster (or "fleet" for cross-cluster).
-func groupFindings(findings []report.Finding) map[string][]report.Finding {
-	out := map[string][]report.Finding{}
-	for _, f := range findings {
-		key := f.Cluster
-		if key == "" {
-			key = "fleet"
-		}
-		out[key] = append(out[key], f)
-	}
-	return out
-}
-
 // summarize tallies findings by severity.
 func summarize(fs []report.Finding) Summary {
 	var s Summary
@@ -259,22 +235,4 @@ func toFindingSpecs(fs []report.Finding) []FindingSpec {
 		out = append(out, spec)
 	}
 	return out
-}
-
-// sanitizeName returns a DNS-1123-safe rendering of cluster, suitable for
-// use as a Kubernetes metadata.name value. Lowercases, replaces runs of
-// invalid characters with a single dash, collapses adjacent dashes, and
-// truncates to 253 characters.
-func sanitizeName(cluster string) string {
-	lower := strings.ToLower(cluster)
-	cleaned := nameSanitize.ReplaceAllString(lower, "-")
-	cleaned = collapseDashes.ReplaceAllString(cleaned, "-")
-	cleaned = strings.Trim(cleaned, "-.")
-	if cleaned == "" {
-		return "unnamed"
-	}
-	if len(cleaned) > 253 {
-		cleaned = cleaned[:253]
-	}
-	return cleaned
 }
