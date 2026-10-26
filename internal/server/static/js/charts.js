@@ -30,45 +30,6 @@ export function destroyCharts() {
   instances = [];
 }
 
-// alpha returns a hex color with a two-digit alpha suffix.
-function alpha(hex, a) {
-  return /^#[0-9a-f]{6}$/i.test(hex) ? hex + a : hex;
-}
-
-// miniGauge draws a half-doughnut utilization gauge.
-export function miniGauge(id, val, label) {
-  const v = val || 0;
-  makeChart(id, {
-    type: 'doughnut',
-    data: { datasets: [{ data: [v, 100 - v], backgroundColor: [toneColor(threshTone(v)), token('--surface-3')], borderWidth: 0 }] },
-    options: {
-      responsive: false,
-      cutout: '70%',
-      rotation: -90,
-      circumference: 180,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: () => label + ': ' + Math.round(v) + '%' } } },
-    },
-  });
-}
-
-// utilizationBars draws one bar per label colored by utilization threshold.
-export function utilizationBars(id, labels, data) {
-  const colors = data.map((v) => toneColor(threshTone(v)));
-  makeChart(id, {
-    type: 'bar',
-    data: { labels, datasets: [{ data, backgroundColor: colors.map((c) => alpha(c, '40')), borderColor: colors, borderWidth: 2, borderRadius: 4 }] },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.raw + '%' } } },
-      scales: {
-        y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } },
-        x: { grid: { display: false } },
-      },
-    },
-  });
-}
-
 // centerText returns a plugin that writes a big value and a small caption in
 // the middle of a doughnut.
 function centerText(id, big, small, offset) {

@@ -9,8 +9,14 @@ import { openConnect } from '../welcome.js';
 
 let contexts = [];
 
-// renderManage lists the server's kubeconfig contexts.
+// renderManage lists the server's kubeconfig contexts, then the
+// integrations.
 export async function renderManage() {
+  return { html: (await contextsSection()) + '<div id="integrationsPanel"></div>', post: loadIntegrationsPanel };
+}
+
+// contextsSection renders the contexts the server can reach.
+async function contextsSection() {
   renderBar('');
   let h = '<h2>Add clusters</h2><p class="sub">Every context fleetsweeper can reach via its kubeconfig. Click Scan to bring a cluster into the fleet.</p>' +
     '<div class="controls"><button class="welcome-btn welcome-btn-primary" data-action="scan-contexts" data-all="1">Scan all available</button>' +
@@ -56,3 +62,20 @@ async function scanContexts(names, btn) {
 
 on('scan-contexts', (btn) => scanContexts(btn.dataset.all ? contexts.map((c) => c.name) : [btn.dataset.context], btn));
 on('connect', () => openConnect());
+
+// loadIntegrationsPanel fills the integrations grid.
+function loadIntegrationsPanel() {
+  const el = byId('integrationsPanel');
+  if (!el) return;
+  api('/integrations').then((d) => {
+    if (!d || !d.items) return;
+    let h = '<h3>Integrations <span class="fs-12 fw-500 c-t3">(configured vs available)</span></h3><div class="g g3">';
+    d.items.forEach((it) => {
+      const isOn = it.status === 'configured' || it.status === 'demo';
+      h += `<div class="cd${isOn ? ' bg-ok' : ''}"><div class="flex between items-center">` +
+        `<div class="fs-12 fw-500">${esc(it.name)}</div><span class="fs-12 fw-600 ${isOn ? 'c-ok' : 'c-t3'}">${esc(it.status)}</span></div>` +
+        (it.hint ? `<div class="note mt-4">${esc(it.hint)}</div>` : '') + '</div>';
+    });
+    el.innerHTML = h + '</div>';
+  }).catch(() => {});
+}

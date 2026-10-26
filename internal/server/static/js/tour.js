@@ -55,9 +55,9 @@ var STEPS = [
   },
   {
     page: 'dash',
-    selector: '[data-tour="health-cards"]',
+    selector: '[data-tour="cluster-table"]',
     title: 'Sorted by trouble, not by name.',
-    body: 'Critical first, then degraded, busy, healthy. Gauges go red above 85%.',
+    body: 'Critical first, then the points each cluster costs and how far it sits from the norm.',
     position: 'top',
     dwell: 4500,
   },
