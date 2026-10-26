@@ -75,10 +75,12 @@ go install github.com/dcadolph/fleetsweeper@latest
 fleetsweeper serve --demo --addr :8080
 ```
 
-Open `http://localhost:8080`. A synthetic 26-cluster fleet renders across
-four continents with a 3D globe, findings, trends, outliers, capacity, and
-a guided tour. No kubeconfig required. The pulsing red dots are the
-cinematic part. The outlier detection under them is the real part.
+Open `http://localhost:8080`. A synthetic 26-cluster fleet with six days of
+scan history renders with a 3D globe, findings, drift, outliers, capacity,
+and a guided tour. No kubeconfig required. The demo is real scan data run
+through the real engine, so every number on screen is one the engine
+computed. The pulsing red dot is the cinematic part. The outlier detection
+under it is the real part.
 
 ## Install for real
 

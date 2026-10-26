@@ -14,19 +14,19 @@ fleetsweeper serve --demo --addr :8080
 ```
 
 Open <http://localhost:8080>. The `--demo` fleet renders the globe, findings,
-trends, and outliers with no cluster access.
+drift, and outliers with no cluster access. It runs on its own in-memory
+store, seeded with six days of scans, and does not take `--db`.
 
-Swap the synthetic fleet for your own: run a scan, then restart the server
-against the same database. `--insecure` disables auth for local viewing.
+Swap the synthetic fleet for your own: run a scan into a database, then serve
+that database. `--insecure` disables auth for local viewing.
 
 ```shell
 fleetsweeper scan --all-contexts --db /tmp/fleet.db
 fleetsweeper serve --db /tmp/fleet.db --insecure
 ```
 
-Refresh the dashboard. The Fleet Score recomputes from your clusters and the
-demo fleet drops away. That is the whole loop; the sections below break down
-each piece.
+Open the dashboard. The Fleet Score is computed from your clusters. That is
+the whole loop. The sections below break down each piece.
 
 ## Prerequisites
 
@@ -38,13 +38,12 @@ each piece.
 ## Run the dashboard locally
 
 ```shell
-fleetsweeper serve --db /tmp/fleet.db --insecure --demo
+fleetsweeper serve --db /tmp/fleet.db --insecure
 ```
 
-The `--demo` flag preloads a synthetic fleet so the dashboard, globe, and
-trend charts have something to render on first boot. The `--insecure` flag
-disables authentication, which is appropriate only when you are testing
-locally.
+The `--insecure` flag disables authentication, which is appropriate only when
+you are testing locally. To preview the UI without clusters, run
+`fleetsweeper serve --demo` instead.
 
 Open <http://localhost:8080>.
 
@@ -54,8 +53,7 @@ Open <http://localhost:8080>.
 fleetsweeper scan --db /tmp/fleet.db --all-contexts
 ```
 
-Then refresh the dashboard. The Fleet Score updates with real data; the
-demo fleet is hidden once a real scan exists.
+Then refresh the dashboard. The Fleet Score updates with the new scan.
 
 ## Authenticate the API
 
