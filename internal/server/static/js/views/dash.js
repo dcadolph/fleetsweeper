@@ -65,7 +65,8 @@ export async function renderDash() {
   h += '<section class="dash-sec"><div class="sec-head"><h3>Furthest from the norm</h3>' +
     `<div class="scope-bar" role="group" aria-label="Norm scope"><span class="eyebrow">Norm</span>${scopeButtons(scopes)}</div></div>` +
     `<div id="dashStrips">${await stripPanel(stripScope)}</div></section>`;
-  h += `<section class="dash-sec"><h3>Drift this week</h3>${renderDriftLedger(ledger, 'the last ' + DRIFT_DAYS + ' days')}</section>`;
+  h += `<section class="dash-sec"><h3>Drift this week</h3>${renderDriftLedger(ledger, 'the last ' + DRIFT_DAYS + ' days', { rows: 5 })}` +
+    '<a class="fs-12" href="#/drift">The full drift view &rarr;</a></section>';
   h += `<section class="dash-sec"><h3>Worst clusters</h3>${renderClusterTable(clusterRows(rpt, forecasts))}</section>`;
   return { html: h, post: mountGlobeStrip };
 }

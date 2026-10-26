@@ -13,7 +13,7 @@ import { renderOutliers } from './views/outliers.js';
 import { renderCohorts } from './views/cohorts.js';
 import { renderHeatmap } from './views/heatmap.js';
 import { renderGlobe } from './views/globe.js';
-import { renderDiff } from './views/diff.js';
+import { renderDrift } from './views/drift.js';
 import { renderReplay } from './views/replay.js';
 import { renderClusters } from './views/clusters.js';
 import { renderGroups } from './views/groups.js';
@@ -34,7 +34,7 @@ export const ROUTES = [
   { id: 'capacity', label: 'Capacity and cost', group: 'Clusters', abbr: 'Ca', chord: 'c', render: renderCapacity },
   { id: 'trends', label: 'Trends', group: 'Drift', abbr: 'Tr', chord: 't', render: renderTrends },
   { id: 'replay', label: 'Drift replay', group: 'Drift', abbr: 'Rp', render: renderReplay },
-  { id: 'diff', label: 'Scan diff', group: 'Drift', abbr: 'Df', render: renderDiff },
+  { id: 'drift', label: 'Drift', group: 'Drift', abbr: 'Dr', render: renderDrift },
   { id: 'scans', label: 'Scan history', group: 'Drift', abbr: 'Sh', chord: 'h', render: renderScans },
   { id: 'globe', label: 'Globe', group: 'Map', abbr: 'Gl', chord: 'g', render: renderGlobe },
   { id: 'heatmap', label: 'Deviation matrix', group: 'Map', abbr: 'Mx', render: renderHeatmap },
