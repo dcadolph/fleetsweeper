@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/admission"
+	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -409,6 +410,14 @@ func (s *Server) rootRoutes() []route {
 	}
 }
 
+// serveChartJS serves the vendored Chart.js build the report package embeds, so the dashboard
+// and the standalone report load the same bytes.
+func serveChartJS(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(report.ChartJS)
+}
+
 // routes registers all API endpoints, health checks, and the static file handler.
 func (s *Server) routes() {
 	api := http.NewServeMux()
@@ -433,6 +442,7 @@ func (s *Server) routes() {
 	if err != nil {
 		panic(fmt.Sprintf("server: static fs: %v", err))
 	}
+	s.mux.HandleFunc("GET /vendor/chart.min.js", serveChartJS)
 	s.mux.Handle("/", http.FileServer(http.FS(staticContent)))
 }
 

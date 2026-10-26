@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fleetsweeper Report</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>{{.ChartJS}}</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0d1117;--s1:#161b22;--s2:#1c2128;--s3:#21262d;--sb:#010409;--tx:#e6edf3;--t2:#8b949e;--t3:#6e7681;--bd:#30363d;--ac:#58a6ff;--ok:#3fb950;--wn:#d29922;--cr:#f85149;--okb:rgba(63,185,80,.12);--wnb:rgba(210,153,34,.12);--crb:rgba(248,81,73,.12);--acb:rgba(88,166,255,.1);--r:8px;--mono:"SF Mono","Fira Code","Cascadia Code",ui-monospace,monospace}
@@ -129,7 +129,7 @@ table.dt td.mono{font-family:var(--mono);font-size:11px}
 </div>
 </div>
 <script>
-var DATA = {{.}};
+var DATA = {{.Payload}};
 var R = DATA.report;
 var CC = DATA.clusterColors;
 var SL = DATA.scannerLabels;

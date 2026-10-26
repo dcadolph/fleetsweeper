@@ -1,4 +1,6 @@
 # Vendored third-party files served from /vendor/. One line per file:
+# chart.min.js is embedded by the report package (internal/report/templates) and
+# served from there, so the dashboard and the standalone report share one copy.
 # path, upstream version, source, sha256 of the file as committed.
 chart.min.js        chart.js 4.4.7   npm chart.js-4.4.7.tgz dist/chart.umd.js (tarball sha512-pwkcKfdzTMAU/+jNosKhNL2bHtJc/sSmYgVbuGTEDhzkrhmyihmP7vUc/5ZK9WopidMDHNe3Wm7jOd/WhuHWuw==)  2812cb8825fdc57469eb2f7bb055e9429244e599920511ee477e828499b632cb
 globe.gl.min.js     globe.gl 2.46.1  https://github.com/vasturiano/globe.gl  a3c8641cf8df82ed54e589d370b8642abb26128d0e9078a9c9b118026c65f157
