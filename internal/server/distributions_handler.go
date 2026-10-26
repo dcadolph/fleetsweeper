@@ -209,7 +209,7 @@ func (s *Server) handleGetScoreAttribution(w http.ResponseWriter, r *http.Reques
 
 // handleGetDrift returns the drift ledger over a window of scans: the most recent ?scans=N
 // (default 10, at most 50), or the scans between ?since= and ?until= (RFC 3339), keeping the
-// newest 50.
+// newest ?scans=N (default and ceiling 50).
 func (s *Server) handleGetDrift(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var series []*scanInput
@@ -232,8 +232,9 @@ func (s *Server) handleGetDrift(w http.ResponseWriter, r *http.Request) {
 }
 
 // loadScanRange returns the stored scans between ?since= and ?until=, oldest first, keeping
-// the newest maxHistoryScans. A missing bound is open. It writes the error response and returns
-// ok=false on a bad bound or a store failure.
+// the newest ?scans=N (default and ceiling maxHistoryScans). A missing bound is open. In demo
+// mode with no stored scans it windows the demo series. It writes the error response and
+// returns ok=false on a bad bound or a store failure.
 func (s *Server) loadScanRange(w http.ResponseWriter, r *http.Request) ([]*scanInput, bool) {
 	since, ok := queryTime(w, r, "since", time.Unix(0, 0).UTC())
 	if !ok {
@@ -249,8 +250,12 @@ func (s *Server) loadScanRange(w http.ResponseWriter, r *http.Request) ([]*scanI
 		writeError(w, http.StatusInternalServerError, "list scans failed")
 		return nil, false
 	}
-	if len(scans) > maxHistoryScans {
-		scans = scans[:maxHistoryScans]
+	keep := queryLimit(r, "scans", maxHistoryScans, maxHistoryScans)
+	if len(scans) == 0 && s.demo {
+		return demoScanWindow(since, until, keep), true
+	}
+	if len(scans) > keep {
+		scans = scans[:keep]
 	}
 	opts := s.reportOptions(r.Context(), s.log)
 	out := make([]*scanInput, 0, len(scans))

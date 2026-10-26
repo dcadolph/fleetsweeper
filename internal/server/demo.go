@@ -578,3 +578,17 @@ func demoScanSeries(n int) []*scanInput {
 	}
 	return out
 }
+
+// demoScanWindow returns the demo series scans that fall between since and until, oldest
+// first, keeping the newest keep. The series is built at length keep so its RBAC step lands
+// inside the window.
+func demoScanWindow(since, until time.Time, keep int) []*scanInput {
+	var out []*scanInput
+	for _, in := range demoScanSeries(keep) {
+		if in.Timestamp.Before(since) || in.Timestamp.After(until) {
+			continue
+		}
+		out = append(out, in)
+	}
+	return out
+}
