@@ -102,8 +102,18 @@ func demoReport() *report.Report {
 	// Layer the curated incident narratives on top of the engine findings so
 	// the Findings page keeps its specific stories next to the live outliers
 	// and cohort drift the engine surfaced. Re-derive health and score from the
-	// combined set so the numbers reconcile.
-	r.Findings = append(r.Findings, demoFindings(pts)...)
+	// combined set so the numbers reconcile. A curated finding for a check the
+	// engine already reported on that cluster is dropped, so the engine's
+	// numbers win and every fingerprint stays unique.
+	engine := make(map[string]bool, len(r.Findings))
+	for _, f := range r.Findings {
+		engine[f.Fingerprint] = true
+	}
+	for _, f := range report.StampFingerprints(demoFindings(pts)) {
+		if !engine[f.Fingerprint] {
+			r.Findings = append(r.Findings, f)
+		}
+	}
 	sortBySeverity(r.Findings)
 	r.ClusterHealths = report.GenerateClusterHealth(r, r.Findings)
 	r.FleetScore = report.ComputeFleetScore(r)
@@ -143,6 +153,7 @@ func demoFindings(pts []geoPoint) []report.Finding {
 			out = append(out, degradedFindingsFor(p)...)
 		case "busy":
 			out = append(out, report.Finding{
+				Rule:        "metrics/capacity-busy",
 				Title:       p.Cluster + " is busy but healthy (CPU 72%, memory 68%)",
 				Description: "Utilization is elevated but no pressure conditions or restart spikes. Watch headroom; no action required yet.",
 				Severity:    report.SeverityInfo, Cluster: p.Cluster, Scanner: "metrics",
@@ -161,6 +172,7 @@ func criticalFindingsFor(p geoPoint) []report.Finding {
 	case "prod-us-east-1":
 		return []report.Finding{
 			{
+				Rule:        "node-health/memory-pressure",
 				Title:       cluster + " has 2 node(s) under memory pressure",
 				Description: "2 of 18 nodes report MemoryPressure=True. Pods on these nodes risk OOM kills and the scheduler will avoid them.",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "node-health",
@@ -168,12 +180,14 @@ func criticalFindingsFor(p geoPoint) []report.Finding {
 				Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " describe node ip-10-0-12-44.ec2.internal ip-10-0-19-188.ec2.internal"},
 			},
 			{
+				Rule:        "workload-security/privileged",
 				Title:       cluster + " has 3 privileged container(s)",
 				Description: "Privileged containers have full host access. Review whether these workloads genuinely require it.",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "workload-security",
 				Affected: []string{"observability/node-agent/agent", "security/falco/falco", "kube-system/csi-driver/driver"},
 			},
 			{
+				Rule:        "events/warning-volume",
 				Title:       cluster + " has 7 warning event(s) per node in the last hour",
 				Description: "126 warning events in the last hour across 18 nodes. Top reasons: BackOff (52), FailedScheduling (31), Killing (18).",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "events",
@@ -183,6 +197,7 @@ func criticalFindingsFor(p geoPoint) []report.Finding {
 	case "store-nyc-42":
 		return []report.Finding{
 			{
+				Rule:        "image-audit/bad-deploy",
 				Title:       cluster + " shows bad-deploy signals in 1 namespace(s)",
 				Description: "Image risks (no digest), failure-related warning events, and workload-security risks all overlap on the same namespace. Likely a recently rolled-out workload that is failing.",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "image-audit",
@@ -190,6 +205,7 @@ func criticalFindingsFor(p geoPoint) []report.Finding {
 				Remediation: &report.Remediation{Command: "kubectl --context " + cluster + " -n pos-system get pods,events --sort-by=.lastTimestamp"},
 			},
 			{
+				Rule:        "certs/expiring-7d",
 				Title:       cluster + " has 1 certificate(s) expiring in fewer than 7 days",
 				Description: "TLS certificate for the in-store payment webhook will expire imminently.",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "certs",
@@ -199,6 +215,7 @@ func criticalFindingsFor(p geoPoint) []report.Finding {
 	case "factory-osaka":
 		return []report.Finding{
 			{
+				Rule:        "admission/no-healthy-endpoints",
 				Title:       cluster + " has 1 admission webhook(s) with no healthy endpoints",
 				Description: "ValidatingWebhookConfiguration policy-engine/scc has zero ready endpoints. With failurePolicy=Fail, admission is broken cluster-wide.",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "admission",
@@ -208,6 +225,7 @@ func criticalFindingsFor(p geoPoint) []report.Finding {
 	case "edge-johannesburg":
 		return []report.Finding{
 			{
+				Rule:        "node-health/not-ready",
 				Title:       cluster + " has 1 node(s) not ready",
 				Description: "1 of 3 nodes is not reporting Ready=True. Workloads cannot be scheduled to it.",
 				Severity:    report.SeverityCritical, Cluster: cluster, Scanner: "node-health",
@@ -226,6 +244,7 @@ func degradedFindingsFor(p geoPoint) []report.Finding {
 	switch cluster {
 	case "prod-eu-central-1":
 		return []report.Finding{{
+			Rule:        "deprecated-apis/in-use",
 			Title:       cluster + " uses 2 deprecated API version(s)",
 			Description: "Migrate before the next Kubernetes minor upgrade or workloads will fail to admission.",
 			Severity:    report.SeverityWarning, Cluster: cluster, Scanner: "deprecated-apis",
@@ -233,6 +252,7 @@ func degradedFindingsFor(p geoPoint) []report.Finding {
 		}}
 	case "staging-ap-southeast-1":
 		return []report.Finding{{
+			Rule:        "workload-coverage/missing-pdb",
 			Title:       cluster + " has 4 replicated workload(s) without a PodDisruptionBudget",
 			Description: "Voluntary disruptions can take all replicas of these workloads down simultaneously.",
 			Severity:    report.SeverityWarning, Cluster: cluster, Scanner: "workload-coverage",
@@ -240,6 +260,7 @@ func degradedFindingsFor(p geoPoint) []report.Finding {
 		}}
 	case "store-london-soho":
 		return []report.Finding{{
+			Rule:        "security/psa-unenforced",
 			Title:       cluster + " has 5 namespace(s) without Pod Security enforcement",
 			Description: "5 of 14 namespaces (36%) have no Pod Security Standards enforce label.",
 			Severity:    report.SeverityWarning, Cluster: cluster, Scanner: "security",
@@ -247,6 +268,7 @@ func degradedFindingsFor(p geoPoint) []report.Finding {
 		}}
 	case "warehouse-sao-paulo":
 		return []report.Finding{{
+			Rule:        "admission/ca-expiring",
 			Title:       cluster + " has 3 admission webhook(s) with CA bundles expiring soon",
 			Description: "Renew or rotate the listed CA bundles before the deadlines.",
 			Severity:    report.SeverityWarning, Cluster: cluster, Scanner: "admission",

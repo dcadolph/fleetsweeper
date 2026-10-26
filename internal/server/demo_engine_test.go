@@ -1,6 +1,11 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
+)
 
 // TestDemoReportRunsRealEngine verifies that serve --demo exercises the real
 // report engine: the synthetic fleet produces populated per-scanner sections,
@@ -28,5 +33,33 @@ func TestDemoReportRunsRealEngine(t *testing.T) {
 	}
 	if len(r.Findings) == 0 {
 		t.Error("expected findings from the engine plus curated narratives")
+	}
+}
+
+// TestDemoFindingsCarryRules verifies every demo finding has a cataloged rule
+// and a unique fingerprint derived from it, and every norm finding carries a
+// remediation that states the gap.
+func TestDemoFindingsCarryRules(t *testing.T) {
+	t.Parallel()
+
+	normScanners := map[string]bool{"security": true, "metrics": true, "events": true, "namespaces": true}
+	seen := map[string]string{}
+	for _, f := range demoReport().Findings {
+		if prev, dup := seen[f.Fingerprint]; dup {
+			t.Errorf("findings %q and %q share fingerprint %s", prev, f.Title, f.Fingerprint)
+		}
+		seen[f.Fingerprint] = f.Title
+		if f.Rule == "" || report.RuleTitle(f.Rule) == f.Rule {
+			t.Errorf("finding %q has uncataloged rule %q", f.Title, f.Rule)
+		}
+		if f.Fingerprint != report.FindingFingerprint(f) {
+			t.Errorf("finding %q fingerprint %q does not match its rule", f.Title, f.Fingerprint)
+		}
+		if strings.Contains(f.Title, "deviates") && f.Remediation == nil {
+			t.Errorf("norm finding %q has no remediation", f.Title)
+		}
+		if normScanners[f.Scanner] && strings.Contains(f.Title, "deviates") && !strings.HasPrefix(f.Remediation.Command, "# ") {
+			t.Errorf("norm finding %q remediation does not state the gap: %q", f.Title, f.Remediation.Command)
+		}
 	}
 }

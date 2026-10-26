@@ -100,6 +100,14 @@ type Finding struct {
 	Cluster string `json:"cluster"`
 	// Scanner is the scanner that produced the finding.
 	Scanner string `json:"scanner"`
+	// Rule names the check that produced the finding as scanner/slug. It names
+	// no cluster and no count, so the same check on two clusters shares a rule.
+	Rule string `json:"rule"`
+	// Fingerprint is the stable finding identifier and the ack key: the
+	// SHA-256 of cluster, scanner, and rule.
+	Fingerprint string `json:"fingerprint"`
+	// Acked reports whether an active acknowledgement covers the finding.
+	Acked bool `json:"acked"`
 	// Affected lists the specific resources involved.
 	Affected []string `json:"affected,omitempty"`
 	// Remediation is the suggested fix, when available.

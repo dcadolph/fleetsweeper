@@ -4,10 +4,45 @@ Fleetsweeper translates raw scan data into actionable findings. Each
 finding includes:
 
 - A severity level (critical, warning, info).
+- A rule naming the check that produced it, e.g. `workload-security/privileged`.
 - The specific affected resources (named nodes, pods, bindings, images).
 - A plain English description.
 - A parameterized `kubectl` command using the affected resource names, when applicable.
 - Embedded YAML manifests for "no NetworkPolicy" and "no ResourceQuota" findings.
+
+## Rules and fingerprints
+
+Every finding carries a `rule` of the form `<scanner>/<slug>`. The rule names
+the check, never the cluster or a count, so the same check on two clusters
+shares a rule. Fixed checks have fixed slugs (`node-health/not-ready`,
+`certs/expiring-7d`). Checks derived from a scanner field put the field in the
+slug: `security/outlier-enforced-count` for a fleet outlier,
+`crds/cohort-outlier-crd-count` for a cohort outlier, `events/trend-warning-events`
+and `events/self-drift-warning-events` for history.
+
+A finding's `fingerprint` is the SHA-256 of its cluster, scanner, and rule
+separated by NUL bytes. Titles may carry counts ("3 privileged containers"),
+and a count change keeps the fingerprint, so:
+
+- An acknowledgement placed at one count still covers the finding at the next.
+- Persistence classes (chronic, intermittent, transient) follow the check
+  across scans instead of restarting whenever a count moves.
+- `fleetsweeper recommend` groups findings by scanner and rule, so leverage
+  counts every cluster the same fix applies to.
+
+The server includes `rule`, `fingerprint`, and `acked` on every finding it
+serves. Ack a finding with `POST /api/findings/{fingerprint}/ack`.
+
+## Norm remediations
+
+A finding that a cluster deviates from the fleet or cohort norm carries a
+remediation whose first line states the gap and whose second line inspects
+the resources the field counts on that cluster:
+
+```
+# enforced_count is 4 here, 8 below the fleet median of 12
+kubectl --context edge-nyc-42 get namespaces -L pod-security.kubernetes.io/enforce
+```
 
 ## Severity calibration
 
@@ -27,7 +62,7 @@ be worth an SRE's attention, not a daily false positive.
 | Severity | Finding                                                       | Remediation                                                                                            |
 | -------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Critical | `prod-eu` has 2 nodes under memory pressure                   | `kubectl --context prod-eu describe node n-12 n-17`                                                    |
-| Warning  | Kubernetes version skew across fleet                          | `kubectl version --short`                                                                              |
+| Warning  | Kubernetes version skew across fleet                          | `kubectl version`                                                                                      |
 | Warning  | `prod-eu` has 7 warning events in the last hour               | `kubectl --context prod-eu get events --field-selector type=Warning`                                   |
 | Warning  | `dev` has 5 namespaces without Pod Security enforcement       | `kubectl --context dev label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite`   |
 

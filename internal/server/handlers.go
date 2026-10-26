@@ -19,7 +19,7 @@ import (
 
 // writeDemoClusterDetail synthesizes a per-cluster detail payload from
 // demoReport so the cluster-detail page works end-to-end in demo mode.
-func (s *Server) writeDemoClusterDetail(w http.ResponseWriter, cluster string) {
+func (s *Server) writeDemoClusterDetail(ctx context.Context, w http.ResponseWriter, cluster string) {
 	rpt := demoReport()
 	var health *report.ClusterHealth
 	for i := range rpt.ClusterHealths {
@@ -38,6 +38,7 @@ func (s *Server) writeDemoClusterDetail(w http.ResponseWriter, cluster string) {
 			findings = append(findings, f)
 		}
 	}
+	s.markAcked(ctx, findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"cluster":      cluster,
 		"scan_id":      demoScanID,
@@ -196,7 +197,9 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if s.demo && id == demoScanID {
-		writeJSON(w, http.StatusOK, demoReport())
+		rpt := demoReport()
+		s.markAcked(ctx, rpt.Findings)
+		writeJSON(w, http.StatusOK, rpt)
 		return
 	}
 
@@ -234,6 +237,7 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 		rpt.Findings = filtered
 	}
 
+	s.markAcked(ctx, rpt.Findings)
 	writeJSON(w, http.StatusOK, rpt)
 }
 
@@ -374,7 +378,7 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 	}
 	if latest == nil {
 		if s.demo {
-			s.writeDemoClusterDetail(w, cluster)
+			s.writeDemoClusterDetail(r.Context(), w, cluster)
 			return
 		}
 		writeError(w, http.StatusNotFound, "no scans available")
@@ -415,6 +419,7 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 	for name, result := range clusterData {
 		scannerData[name] = result.Data
 	}
+	s.markAcked(ctx, clusterFindings)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"cluster":      cluster,
@@ -499,9 +504,11 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 	if len(scans) < 2 {
 		if s.demo {
 			trends := demoFleetTrends()
+			findings := report.GenerateTrendFindings(nil, trends)
+			s.markAcked(r.Context(), findings)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"fleet_trends": trends,
-				"findings":     report.GenerateTrendFindings(nil, trends),
+				"findings":     findings,
 			})
 			return
 		}
@@ -540,6 +547,7 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 
 	trends := report.ComputeFleetTrends(scanMetas, fleetResults)
 	findings := report.GenerateTrendFindings(nil, trends)
+	s.markAcked(r.Context(), findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"fleet_trends": trends,
 		"findings":     findings,
@@ -588,6 +596,7 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 	selfDrift := report.DetectSelfDrift(cluster, scanMetas, clusterResults)
 	findings := report.GenerateTrendFindings(trends, nil)
 	findings = append(findings, report.SelfDriftFindings(selfDrift)...)
+	s.markAcked(r.Context(), findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"cluster":        cluster,
 		"cluster_trends": trends,
@@ -605,6 +614,7 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 	if latest == nil {
 		if s.demo {
 			rpt := demoReport()
+			s.markAcked(r.Context(), rpt.Findings)
 			writeJSON(w, http.StatusOK, map[string]any{
 				"scan_id":  demoScanID,
 				"outliers": demoOutliers(),
@@ -631,6 +641,7 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rpt := report.Build(latest.Clusters, results, report.BuildOptions{OutlierThreshold: threshold})
+	s.markAcked(r.Context(), rpt.Findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scan_id":  latest.ID,
 		"outliers": rpt.Outliers,

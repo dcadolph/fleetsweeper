@@ -5,25 +5,15 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-)
 
-func TestAckFingerprint_Stable(t *testing.T) {
-	t.Parallel()
-	a := AckFingerprint("c", "s", "t")
-	b := AckFingerprint("c", "s", "t")
-	if a != b {
-		t.Errorf("fingerprint not stable for identical inputs")
-	}
-	if a == AckFingerprint("x", "s", "t") {
-		t.Errorf("fingerprint collided across clusters")
-	}
-}
+	"github.com/dcadolph/fleetsweeper/internal/util"
+)
 
 func TestSaveAndListAck(t *testing.T) {
 	t.Parallel()
 	s := openTestStore(t)
 	ctx := context.Background()
-	fp := AckFingerprint("prod-east", "node-health", "node down")
+	fp := util.Fingerprint("prod-east", "node-health", "node down")
 	err := s.SaveAck(ctx, AckRecord{
 		Fingerprint: fp,
 		Cluster:     "prod-east",
@@ -52,7 +42,7 @@ func TestAck_Upsert(t *testing.T) {
 	t.Parallel()
 	s := openTestStore(t)
 	ctx := context.Background()
-	fp := AckFingerprint("c", "s", "t")
+	fp := util.Fingerprint("c", "s", "t")
 	_ = s.SaveAck(ctx, AckRecord{Fingerprint: fp, AckBy: "alice", Reason: "first"})
 	_ = s.SaveAck(ctx, AckRecord{Fingerprint: fp, AckBy: "bob", Reason: "second"})
 	list, _ := s.ListAcks(ctx)
@@ -77,7 +67,7 @@ func TestSnooze_ExpiresAndIsPruned(t *testing.T) {
 	t.Parallel()
 	s := openTestStore(t)
 	ctx := context.Background()
-	fp := AckFingerprint("c", "s", "t")
+	fp := util.Fingerprint("c", "s", "t")
 	_ = s.SaveAck(ctx, AckRecord{
 		Fingerprint: fp,
 		SnoozeUntil: time.Now().Add(-time.Hour), // already expired

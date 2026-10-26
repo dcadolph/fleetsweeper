@@ -205,7 +205,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Capacity = AnalyzeCapacity(r, opt.Groups)
 	r.Cohorts = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
 	r.Findings = GenerateFindings(r)
-	r.Findings = append(r.Findings, misCohortFindings(r, opt.ClusterTags)...)
+	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
 	r.Incidents = FuseIncidents(r.Findings)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
 	r.FleetScore = ComputeFleetScore(r)

@@ -146,6 +146,7 @@ func misCohortFindings(r *Report, tags map[string]string) []Finding {
 			)
 		}
 		out = append(out, Finding{
+			Rule:        "cohort/wrong-cohort",
 			Title:       "Cluster may be in the wrong cohort",
 			Description: desc,
 			Severity:    SeverityWarning,

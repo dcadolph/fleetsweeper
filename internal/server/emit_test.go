@@ -3,19 +3,7 @@ package server
 import (
 	"os"
 	"testing"
-
-	"github.com/dcadolph/fleetsweeper/internal/store"
 )
-
-// TestStoreAckFingerprint verifies the re-export matches the store helper it
-// wraps.
-func TestStoreAckFingerprint(t *testing.T) {
-	t.Parallel()
-	want := store.AckFingerprint("east", "version", "old k8s")
-	if got := storeAckFingerprint("east", "version", "old k8s"); got != want {
-		t.Errorf("fingerprint mismatch: want %q, got %q", want, got)
-	}
-}
 
 // TestWriteFleetDriftIfConfigured covers the no-op guards and the write path
 // into a configured output directory.

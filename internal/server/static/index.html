@@ -419,8 +419,7 @@ function renderFinding(f){
   var sevTip=TIPS['sev_'+f.severity]||'';
   var scanTip=TIPS[f.scanner]||'';
   var scanLabel=_scannerLabels[f.scanner]||f.scanner;
-  var fpKey=(f.cluster||'')+'\0'+(f.scanner||'')+'\0'+(f.title||'');
-  var h='<div class="fi '+f.severity+'" data-sev="'+f.severity+'" data-cluster="'+esc(f.cluster)+'" data-fpkey="'+esc(fpKey)+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
+  var h='<div class="fi '+f.severity+'"'+(f.acked?' style="opacity:.45"':'')+' data-sev="'+f.severity+'" data-cluster="'+esc(f.cluster)+'" data-scanner="'+esc(f.scanner)+'" data-title="'+esc(f.title)+'" data-fp="'+esc(f.fingerprint||'')+'" data-text="'+(esc(f.title)+' '+esc(f.description)+' '+esc(f.cluster)+' '+esc(f.scanner)).toLowerCase()+'">';
   // Header row: severity + scanner + cluster.
   h+='<div style="width:100%">';
   h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">';
@@ -428,7 +427,7 @@ function renderFinding(f){
   h+='<span class="tag" style="background:rgba(139,148,158,.06);color:var(--t3)" data-tip="'+esc(scanTip)+'">'+esc(scanLabel)+'</span>';
   if(f.cluster&&f.cluster!=='fleet')h+='<span class="tag" style="background:rgba(88,166,255,.08);color:var(--ac);cursor:pointer" data-tip="Click to view cluster detail" onclick="event.stopPropagation();nav(\'detail\',{cluster:\''+esc(f.cluster)+'\'})">'+esc(f.cluster)+'</span>';
   else h+='<span class="tag" style="background:rgba(139,148,158,.08);color:var(--t2)" data-tip="Affects the entire fleet, not a single cluster">fleet</span>';
-  h+='<span class="tag finding-ack-btn" style="background:rgba(139,148,158,.08);color:var(--t3);cursor:pointer;margin-left:auto" data-tip="Acknowledge this finding; it will dim and stop firing Slack notifications" onclick="event.stopPropagation();ackFinding(this.closest(\'.fi\'))">ack</span>';
+  h+='<span class="tag finding-ack-btn" style="background:rgba(139,148,158,.08);color:'+(f.acked?'var(--ok)':'var(--t3)')+';cursor:pointer;margin-left:auto" data-tip="Acknowledge this finding; it will dim and stop firing Slack notifications" onclick="event.stopPropagation();ackFinding(this.closest(\'.fi\'))">'+(f.acked?'acked':'ack')+'</span>';
   h+='</div>';
   // Title and description.
   h+='<div style="font-size:13px;font-weight:500;color:var(--tx);line-height:1.3">'+esc(f.title)+'</div>';
@@ -766,26 +765,23 @@ function renderFleetScoreHero(fs,prevScore,prevTs,forecast){
 
 // ackFinding posts an acknowledgement for the finding represented by the
 // .fi container element, then dims the finding in place. The fingerprint is
-// computed client-side from cluster + scanner + title using SubtleCrypto so
-// the server does not have to echo it on every finding payload.
+// the one the server serves on every finding, a hash of cluster, scanner, and
+// rule, so the ack keeps matching when a count in the title changes.
 async function ackFinding(el){
   if(!el)return;
-  var fpKey=el.getAttribute('data-fpkey')||'';
+  var fp=el.getAttribute('data-fp')||'';
+  if(!fp)return;
   var reason=prompt('Reason (optional):','')||'';
   try{
-    var fp=await sha256Hex(fpKey);
     var cluster=el.getAttribute('data-cluster')||'';
-    var title=(el.querySelector('div[style*="font-size:13px"]')||{}).textContent||'';
-    var titleNode=el.querySelector('div[style*="font-size:13px"]');
-    var titleText=titleNode?titleNode.textContent.trim():'';
-    var scannerLabelNode=el.querySelectorAll('.tag')[1];
-    var scannerLabel=scannerLabelNode?scannerLabelNode.textContent.trim():'';
+    var titleText=el.getAttribute('data-title')||'';
+    var scannerName=el.getAttribute('data-scanner')||'';
     var headers={'Content-Type':'application/json'};
     if(window._authToken)headers['Authorization']='Bearer '+window._authToken;
     var resp=await fetch('/api/findings/'+fp+'/ack',{
       method:'POST',
       headers:headers,
-      body:JSON.stringify({cluster:cluster,scanner:scannerLabel,title:titleText,reason:reason}),
+      body:JSON.stringify({cluster:cluster,scanner:scannerName,title:titleText,reason:reason}),
     });
     if(resp.ok||resp.status===201){
       el.style.opacity='0.45';
@@ -799,16 +795,6 @@ async function ackFinding(el){
   }catch(e){
     alert('Ack error: '+e.message);
   }
-}
-
-// sha256Hex returns the lowercase hex SHA-256 of s. Used to compute the
-// finding fingerprint client-side so the API URL matches the server's.
-async function sha256Hex(s){
-  var enc=new TextEncoder();
-  var buf=await crypto.subtle.digest('SHA-256',enc.encode(s));
-  return Array.from(new Uint8Array(buf)).map(function(b){
-    return b.toString(16).padStart(2,'0');
-  }).join('');
 }
 
 // loadForecastPanel populates #dashForecastPanel with the per-cluster forecast

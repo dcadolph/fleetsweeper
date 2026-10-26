@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
-	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // demoSeriesStep is the synthetic interval between demo scans in the replay
@@ -47,7 +46,7 @@ func demoFindingSeries(n int) []scanFindings {
 // present; a subset live only a short past window and then resolve.
 func demoFindingPresent(f report.Finding, i, n int) bool {
 	h := fnv.New32a()
-	_, _ = h.Write([]byte(util.Fingerprint(f.Cluster, f.Scanner, f.Title)))
+	_, _ = h.Write([]byte(report.FindingFingerprint(f)))
 	seed := h.Sum32()
 
 	birth := int(seed % uint32(n))

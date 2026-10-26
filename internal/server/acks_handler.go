@@ -40,8 +40,8 @@ func (s *Server) handleListAcks(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateAck records (or refreshes) an acknowledgement for the finding
 // identified by the fingerprint in the URL path. The fingerprint is the
-// SHA-256 of cluster|scanner|title; the server does not compute it because
-// clients usually have the finding object already and can derive it locally.
+// finding's served fingerprint field, the SHA-256 of cluster|scanner|rule, so
+// the ack keeps matching when a count in the finding's title changes.
 func (s *Server) handleCreateAck(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 	if fp == "" {

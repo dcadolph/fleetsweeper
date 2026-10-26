@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -146,5 +149,61 @@ func TestHandleDeleteAck(t *testing.T) {
 	srv.handleDeleteAck(ew, empty)
 	if ew.Code != http.StatusBadRequest {
 		t.Errorf("empty fp: want 400, got %d", ew.Code)
+	}
+}
+
+// TestAckSurvivesCountChange acks a finding through the API at one count and
+// verifies the next scan, whose title carries a new count, serves it acked.
+func TestAckSurvivesCountChange(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	ctx := context.Background()
+
+	scanAt := func(privileged int) report.Finding {
+		t.Helper()
+		id, err := ss.SaveScan(ctx, []string{"a"}, map[string]map[string]scanner.Result{"a": {
+			"workload-security": {Scanner: "workload-security", State: scanner.StateOK, Data: map[string]any{
+				"privileged_containers": privileged, "total_pods": 10,
+			}},
+		}})
+		if err != nil {
+			t.Fatalf("seed scan: %v", err)
+		}
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/scans/"+id+"/report", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("get scan: want 200, got %d body=%s", w.Code, w.Body.String())
+		}
+		var rpt report.Report
+		if err := json.Unmarshal(w.Body.Bytes(), &rpt); err != nil {
+			t.Fatalf("decode report: %v", err)
+		}
+		for _, f := range rpt.Findings {
+			if f.Rule == "workload-security/privileged" {
+				return f
+			}
+		}
+		t.Fatalf("no privileged finding in %+v", rpt.Findings)
+		return report.Finding{}
+	}
+
+	first := scanAt(3)
+	if first.Acked {
+		t.Fatal("finding is acked before any ack")
+	}
+	body := `{"cluster":"a","scanner":"workload-security","title":"` + first.Title + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/findings/"+first.Fingerprint+"/ack", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("ack: want 201, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	second := scanAt(4)
+	if second.Title == first.Title {
+		t.Fatalf("fixture titles must differ: %q", first.Title)
+	}
+	if !second.Acked {
+		t.Errorf("finding %q is not acked at the new count", second.Title)
 	}
 }

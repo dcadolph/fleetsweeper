@@ -229,8 +229,8 @@ func TestFilterAckedFindings(t *testing.T) {
 	srv, ss := testServer(t)
 	ctx := context.Background()
 
-	acked := report.Finding{Cluster: "east", Scanner: "version", Title: "old k8s"}
-	fp := storeAckFingerprint(acked.Cluster, acked.Scanner, acked.Title)
+	acked := report.Finding{Cluster: "east", Scanner: "version", Rule: "version/skew", Title: "old k8s"}
+	fp := report.FindingFingerprint(acked)
 	if err := ss.SaveAck(ctx, store.AckRecord{
 		Fingerprint: fp, Cluster: "east", Scanner: "version", Title: "old k8s",
 		CreatedAt: time.Now().UTC(),

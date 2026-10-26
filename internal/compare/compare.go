@@ -86,12 +86,10 @@ func (d *ScanDiff) populateScore(a, b *report.Report) {
 }
 
 // populateFindings categorizes every finding in A and B into New, Resolved,
-// or Persisted. Identity is fingerprint (cluster+scanner+title) so wording
-// tweaks to descriptions do not flip a persisted finding into resolved+new.
+// or Persisted. Identity is the fingerprint (cluster+scanner+rule) so a count
+// change in a title does not flip a persisted finding into resolved+new.
 func (d *ScanDiff) populateFindings(a, b *report.Report) {
-	keyOf := func(f report.Finding) string {
-		return f.Cluster + "\x00" + f.Scanner + "\x00" + f.Title
-	}
+	keyOf := report.FindingFingerprint
 
 	aIdx := map[string]report.Finding{}
 	bIdx := map[string]report.Finding{}

@@ -1,10 +1,6 @@
 package report
 
-import (
-	"sort"
-
-	"github.com/dcadolph/fleetsweeper/internal/util"
-)
+import "sort"
 
 // Persistence classes describe how consistently a finding recurs across a
 // window of scans. The data carries no operator resolution label, so recurrence
@@ -36,6 +32,8 @@ type FindingPersistence struct {
 	Cluster string `json:"cluster"`
 	// Scanner is the scanner that produced the finding.
 	Scanner string `json:"scanner"`
+	// Rule is the check that produced the finding.
+	Rule string `json:"rule"`
 	// Title is the finding title as last observed.
 	Title string `json:"title"`
 	// Severity is the finding's severity as last observed.
@@ -66,25 +64,25 @@ func ComputePersistence(series [][]Finding, acked map[string]bool) []FindingPers
 	}
 
 	type agg struct {
-		cluster, scanner, title, severity string
-		present                           int
+		cluster, scanner, rule, title, severity string
+		present                                 int
 	}
 	seen := make(map[string]*agg)
 	order := make([]string, 0)
 
 	for _, scan := range series {
-		// Collapse duplicate titles within a single scan so a finding repeated
-		// in one scan still counts as one presence for that scan.
+		// Collapse duplicate fingerprints within a single scan so a finding
+		// repeated in one scan still counts as one presence for that scan.
 		inScan := make(map[string]bool)
 		for _, f := range scan {
-			fp := util.Fingerprint(f.Cluster, f.Scanner, f.Title)
+			fp := FindingFingerprint(f)
 			if inScan[fp] {
 				continue
 			}
 			inScan[fp] = true
 			a := seen[fp]
 			if a == nil {
-				a = &agg{cluster: f.Cluster, scanner: f.Scanner}
+				a = &agg{cluster: f.Cluster, scanner: f.Scanner, rule: f.Rule}
 				seen[fp] = a
 				order = append(order, fp)
 			}
@@ -102,6 +100,7 @@ func ComputePersistence(series [][]Finding, acked map[string]bool) []FindingPers
 			Fingerprint: fp,
 			Cluster:     a.cluster,
 			Scanner:     a.scanner,
+			Rule:        a.rule,
 			Title:       a.title,
 			Severity:    a.severity,
 			Present:     a.present,
@@ -136,7 +135,7 @@ func recentStreak(series [][]Finding, fp string) int {
 	for i := len(series) - 1; i >= 0; i-- {
 		found := false
 		for _, f := range series[i] {
-			if util.Fingerprint(f.Cluster, f.Scanner, f.Title) == fp {
+			if FindingFingerprint(f) == fp {
 				found = true
 				break
 			}

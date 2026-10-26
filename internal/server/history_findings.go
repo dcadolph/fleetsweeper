@@ -68,6 +68,19 @@ func (s *Server) ackedFingerprints(ctx context.Context) map[string]bool {
 	return set
 }
 
+// markAcked sets Acked on each finding that an active acknowledgement covers,
+// so every finding the server serves carries its ack state. A server without
+// a store leaves the findings unchanged.
+func (s *Server) markAcked(ctx context.Context, fs []report.Finding) {
+	if len(fs) == 0 || s.store == nil {
+		return
+	}
+	acked := s.ackedFingerprints(ctx)
+	for i := range fs {
+		fs[i].Acked = acked[report.FindingFingerprint(fs[i])]
+	}
+}
+
 // clampScanWindow reads the scans query parameter, applying a default and an
 // upper bound so one request cannot rebuild an unbounded number of reports.
 func clampScanWindow(r *http.Request, def, max int) int {
