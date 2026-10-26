@@ -84,7 +84,7 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 		manualByCluster[m.Cluster] = m
 	}
 
-	rpt := report.Build(latest.Clusters, results)
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
 	statusByCluster := make(map[string]report.ClusterHealth, len(rpt.ClusterHealths))
 	for _, h := range rpt.ClusterHealths {
 		statusByCluster[h.Name] = h

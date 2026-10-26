@@ -44,3 +44,53 @@ Filters compose. The server enforces `limit <= 1000`.
 The audit table grows unboundedly today. Operators with high mutation
 volumes should snapshot and purge externally; a built-in retention flag is
 planned and will be additive.
+
+## Sealed export bundles
+
+`fleetsweeper export` writes one scan as a `.tar.gz` for handoff to an
+auditor. With `--seal-key` (or `FLEETSWEEPER_SEAL_KEY`) the bundle is sealed.
+
+| File | Contents |
+| --- | --- |
+| `METADATA.txt` | Scan ID, scan time, score, and finding counts. |
+| `report.json` | The report, rebuilt from the stored scan. |
+| `report.pretty.json` | The same report, indented. |
+| `report.html` | The self-contained HTML report. |
+| `scan_results.json` | The raw scanner results the report was built from. |
+| `policyreports/` | One PolicyReport YAML per cluster. |
+| `fleetdrift/` | One FleetDriftReport YAML per cluster. |
+| `cost.json` | Cost correlation, only with `--cost-csv`. |
+| `MANIFEST` | The SHA-256 of every other file, one `<digest>  <path>` line each. |
+| `MANIFEST.sig` | `sha256=<hex>`, the HMAC-SHA256 of `MANIFEST` under the seal key. |
+
+`MANIFEST` uses the `sha256sum` layout, so `sha256sum -c MANIFEST` inside the
+unpacked bundle checks the digests without fleetsweeper.
+
+### What verify checks
+
+`fleetsweeper verify bundle.tar.gz --seal-key <key>` fails when:
+
+- `MANIFEST.sig` is not a valid signature of `MANIFEST` under the key, which
+  covers a wrong key and an edited `MANIFEST`.
+- A file listed in `MANIFEST` is missing or its digest differs.
+- The bundle holds a file that `MANIFEST` does not list.
+- The archive is not one root directory of regular files, or a path climbs
+  out with `..` or appears twice.
+
+A bundle without `MANIFEST` or `MANIFEST.sig` fails as unsealed.
+
+### Determinism
+
+A bundle is a function of the stored scan. The report is rebuilt with the
+scan's own timestamp, `METADATA.txt` carries no export time, archive entries
+are sorted and stamped with the scan time, so exporting the same scan twice
+with the same options writes byte-identical files and the same signature.
+
+`GET /api/scans/{id}/seal` rebuilds the bundle a default export writes
+(no `--cost-csv`, `--policy-report-namespace fleetsweeper`) and returns its
+signature and `MANIFEST`. An auditor can record that signature at scan time
+and later compare it with `MANIFEST.sig` in an export of the same scan. The
+endpoint returns 404 when the server runs without `--seal-key`.
+
+`fleetsweeper migrate` keeps scan IDs and timestamps, so a signature recorded
+before a move still names the right scan afterward.

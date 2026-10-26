@@ -7,9 +7,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/go-cmp/cmp"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/seal"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 func TestHandleGetScanSeal_DisabledWhenNoKey(t *testing.T) {
@@ -25,6 +30,9 @@ func TestHandleGetScanSeal_DisabledWhenNoKey(t *testing.T) {
 	}
 }
 
+// TestHandleGetScanSeal_ReturnsSignature verifies the endpoint signs the bundle MANIFEST, that
+// two calls agree, and that the signature equals sealing the default bundle of the scan built
+// at the scan's own time, which is what a default export writes.
 func TestHandleGetScanSeal_ReturnsSignature(t *testing.T) {
 	t.Parallel()
 	srv, s := testServer(t)
@@ -33,31 +41,55 @@ func TestHandleGetScanSeal_ReturnsSignature(t *testing.T) {
 	results := map[string]map[string]scanner.Result{
 		"cluster-a": {"version": {Scanner: "version", Data: map[string]any{"git_version": "v1.31.2"}}},
 	}
-	scanID, err := s.SaveScan(context.Background(), []string{"cluster-a"}, results)
+	at := time.Date(2026, 3, 1, 12, 30, 0, 0, time.UTC)
+	scanID, err := s.SaveScanRecord(context.Background(),
+		store.ScanRecord{Timestamp: at, Clusters: []string{"cluster-a"}}, results)
 	if err != nil {
 		t.Fatalf("save scan: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/scans/"+scanID+"/seal", nil)
-	req.SetPathValue("id", scanID)
-	w := httptest.NewRecorder()
-	srv.handleGetScanSeal(w, req)
+	call := func() sealResponse {
+		req := httptest.NewRequest(http.MethodGet, "/api/scans/"+scanID+"/seal", nil)
+		req.SetPathValue("id", scanID)
+		w := httptest.NewRecorder()
+		srv.handleGetScanSeal(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d (body: %s)", w.Code, w.Body.String())
+		}
+		var resp sealResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return resp
+	}
+	resp := call()
+	if diff := cmp.Diff(resp, call()); diff != "" {
+		t.Errorf("two calls differ (-first +second):\n%s", diff)
+	}
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d (body: %s)", w.Code, w.Body.String())
+	rpt := report.Build([]string{"cluster-a"}, results, report.BuildOptions{Timestamp: at})
+	files, err := seal.BundleFiles(rpt, results, scanID, seal.BundleOptions{Sealed: true})
+	if err != nil {
+		t.Fatalf("bundle files: %v", err)
 	}
-	var resp sealResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	wantSig, err := seal.SealBundle(files, "topsecret")
+	if err != nil {
+		t.Fatalf("seal bundle: %v", err)
 	}
-	if resp.ScanID != scanID {
-		t.Errorf("scan id: got %q want %q", resp.ScanID, scanID)
+	want := sealResponse{
+		ScanID:    scanID,
+		Algorithm: "HMAC-SHA256",
+		Source:    seal.ManifestFile,
+		Signature: wantSig,
+		Manifest:  string(files[seal.ManifestFile]),
 	}
-	if !strings.HasPrefix(resp.Signature, seal.Prefix) {
-		t.Errorf("expected signature with %q prefix, got %q", seal.Prefix, resp.Signature)
+	if diff := cmp.Diff(want, resp); diff != "" {
+		t.Errorf("response mismatch (-want +got):\n%s", diff)
 	}
-	if resp.Algorithm != "HMAC-SHA256" {
-		t.Errorf("algorithm: got %q want HMAC-SHA256", resp.Algorithm)
+	for _, name := range []string{"report.json", "scan_results.json", "METADATA.txt"} {
+		if !strings.Contains(resp.Manifest, "  "+name+"\n") {
+			t.Errorf("manifest does not list %s:\n%s", name, resp.Manifest)
+		}
 	}
 }
 

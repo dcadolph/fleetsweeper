@@ -92,7 +92,7 @@ func latestReport(ctx context.Context, st store.Store) (*report.Report, string, 
 	if err != nil {
 		return nil, "", fmt.Errorf("get scan results: %w", err)
 	}
-	rpt := report.Build(scans[0].Clusters, results)
+	rpt := report.Build(scans[0].Clusters, results, report.BuildOptions{Timestamp: scans[0].Timestamp})
 	return rpt, scans[0].ID, nil
 }
 

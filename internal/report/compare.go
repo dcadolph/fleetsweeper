@@ -200,17 +200,24 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 	}
 
 	// Find the outlier cluster(s) — the one(s) furthest from the mean.
+	// Walk clusters in report order, not map order, so the float sum and a tie for the
+	// furthest value resolve the same way on every build.
 	var sum float64
-	for _, n := range nums {
-		sum += n
+	for _, cluster := range clusters {
+		if n, ok := nums[cluster]; ok {
+			sum += n
+		}
 	}
 	mean := sum / float64(len(nums))
 
 	var outlier string
 	maxDist := 0.0
-	for cluster, n := range nums {
-		dist := math.Abs(n - mean)
-		if dist > maxDist {
+	for _, cluster := range clusters {
+		n, ok := nums[cluster]
+		if !ok {
+			continue
+		}
+		if dist := math.Abs(n - mean); dist > maxDist {
 			maxDist = dist
 			outlier = cluster
 		}

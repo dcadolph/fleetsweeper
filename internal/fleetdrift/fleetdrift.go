@@ -77,7 +77,8 @@ type FleetScoreSpec struct {
 
 // Status reflects the per-cluster findings and a small summary block.
 type Status struct {
-	// ObservedAt is the timestamp the report was generated.
+	// ObservedAt is when the findings were observed: the scan time, so regenerating a report
+	// from the same scan yields the same object.
 	ObservedAt time.Time `json:"observedAt"`
 	// Summary holds the per-severity finding counts for this cluster.
 	Summary Summary `json:"summary"`
@@ -165,7 +166,7 @@ func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
 				FleetScore: score,
 			},
 			Status: Status{
-				ObservedAt: time.Now().UTC(),
+				ObservedAt: scanTime,
 				Summary:    summarize(fs),
 				Findings:   toFindingSpecs(fs),
 			},

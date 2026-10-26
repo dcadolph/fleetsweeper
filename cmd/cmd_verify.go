@@ -1,31 +1,26 @@
 package cmd
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"path"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/seal"
 )
 
-// verifyCmd checks that the report.json inside an export bundle still
-// matches the report.sig that was produced at export time. Intended for
-// audit and compliance workflows where a bundle handed over weeks ago
-// must be proven untampered before being acted on.
+// verifyCmd checks that every file in an export bundle still matches the signed MANIFEST
+// produced at export time. Intended for audit and compliance workflows where a bundle handed
+// over weeks ago must be proven untampered before being acted on.
 var verifyCmd = &cobra.Command{
 	Use:   "verify <bundle.tar.gz>",
 	Short: "Verify the HMAC seal of a fleetsweeper export bundle",
-	Long: "Read a .tar.gz produced by 'fleetsweeper export --seal-key' and " +
-		"confirm that report.json matches the signature in report.sig. " +
-		"Exits 0 when the seal is valid, non-zero on tampering, missing " +
-		"signature, or wrong key. The seal secret may be passed via " +
+	Long: "Read a .tar.gz produced by 'fleetsweeper export --seal-key', confirm that " +
+		"MANIFEST.sig is a valid signature of MANIFEST, and check every file in the " +
+		"bundle against the SHA-256 the MANIFEST lists for it. A missing, altered, or " +
+		"unlisted file fails verification. Exits 0 when the seal is valid, non-zero on " +
+		"tampering, missing signature, or wrong key. The seal secret may be passed via " +
 		"--seal-key or the FLEETSWEEPER_SEAL_KEY environment variable.",
 	Args: cobra.ExactArgs(1),
 	RunE: runVerify,
@@ -52,69 +47,25 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 	defer f.Close()
 
-	reportBytes, signature, err := readSealedBundle(f)
+	_, files, err := seal.ReadBundle(f)
 	if err != nil {
 		return fmt.Errorf("read bundle: %w", err)
 	}
-	if signature == "" {
-		return fmt.Errorf("bundle does not contain %s; export with --seal-key to enable verification", seal.FileName)
-	}
-
-	if err := seal.Verify(reportBytes, signature, sealKey); err != nil {
+	if err := seal.VerifyBundle(files, sealKey); err != nil {
 		switch {
+		case errors.Is(err, seal.ErrUnsealed):
+			fmt.Fprintf(cmd.ErrOrStderr(), "verify: bundle has no %s or %s; export with --seal-key to enable verification\n",
+				seal.ManifestFile, seal.FileName)
 		case errors.Is(err, seal.ErrMismatch):
-			fmt.Fprintln(cmd.ErrOrStderr(), "verify: signature mismatch (bundle was tampered with or wrong key)")
+			fmt.Fprintln(cmd.ErrOrStderr(), "verify: signature mismatch (manifest was tampered with or wrong key)")
 		case errors.Is(err, seal.ErrMalformed):
 			fmt.Fprintln(cmd.ErrOrStderr(), "verify: signature file is malformed")
+		case errors.Is(err, seal.ErrContents), errors.Is(err, seal.ErrManifest):
+			fmt.Fprintf(cmd.ErrOrStderr(), "verify: %v\n", err)
 		}
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "ok: signature matches report.json")
+	fmt.Fprintf(cmd.OutOrStdout(), "ok: signature matches %s and all %d files match it\n",
+		seal.ManifestFile, len(files)-2)
 	return nil
-}
-
-// readSealedBundle scans the gzipped tar in r and returns the bytes of
-// report.json and the trimmed signature string from report.sig. Either
-// value may be empty when absent. Other entries are skipped so the caller
-// does not have to know the bundle layout.
-func readSealedBundle(r io.Reader) ([]byte, string, error) {
-	gz, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, "", fmt.Errorf("gzip: %w", err)
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-
-	var (
-		reportBytes []byte
-		signature   string
-	)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, "", fmt.Errorf("tar: %w", err)
-		}
-		name := path.Base(hdr.Name)
-		switch name {
-		case seal.SourceFile:
-			data, err := io.ReadAll(tr)
-			if err != nil {
-				return nil, "", fmt.Errorf("read %s: %w", name, err)
-			}
-			reportBytes = data
-		case seal.FileName:
-			data, err := io.ReadAll(tr)
-			if err != nil {
-				return nil, "", fmt.Errorf("read %s: %w", name, err)
-			}
-			signature = strings.TrimSpace(string(data))
-		}
-	}
-	if reportBytes == nil {
-		return nil, "", fmt.Errorf("bundle missing %s", seal.SourceFile)
-	}
-	return reportBytes, signature, nil
 }

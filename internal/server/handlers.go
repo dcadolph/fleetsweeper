@@ -216,7 +216,7 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rpt := report.Build(scan.Clusters, results)
+	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 
 	if len(r.URL.Query()["tag"]) > 0 {
 		tagAllows, err := s.parseTagFilter(ctx, r)
@@ -398,7 +398,7 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	rpt := report.Build(latest.Clusters, results)
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
 
 	var clusterHealth *report.ClusterHealth
 	for i := range rpt.ClusterHealths {
@@ -640,7 +640,7 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{OutlierThreshold: threshold})
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{OutlierThreshold: threshold, Timestamp: latest.Timestamp})
 	s.markAcked(r.Context(), rpt.Findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scan_id":  latest.ID,
@@ -695,6 +695,7 @@ func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
 	rpt := report.Build(latest.Clusters, results, report.BuildOptions{
 		OutlierThreshold: threshold,
 		ClusterTags:      tags,
+		Timestamp:        latest.Timestamp,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scan_id": latest.ID,
@@ -757,7 +758,7 @@ func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
 		groupMap[g.Name] = g.Clusters
 	}
 
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Groups: groupMap})
+	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Groups: groupMap, Timestamp: latest.Timestamp})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scan_id":  latest.ID,
 		"capacity": rpt.Capacity,

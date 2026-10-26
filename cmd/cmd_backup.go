@@ -31,8 +31,11 @@ var restoreCmd = &cobra.Command{
 	Use:   "restore <snapshot>",
 	Short: "Restore a SQLite snapshot taken by `fleetsweeper backup`",
 	Long: "Copy the snapshot file at the given path into --db, overwriting it\n" +
-		"only when --force is passed. The restored database is opened and migrated\n" +
-		"to the latest schema before the command returns.",
+		"only when --force is passed. The snapshot is written to a temporary file\n" +
+		"beside --db, opened and migrated to the latest schema there, and only then\n" +
+		"renamed over --db, so a bad snapshot never replaces a good database. Stale\n" +
+		"-wal and -shm files of the old database are removed first. Stop any server\n" +
+		"using --db before restoring.",
 	Args: cobra.ExactArgs(1),
 	RunE: runRestore,
 }
@@ -84,34 +87,50 @@ func runBackup(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("snapshot: %w", err)
 	}
 
-	dst, err := os.Create(output)
-	if err != nil {
-		return fmt.Errorf("create output: %w", err)
-	}
-	defer dst.Close()
-
-	var writer io.Writer = dst
-	if gzipped {
-		gz := gzip.NewWriter(dst)
-		defer gz.Close()
-		writer = gz
-	}
-
-	in, err := os.Open(snapshotPath)
-	if err != nil {
-		return fmt.Errorf("open snapshot: %w", err)
-	}
-	defer in.Close()
-	if _, err := io.Copy(writer, in); err != nil {
-		return fmt.Errorf("copy snapshot: %w", err)
+	if err := writeSnapshot(snapshotPath, output, gzipped); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(cmd.ErrOrStderr(), "backup written to %s\n", output)
 	return nil
 }
 
-// runRestore copies a snapshot file into the --db path and verifies the
-// schema migrates cleanly.
+// writeSnapshot copies the snapshot at src to output, gzipping when gzipped is set. Every close
+// is checked, so a backup that could not be flushed is an error rather than a truncated file.
+func writeSnapshot(src, output string, gzipped bool) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err)
+	}
+	defer in.Close()
+	dst, err := os.Create(output)
+	if err != nil {
+		return fmt.Errorf("create output: %w", err)
+	}
+	var writer io.Writer = dst
+	var gz *gzip.Writer
+	if gzipped {
+		gz = gzip.NewWriter(dst)
+		writer = gz
+	}
+	if _, err := io.Copy(writer, in); err != nil {
+		_ = dst.Close()
+		return fmt.Errorf("copy snapshot: %w", err)
+	}
+	if gz != nil {
+		if err := gz.Close(); err != nil {
+			_ = dst.Close()
+			return fmt.Errorf("gzip close: %w", err)
+		}
+	}
+	if err := dst.Close(); err != nil {
+		return fmt.Errorf("close output: %w", err)
+	}
+	return nil
+}
+
+// runRestore writes a snapshot to a temporary file beside the --db path, migrates it there,
+// and renames it over --db once it opens cleanly.
 func runRestore(cmd *cobra.Command, args []string) error {
 	dbPath, _ := cmd.Flags().GetString("db")
 	if dbPath == "" {
@@ -134,22 +153,72 @@ func runRestore(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("%q exists; pass --force to overwrite", dbPath)
 	}
 
-	if err := copyMaybeGz(src, dbPath); err != nil {
-		return fmt.Errorf("copy snapshot: %w", err)
+	if err := restoreSnapshot(src, dbPath); err != nil {
+		return err
 	}
-
-	// Open and migrate to confirm the snapshot is usable with this binary.
-	s, err := store.NewSQLite(dbPath)
-	if err != nil {
-		return fmt.Errorf("open restored database: %w", err)
-	}
-	defer s.Close()
-
 	fmt.Fprintf(cmd.ErrOrStderr(), "restored %s -> %s\n", src, dbPath)
 	return nil
 }
 
-// copyMaybeGz copies src to dst, decompressing on the fly when src ends in .gz.
+// restoreSnapshot replaces dbPath with the snapshot at src. The snapshot is copied to a
+// temporary file in dbPath's directory and opened there, which runs migrations and proves it is
+// a database this binary can use. The temporary file must close without a leftover WAL. Then the
+// old database's -wal and -shm files are removed, since SQLite would replay a stale WAL onto the
+// new file, and the temporary file is renamed over dbPath. A failure at any step before the
+// rename leaves dbPath untouched and removes the temporary file.
+func restoreSnapshot(src, dbPath string) (err error) {
+	tmp, err := os.CreateTemp(filepath.Dir(dbPath), filepath.Base(dbPath)+".restore-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			for _, p := range sqliteFiles(tmpPath) {
+				_ = os.Remove(p)
+			}
+		}
+	}()
+
+	if err := copyMaybeGz(src, tmpPath); err != nil {
+		return fmt.Errorf("copy snapshot: %w", err)
+	}
+	s, err := store.NewSQLite(tmpPath)
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err)
+	}
+	if err := s.Close(); err != nil {
+		return fmt.Errorf("close snapshot: %w", err)
+	}
+	if fi, statErr := os.Stat(tmpPath + "-wal"); statErr == nil && fi.Size() > 0 {
+		return fmt.Errorf("snapshot left %d bytes of WAL after migration", fi.Size())
+	}
+	for _, p := range sqliteFiles(tmpPath)[1:] {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", p, err)
+		}
+	}
+	for _, p := range sqliteFiles(dbPath)[1:] {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove stale %s: %w", p, err)
+		}
+	}
+	if err := os.Rename(tmpPath, dbPath); err != nil {
+		return fmt.Errorf("rename into place: %w", err)
+	}
+	return nil
+}
+
+// sqliteFiles returns the database file at path followed by its -wal and -shm companions.
+func sqliteFiles(path string) []string {
+	return []string{path, path + "-wal", path + "-shm"}
+}
+
+// copyMaybeGz copies src to dst, decompressing on the fly when src ends in .gz. The copy is
+// synced to disk before it returns.
 func copyMaybeGz(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -171,10 +240,13 @@ func copyMaybeGz(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-
 	if _, err := io.Copy(out, reader); err != nil {
+		_ = out.Close()
 		return err
 	}
-	return nil
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }

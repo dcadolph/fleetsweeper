@@ -130,12 +130,14 @@ func (s *Server) scanAndSave(ctx context.Context, log *zap.Logger, scanID string
 		clusterNames[i] = c.Context
 	}
 
-	rec := store.ScanRecord{ID: scanID, Clusters: clusterNames}
+	rec := store.ScanRecord{ID: scanID, Timestamp: time.Now().UTC(), Clusters: clusterNames}
 	if _, err := s.store.SaveScanRecord(ctx, rec, results); err != nil {
 		return nil, 0, fmt.Errorf("save scan: %w", err)
 	}
 
-	rpt := report.Build(clusterNames, results, s.reportOptions(ctx, log))
+	opts := s.reportOptions(ctx, log)
+	opts.Timestamp = rec.Timestamp
+	rpt := report.Build(clusterNames, results, opts)
 	if req.Emit.FleetDriftReport {
 		s.writeFleetDriftIfConfigured(rpt, scanID)
 	}

@@ -39,6 +39,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadcoverage"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadsec"
 	"github.com/dcadolph/fleetsweeper/internal/server"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 var scanCmd = &cobra.Command{
@@ -140,6 +141,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	registry := buildRegistry()
 	selected := selectScanners(registry, scannerNames)
 
+	scannedAt := time.Now().UTC()
 	results := server.RunScanners(ctx, clients, selected, workers, scannerTimeout, logutil.UnwrapLogger(ctx))
 
 	clusterNames := make([]string, len(clients))
@@ -156,7 +158,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		}
 		defer s.Close()
 
-		scanID, err := s.SaveScan(ctx, clusterNames, results)
+		scanID, err := s.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: clusterNames}, results)
 		if err != nil {
 			return fmt.Errorf("save scan: %w", err)
 		}
@@ -167,6 +169,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	outlierThreshold, _ := cmd.Flags().GetFloat64("outlier-threshold")
 	rpt := report.Build(clusterNames, results, report.BuildOptions{
 		OutlierThreshold: outlierThreshold,
+		Timestamp:        scannedAt,
 	})
 
 	// Surface degraded coverage so a forbidden or unreachable API never reads

@@ -5,31 +5,45 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
-// TestMigrateSQLiteToSQLite uses two SQLite databases as a self-contained
-// proxy for the cross-backend path. It exercises every copy function
-// without needing a Postgres instance.
+// TestMigrateSQLiteToSQLite uses two SQLite databases as a self-contained proxy for the
+// cross-backend path. Scans keep their IDs and timestamps, and groups, locations, tags, and
+// alerts all arrive.
 func TestMigrateSQLiteToSQLite(t *testing.T) {
-	defer lockRootCmd(t)()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.db")
 	dst := filepath.Join(dir, "dst.db")
+	ctx := context.Background()
 
-	// Seed source with one scan, one group, one location, one ack, one
-	// api key, and one audit entry.
 	ss, err := store.NewSQLite(src)
 	if err != nil {
 		t.Fatalf("open src: %v", err)
 	}
-	ctx := context.Background()
-	if _, err := ss.SaveScan(ctx, []string{"a"}, map[string]map[string]scanner.Result{
-		"a": {"version": {Scanner: "version", Data: map[string]any{"v": "1"}}},
-	}); err != nil {
-		t.Fatalf("seed scan: %v", err)
+	wantScans := []store.ScanRecord{{
+		ID:        "scan-new",
+		Timestamp: time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC),
+		Clusters:  []string{"a", "b"},
+	}, {
+		ID:        "scan-old",
+		Timestamp: time.Date(2025, 11, 30, 23, 0, 0, 0, time.UTC),
+		Clusters:  []string{"a"},
+	}}
+	for i, rec := range wantScans {
+		results := map[string]map[string]scanner.Result{}
+		for _, c := range rec.Clusters {
+			results[c] = map[string]scanner.Result{"version": {Scanner: "version", Data: map[string]any{"v": i}}}
+		}
+		if _, err := ss.SaveScanRecord(ctx, rec, results); err != nil {
+			t.Fatalf("seed scan %s: %v", rec.ID, err)
+		}
 	}
 	if err := ss.SaveGroup(ctx, "g", []string{"a"}); err != nil {
 		t.Fatalf("seed group: %v", err)
@@ -37,29 +51,92 @@ func TestMigrateSQLiteToSQLite(t *testing.T) {
 	if err := ss.SetLocation(ctx, store.LocationRecord{Cluster: "a", Lat: 1, Lng: 2}); err != nil {
 		t.Fatalf("seed location: %v", err)
 	}
+	for _, kv := range [][3]string{{"a", "env", "prod"}, {"a", "tier", "critical"}, {"b", "env", "dev"}} {
+		if err := ss.SetClusterTag(ctx, kv[0], kv[1], kv[2]); err != nil {
+			t.Fatalf("seed tag: %v", err)
+		}
+	}
+	wantAlert := store.AlertRecord{
+		Fingerprint: "fp-1",
+		Cluster:     "a",
+		Status:      "firing",
+		AlertName:   "KubeNodeNotReady",
+		Severity:    "critical",
+		StartsAt:    time.Date(2026, 2, 3, 4, 0, 0, 0, time.UTC),
+		ReceivedAt:  time.Date(2026, 2, 3, 4, 1, 0, 0, time.UTC),
+		Labels:      map[string]string{"alertname": "KubeNodeNotReady", "cluster": "a"},
+		Annotations: map[string]string{},
+	}
+	if err := ss.UpsertAlert(ctx, wantAlert); err != nil {
+		t.Fatalf("seed alert: %v", err)
+	}
+	srcScans, err := ss.ListScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list src scans: %v", err)
+	}
 	ss.Close()
-
-	// Run migrate via the cobra command.
-	buf := &bytes.Buffer{}
-	rootCmd.SetOut(buf)
-	rootCmd.SetErr(buf)
-	rootCmd.SetArgs([]string{"migrate", "--from=" + src, "--to=" + dst})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("migrate: %v\n%s", err, buf.String())
+	opts := cmp.Options{
+		cmpopts.IgnoreFields(store.ScanRecord{}, "Scanners"),
+		cmpopts.EquateEmpty(),
+	}
+	if diff := cmp.Diff(wantScans, srcScans, opts...); diff != "" {
+		t.Fatalf("seeded scans mismatch (-want +got):\n%s", diff)
 	}
 
-	// Verify destination has the data.
+	func() {
+		defer lockRootCmd(t)()
+		buf := &bytes.Buffer{}
+		rootCmd.SetOut(buf)
+		rootCmd.SetErr(buf)
+		rootCmd.SetArgs([]string{"migrate", "--from=" + src, "--to=" + dst, "--force=false", "--verify=true"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("migrate: %v\n%s", err, buf.String())
+		}
+	}()
+
 	ds, err := store.NewSQLite(dst)
 	if err != nil {
 		t.Fatalf("open dst: %v", err)
 	}
 	defer ds.Close()
-	scans, _ := ds.ListScans(ctx, 10)
-	if len(scans) != 1 {
-		t.Errorf("scans: want 1, got %d", len(scans))
+
+	scans, err := ds.ListScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
 	}
-	groups, _ := ds.ListGroups(ctx)
+	if diff := cmp.Diff(srcScans, scans, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("scans mismatch (-want +got):\n%s", diff)
+	}
+	results, err := ds.GetScanResults(ctx, "scan-new")
+	if err != nil {
+		t.Fatalf("get results: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("scan-new results: want 2 clusters, got %d", len(results))
+	}
+
+	groups, err := ds.ListGroups(ctx)
+	if err != nil {
+		t.Fatalf("list groups: %v", err)
+	}
 	if len(groups) != 1 || groups[0].Name != "g" {
 		t.Errorf("groups: %+v", groups)
+	}
+
+	tags, err := ds.ListClusterTags(ctx)
+	if err != nil {
+		t.Fatalf("list tags: %v", err)
+	}
+	wantTags := map[string]map[string]string{"a": {"env": "prod", "tier": "critical"}, "b": {"env": "dev"}}
+	if diff := cmp.Diff(wantTags, tags); diff != "" {
+		t.Errorf("tags mismatch (-want +got):\n%s", diff)
+	}
+
+	alerts, err := ds.ListAlerts(ctx, store.AlertListOptions{})
+	if err != nil {
+		t.Fatalf("list alerts: %v", err)
+	}
+	if diff := cmp.Diff([]store.AlertRecord{wantAlert}, alerts, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("alerts mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -266,7 +266,7 @@ func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
 		s.log.Warn("metrics: get scan results", zap.Error(err))
 		return nil
 	}
-	r := report.Build(latest.Clusters, results)
+	r := report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
 	s.metricsCache.store(latest.ID, r)
 	return r
 }

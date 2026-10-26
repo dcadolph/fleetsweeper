@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
@@ -60,6 +63,35 @@ func TestDemoFindingsCarryRules(t *testing.T) {
 		}
 		if normScanners[f.Scanner] && strings.Contains(f.Title, "deviates") && !strings.HasPrefix(f.Remediation.Command, "# ") {
 			t.Errorf("norm finding %q remediation does not state the gap: %q", f.Title, f.Remediation.Command)
+		}
+	}
+}
+
+// TestBuildDeterministic verifies that rebuilding a report from the same results and timestamp
+// yields the same JSON and HTML bytes every time, which sealing a stored scan depends on.
+func TestBuildDeterministic(t *testing.T) {
+	t.Parallel()
+	var clusters []string
+	for _, p := range demoPoints() {
+		clusters = append(clusters, p.Cluster)
+	}
+	opts := report.BuildOptions{ClusterTags: demoTags(), Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	render := func() []byte {
+		r := report.Build(clusters, demoResults(), opts)
+		js, err := json.Marshal(r)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		html, err := report.RenderHTML(r)
+		if err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		return append(js, html...)
+	}
+	want := render()
+	for run := range 20 {
+		if got := render(); !bytes.Equal(want, got) {
+			t.Fatalf("run %d produced different bytes", run+1)
 		}
 	}
 }

@@ -37,7 +37,7 @@ func (s *Server) handleGetCost(w http.ResponseWriter, r *http.Request) {
 	if err == nil && len(scans) > 0 {
 		results, err := s.store.GetScanResults(r.Context(), scans[0].ID)
 		if err == nil {
-			rpt = report.Build(scans[0].Clusters, results)
+			rpt = report.Build(scans[0].Clusters, results, report.BuildOptions{Timestamp: scans[0].Timestamp})
 		}
 	}
 	if rpt == nil && s.demo {
