@@ -7,18 +7,30 @@ import { esc } from '../dom.js';
 // LINGER_MS is how long a non-error toast stays.
 const LINGER_MS = 5000;
 
-// stack returns the toast container, creating it on first use.
+// stack returns the toast container, creating it on first use. While a modal
+// dialog is open everything outside it is inert, so toasts then live inside
+// the topmost open dialog, where their buttons still work.
 function stack() {
-  let el = document.getElementById('toasts');
+  const dialogs = document.querySelectorAll('dialog.modal[open]');
+  const host = dialogs.length ? dialogs[dialogs.length - 1] : document.body;
+  let el = host.querySelector(':scope > .toasts');
   if (!el) {
     el = document.createElement('div');
-    el.id = 'toasts';
     el.className = 'toasts';
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
-    document.body.appendChild(el);
+    host.appendChild(el);
   }
   return el;
+}
+
+// adoptToasts moves the toasts living in a closing dialog to the page, so a
+// notice raised just before the dialog closed stays readable.
+export function adoptToasts(dialog) {
+  const moving = [...dialog.querySelectorAll(':scope > .toasts > .toast')];
+  if (!moving.length) return;
+  const target = stack();
+  moving.forEach((t) => target.appendChild(t));
 }
 
 // toast shows message in tone (ok, warn, crit, info). action, when given, is

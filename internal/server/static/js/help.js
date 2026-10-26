@@ -2,6 +2,7 @@
 // sidebar or from any element with data-help-topic.
 
 import { esc } from './dom.js';
+import { openModal } from './components/modal.js';
 
 const TOPICS = {
   mad: {
@@ -30,27 +31,27 @@ const TOPICS = {
   },
 };
 
-// closeHelp removes the open help modal.
+// closeHelp closes the open help modal.
 function closeHelp() {
   const root = document.getElementById('help-modal');
-  if (root) root.remove();
+  if (root) root.close();
 }
 
-// mount shows a help modal with the given card markup.
+// mount shows a help modal with the given card markup, or swaps the card of
+// the one already open, so moving between topics keeps one dialog and one
+// place to return focus to.
 function mount(card) {
-  closeHelp();
-  const root = document.createElement('div');
-  root.className = 'modal-root';
-  root.id = 'help-modal';
-  root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-modal', 'true');
-  root.innerHTML = `<div class="modal-card">${card}</div>`;
-  document.body.appendChild(root);
-  root.addEventListener('click', (e) => {
-    if (e.target === root || e.target.closest('[data-help-act="close"]')) closeHelp();
-    const pick = e.target.closest('[data-help-pick]');
-    if (pick) openHelp(pick.dataset.helpPick);
-  });
+  let root = document.getElementById('help-modal');
+  if (root) {
+    root.innerHTML = `<div class="modal-card">${card}</div>`;
+  } else {
+    root = openModal({ className: 'modal-root', id: 'help-modal', label: 'Help', html: `<div class="modal-card">${card}</div>` });
+    root.addEventListener('click', (e) => {
+      if (e.target.closest('[data-help-act="close"]')) closeHelp();
+      const pick = e.target.closest('[data-help-pick]');
+      if (pick) openHelp(pick.dataset.helpPick);
+    });
+  }
   const first = root.querySelector('button');
   if (first) first.focus();
 }
