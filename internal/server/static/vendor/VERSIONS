@@ -1,0 +1,6 @@
+# Vendored third-party files served from /vendor/. One line per file:
+# path, upstream version, source, sha256 of the file as committed.
+chart.min.js        chart.js 4.4.7   npm chart.js-4.4.7.tgz dist/chart.umd.js (tarball sha512-pwkcKfdzTMAU/+jNosKhNL2bHtJc/sSmYgVbuGTEDhzkrhmyihmP7vUc/5ZK9WopidMDHNe3Wm7jOd/WhuHWuw==)  2812cb8825fdc57469eb2f7bb055e9429244e599920511ee477e828499b632cb
+globe.gl.min.js     globe.gl 2.46.1  https://github.com/vasturiano/globe.gl  a3c8641cf8df82ed54e589d370b8642abb26128d0e9078a9c9b118026c65f157
+earth-night.jpg     texture, source not recorded (added 0611fee)  355ab23dd1323315b393d7b91dd2d7ee223a1cbaaba2b48dc72ba90d371ced24
+earth-topology.png  texture, source not recorded (added 0611fee)  839b12da2e4dd346b256cebae72e10c479a102c8980a22084c41275e4b9a0e12

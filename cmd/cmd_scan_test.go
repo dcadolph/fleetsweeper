@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
 // TestBuildRegistry verifies every expected scanner registers exactly once.
@@ -102,3 +104,32 @@ users:
   user: {}
 current-context: alpha
 `
+
+// TestScannerCatalogCoversRegistry verifies every registered scanner has a
+// label, a description, and a category, and that the catalog lists nothing
+// the registry does not run.
+func TestScannerCatalogCoversRegistry(t *testing.T) {
+	t.Parallel()
+	registered := map[string]bool{}
+	for _, name := range buildRegistry().Names() {
+		registered[name] = true
+	}
+	catalog := map[string]bool{}
+	for _, s := range report.ScannerCatalog() {
+		catalog[s.ID] = true
+		if !registered[s.ID] {
+			t.Errorf("catalog lists %q, which the registry does not run", s.ID)
+		}
+		if s.Label == "" || s.Description == "" || s.Category == "" {
+			t.Errorf("%s: label %q, description %q, category %q", s.ID, s.Label, s.Description, s.Category)
+		}
+	}
+	for name := range registered {
+		if !catalog[name] {
+			t.Errorf("registered scanner %q is missing from the catalog", name)
+		}
+	}
+	if len(registered) != 24 {
+		t.Errorf("registry runs %d scanners, docs and the UI say 24", len(registered))
+	}
+}

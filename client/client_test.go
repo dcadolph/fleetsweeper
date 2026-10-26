@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -275,5 +277,84 @@ func TestContractAuth(t *testing.T) {
 	}
 	if apiErr.StatusCode != http.StatusUnauthorized {
 		t.Errorf("anon create group status = %d, want 401", apiErr.StatusCode)
+	}
+}
+
+// TestContractScanners verifies the scanner catalog comes back complete.
+func TestContractScanners(t *testing.T) {
+	t.Parallel()
+	c, _, _ := newContractServer(t, true, "")
+	got, err := c.Scanners(context.Background())
+	if err != nil {
+		t.Fatalf("scanners: %v", err)
+	}
+	if len(got) != 24 {
+		t.Errorf("scanners: want 24, got %d", len(got))
+	}
+	for _, s := range got {
+		if s.ID == "" || s.Label == "" || s.Description == "" || s.Category == "" {
+			t.Errorf("incomplete scanner entry %+v", s)
+		}
+	}
+}
+
+// TestContractWithScan verifies every scan-aware read reports on the scan
+// WithScan names rather than the latest, and that an unknown scan is a 404.
+func TestContractWithScan(t *testing.T) {
+	t.Parallel()
+	c, st, _ := newContractServer(t, true, "")
+	ctx := context.Background()
+	at := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	save := func(id string, offset time.Duration, clusters ...string) {
+		results := map[string]map[string]scanner.Result{}
+		for _, cl := range clusters {
+			results[cl] = map[string]scanner.Result{"version": {Scanner: "version", Data: map[string]any{"gitVersion": "v1.29.0"}}}
+		}
+		rec := store.ScanRecord{ID: id, Timestamp: at.Add(offset), Clusters: clusters}
+		if _, err := st.SaveScanRecord(ctx, rec, results); err != nil {
+			t.Fatalf("save %s: %v", id, err)
+		}
+	}
+	save("scan-old", 0, "prod-a", "prod-b", "prod-c")
+	save("scan-new", time.Hour, "dev-x", "dev-y", "dev-z")
+
+	outliers, err := c.Outliers(ctx, 0, client.WithScan("scan-old"))
+	if err != nil || outliers.ScanID != "scan-old" {
+		t.Errorf("outliers: want scan-old, got %+v, %v", outliers, err)
+	}
+	if latest, err := c.Outliers(ctx, 0); err != nil || latest.ScanID != "scan-new" {
+		t.Errorf("outliers without a scan: want scan-new, got %+v, %v", latest, err)
+	}
+	capacity, err := c.Capacity(ctx, client.WithScan("scan-old"))
+	if err != nil || capacity.ScanID != "scan-old" {
+		t.Errorf("capacity: want scan-old, got %+v, %v", capacity, err)
+	}
+	cohorts, err := c.Cohorts(ctx, 0, client.WithScan("scan-old"))
+	if err != nil || cohorts.ScanID != "scan-old" {
+		t.Errorf("cohorts: want scan-old, got %+v, %v", cohorts, err)
+	}
+	if _, err := c.GetClusterDetail(ctx, "prod-a", client.WithScan("scan-old")); err != nil {
+		t.Errorf("detail of an old-scan cluster: %v", err)
+	}
+	geo, err := c.Geo(ctx, client.WithScan("scan-old"))
+	if err != nil || !strings.Contains(string(geo), "prod-a") || strings.Contains(string(geo), "dev-x") {
+		t.Errorf("geo: want the old scan's clusters, got %s, %v", geo, err)
+	}
+	if _, err := c.Cost(ctx, client.WithScan("scan-old")); err != nil {
+		t.Errorf("cost: %v", err)
+	}
+
+	for label, call := range map[string]func() error{
+		"outliers": func() error { _, err := c.Outliers(ctx, 0, client.WithScan("missing")); return err },
+		"capacity": func() error { _, err := c.Capacity(ctx, client.WithScan("missing")); return err },
+		"cohorts":  func() error { _, err := c.Cohorts(ctx, 0, client.WithScan("missing")); return err },
+		"geo":      func() error { _, err := c.Geo(ctx, client.WithScan("missing")); return err },
+		"detail":   func() error { _, err := c.GetClusterDetail(ctx, "prod-a", client.WithScan("missing")); return err },
+		"cost":     func() error { _, err := c.Cost(ctx, client.WithScan("missing")); return err },
+	} {
+		var apiErr *client.APIError
+		if err := call(); !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			t.Errorf("%s with an unknown scan: want a 404 APIError, got %v", label, err)
+		}
 	}
 }

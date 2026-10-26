@@ -558,3 +558,35 @@ type Context struct {
 	// Name is the context name.
 	Name string `json:"name"`
 }
+
+// ScannerInfo describes one scanner.
+type ScannerInfo struct {
+	// ID is the scanner key used in reports and findings.
+	ID string `json:"id"`
+	// Label is the human-readable name.
+	Label string `json:"label"`
+	// Description says in one line what the scanner checks.
+	Description string `json:"description"`
+	// Category is the report category the scanner belongs to.
+	Category string `json:"category"`
+}
+
+// CohortSummary is one cohort of the fleet and its within-cohort outliers.
+type CohortSummary struct {
+	// Name is the tag value, "auto-N", or "fleet".
+	Name string `json:"name"`
+	// Source is tagged, auto, or fleet.
+	Source string `json:"source"`
+	// Clusters lists the members, sorted.
+	Clusters []string `json:"clusters"`
+	// Outliers are clusters that deviate from the cohort's own norm.
+	Outliers []OutlierResult `json:"outliers,omitempty"`
+}
+
+// CohortsResponse is the body of GET /api/cohorts.
+type CohortsResponse struct {
+	// ScanID is the scan the cohorts came from.
+	ScanID string `json:"scan_id"`
+	// Cohorts partitions the fleet.
+	Cohorts []CohortSummary `json:"cohorts"`
+}

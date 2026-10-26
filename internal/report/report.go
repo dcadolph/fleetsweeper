@@ -26,11 +26,14 @@ type Category struct {
 // Categories returns the scanner groupings used in reports.
 func Categories() []Category {
 	return []Category{
-		{Name: "Cluster Info", Scanners: []string{"version", "namespaces", "crds"}},
-		{Name: "Workloads", Scanners: []string{"services", "ingresses", "image-audit"}},
-		{Name: "Health & Resources", Scanners: []string{"node-health", "metrics", "resources", "resource-quotas"}},
+		{Name: "Cluster Info", Scanners: []string{"version", "namespaces", "crds", "deprecated-apis", "geo"}},
+		{Name: "Workloads", Scanners: []string{"services", "ingresses", "image-audit", "workload-coverage"}},
+		{Name: "Health & Resources", Scanners: []string{
+			"node-health", "metrics", "resources", "resource-quotas", "cluster-info",
+		}},
 		{Name: "Security & Access", Scanners: []string{
 			"workload-security", "rbac-audit", "rbac", "security", "network-policies", "vulnerabilities", "policy-reports",
+			"certs", "admission",
 		}},
 		{Name: "Events & Logs", Scanners: []string{"events"}},
 	}

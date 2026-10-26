@@ -320,58 +320,93 @@ func (s *Server) newAdminServer(addr string) *http.Server {
 // ListenAndServe serves it, so the server can be embedded behind another router or
 // driven in tests without binding a socket.
 func (s *Server) Handler() http.Handler {
-	return loggingMiddleware(s.log, s.mux)
+	return loggingMiddleware(s.log, securityHeaders(s.mux))
+}
+
+// route is one HTTP endpoint the server serves: its method, its path, and its
+// handler. The API table and the root table are the only places routes are
+// declared, so a test can hold them against openapi.yaml.
+type route struct {
+	// Method is the HTTP method.
+	Method string
+	// Path is the request path pattern. API paths are relative to /api.
+	Path string
+	// Handler serves the route.
+	Handler http.HandlerFunc
+}
+
+// apiRoutes returns every endpoint served under /api.
+func (s *Server) apiRoutes() []route {
+	return []route{
+		{Method: http.MethodGet, Path: "/scans", Handler: s.handleListScans},
+		{Method: http.MethodGet, Path: "/scans/{id}", Handler: s.handleGetScan},
+		{Method: http.MethodGet, Path: "/scans/{id}/report", Handler: s.handleGetScanReport},
+		{Method: http.MethodGet, Path: "/scans/{id}/seal", Handler: s.handleGetScanSeal},
+		{Method: http.MethodPost, Path: "/scans", Handler: s.handleTriggerScan},
+		{Method: http.MethodGet, Path: "/clusters", Handler: s.handleListClusters},
+		{Method: http.MethodGet, Path: "/clusters/{name}/detail", Handler: s.handleGetClusterDetail},
+		{Method: http.MethodGet, Path: "/clusters/{name}/timeline", Handler: s.handleClusterTimeline},
+		{Method: http.MethodGet, Path: "/clusters/{name}/tags", Handler: s.handleListClusterTags},
+		{Method: http.MethodPut, Path: "/clusters/{name}/tags/{key}", Handler: s.handleSetClusterTag},
+		{Method: http.MethodDelete, Path: "/clusters/{name}/tags/{key}", Handler: s.handleDeleteClusterTag},
+		{Method: http.MethodGet, Path: "/tags", Handler: s.handleListAllTags},
+		{Method: http.MethodGet, Path: "/groups", Handler: s.handleListGroups},
+		{Method: http.MethodPost, Path: "/groups", Handler: s.handleCreateGroup},
+		{Method: http.MethodDelete, Path: "/groups/{name}", Handler: s.handleDeleteGroup},
+		{Method: http.MethodGet, Path: "/trends", Handler: s.handleGetTrends},
+		{Method: http.MethodGet, Path: "/trends/{cluster}", Handler: s.handleGetClusterTrends},
+		{Method: http.MethodGet, Path: "/outliers", Handler: s.handleGetOutliers},
+		{Method: http.MethodGet, Path: "/cohorts", Handler: s.handleGetCohorts},
+		{Method: http.MethodGet, Path: "/capacity", Handler: s.handleGetCapacity},
+		{Method: http.MethodGet, Path: "/forecast/fleet-score", Handler: s.handleGetFleetScoreForecast},
+		{Method: http.MethodGet, Path: "/forecast/clusters", Handler: s.handleGetClusterForecasts},
+		{Method: http.MethodGet, Path: "/cost", Handler: s.handleGetCost},
+		{Method: http.MethodGet, Path: "/integrations", Handler: s.handleGetIntegrations},
+		{Method: http.MethodGet, Path: "/acks", Handler: s.handleListAcks},
+		{Method: http.MethodGet, Path: "/findings/timeline", Handler: s.handleFindingsTimeline},
+		{Method: http.MethodGet, Path: "/findings/persistence", Handler: s.handleFindingsPersistence},
+		{Method: http.MethodPost, Path: "/findings/{fingerprint}/ack", Handler: s.handleCreateAck},
+		{Method: http.MethodDelete, Path: "/findings/{fingerprint}/ack", Handler: s.handleDeleteAck},
+		{Method: http.MethodPost, Path: "/alerts/{fingerprint}/ack", Handler: s.handleAckAlert},
+		{Method: http.MethodPost, Path: "/webhooks/scan-trigger", Handler: s.handleWebhookScanTrigger},
+		{Method: http.MethodPost, Path: "/webhooks/alertmanager", Handler: s.handleAlertManagerWebhook},
+		{Method: http.MethodPost, Path: "/webhooks/falco", Handler: s.handleFalcoWebhook},
+		{Method: http.MethodGet, Path: "/alerts", Handler: s.handleListAlerts},
+		{Method: http.MethodGet, Path: "/geo", Handler: s.handleGetGeo},
+		{Method: http.MethodGet, Path: "/contexts", Handler: s.handleListContexts},
+		{Method: http.MethodGet, Path: "/locations", Handler: s.handleListLocations},
+		{Method: http.MethodPut, Path: "/locations/{cluster}", Handler: s.handleSetLocation},
+		{Method: http.MethodDelete, Path: "/locations/{cluster}", Handler: s.handleDeleteLocation},
+		{Method: http.MethodGet, Path: "/admin/keys", Handler: s.handleAdminListKeys},
+		{Method: http.MethodPost, Path: "/admin/keys", Handler: s.handleAdminCreateKey},
+		{Method: http.MethodDelete, Path: "/admin/keys/{id}", Handler: s.handleAdminRevokeKey},
+		{Method: http.MethodGet, Path: "/admin/audit", Handler: s.handleAdminListAudit},
+		{Method: http.MethodGet, Path: "/admin/whoami", Handler: s.handleAdminWhoami},
+		{Method: http.MethodGet, Path: "/admin/system", Handler: s.handleAdminSystem},
+		{Method: http.MethodGet, Path: "/scanners", Handler: s.handleListScanners},
+		{Method: http.MethodGet, Path: "/events", Handler: s.handleEventsStream},
+	}
+}
+
+// rootRoutes returns the endpoints served outside /api that openapi.yaml
+// documents. The cinematic redirect and the static files are left out.
+func (s *Server) rootRoutes() []route {
+	return []route{
+		{Method: http.MethodGet, Path: "/healthz", Handler: s.handleHealthz},
+		{Method: http.MethodGet, Path: "/readyz", Handler: s.handleReadyz},
+		{Method: http.MethodGet, Path: "/openapi.yaml", Handler: s.handleOpenAPI},
+		{Method: http.MethodGet, Path: "/oidc/login", Handler: s.handleOIDCLogin},
+		{Method: http.MethodGet, Path: "/oidc/callback", Handler: s.handleOIDCCallback},
+		{Method: http.MethodGet, Path: "/oidc/logout", Handler: s.handleOIDCLogout},
+	}
 }
 
 // routes registers all API endpoints, health checks, and the static file handler.
 func (s *Server) routes() {
 	api := http.NewServeMux()
-	api.HandleFunc("GET /scans", s.handleListScans)
-	api.HandleFunc("GET /scans/{id}", s.handleGetScan)
-	api.HandleFunc("GET /scans/{id}/report", s.handleGetScanReport)
-	api.HandleFunc("GET /scans/{id}/seal", s.handleGetScanSeal)
-	api.HandleFunc("POST /scans", s.handleTriggerScan)
-	api.HandleFunc("GET /clusters", s.handleListClusters)
-	api.HandleFunc("GET /clusters/{name}/detail", s.handleGetClusterDetail)
-	api.HandleFunc("GET /clusters/{name}/timeline", s.handleClusterTimeline)
-	api.HandleFunc("GET /clusters/{name}/tags", s.handleListClusterTags)
-	api.HandleFunc("PUT /clusters/{name}/tags/{key}", s.handleSetClusterTag)
-	api.HandleFunc("DELETE /clusters/{name}/tags/{key}", s.handleDeleteClusterTag)
-	api.HandleFunc("GET /tags", s.handleListAllTags)
-	api.HandleFunc("GET /groups", s.handleListGroups)
-	api.HandleFunc("POST /groups", s.handleCreateGroup)
-	api.HandleFunc("DELETE /groups/{name}", s.handleDeleteGroup)
-	api.HandleFunc("GET /trends", s.handleGetTrends)
-	api.HandleFunc("GET /trends/{cluster}", s.handleGetClusterTrends)
-	api.HandleFunc("GET /outliers", s.handleGetOutliers)
-	api.HandleFunc("GET /cohorts", s.handleGetCohorts)
-	api.HandleFunc("GET /capacity", s.handleGetCapacity)
-	api.HandleFunc("GET /forecast/fleet-score", s.handleGetFleetScoreForecast)
-	api.HandleFunc("GET /forecast/clusters", s.handleGetClusterForecasts)
-	api.HandleFunc("GET /cost", s.handleGetCost)
-	api.HandleFunc("GET /integrations", s.handleGetIntegrations)
-	api.HandleFunc("GET /acks", s.handleListAcks)
-	api.HandleFunc("GET /findings/timeline", s.handleFindingsTimeline)
-	api.HandleFunc("GET /findings/persistence", s.handleFindingsPersistence)
-	api.HandleFunc("POST /findings/{fingerprint}/ack", s.handleCreateAck)
-	api.HandleFunc("DELETE /findings/{fingerprint}/ack", s.handleDeleteAck)
-	api.HandleFunc("POST /alerts/{fingerprint}/ack", s.handleAckAlert)
-	api.HandleFunc("POST /webhooks/scan-trigger", s.handleWebhookScanTrigger)
-	api.HandleFunc("POST /webhooks/alertmanager", s.handleAlertManagerWebhook)
-	api.HandleFunc("POST /webhooks/falco", s.handleFalcoWebhook)
-	api.HandleFunc("GET /alerts", s.handleListAlerts)
-	api.HandleFunc("GET /geo", s.handleGetGeo)
-	api.HandleFunc("GET /contexts", s.handleListContexts)
-	api.HandleFunc("GET /locations", s.handleListLocations)
-	api.HandleFunc("PUT /locations/{cluster}", s.handleSetLocation)
-	api.HandleFunc("DELETE /locations/{cluster}", s.handleDeleteLocation)
-	api.HandleFunc("GET /admin/keys", s.handleAdminListKeys)
-	api.HandleFunc("POST /admin/keys", s.handleAdminCreateKey)
-	api.HandleFunc("DELETE /admin/keys/{id}", s.handleAdminRevokeKey)
-	api.HandleFunc("GET /admin/audit", s.handleAdminListAudit)
-	api.HandleFunc("GET /admin/whoami", s.handleAdminWhoami)
-	api.HandleFunc("GET /admin/system", s.handleAdminSystem)
-	api.HandleFunc("GET /events", s.handleEventsStream)
+	for _, r := range s.apiRoutes() {
+		api.HandleFunc(r.Method+" "+r.Path, r.Handler)
+	}
 
 	audited := s.auditMiddleware(api)
 	authed := s.authMiddleware(audited)
@@ -379,12 +414,9 @@ func (s *Server) routes() {
 	withCORS := corsMiddleware(s.corsOrigins, limited)
 	s.mux.Handle("/api/", http.StripPrefix("/api", jsonMiddleware(withCORS)))
 
-	s.mux.HandleFunc("/healthz", s.handleHealthz)
-	s.mux.HandleFunc("/readyz", s.handleReadyz)
-	s.mux.HandleFunc("/openapi.yaml", s.handleOpenAPI)
-	s.mux.HandleFunc("/oidc/login", s.handleOIDCLogin)
-	s.mux.HandleFunc("/oidc/callback", s.handleOIDCCallback)
-	s.mux.HandleFunc("/oidc/logout", s.handleOIDCLogout)
+	for _, r := range s.rootRoutes() {
+		s.mux.HandleFunc(r.Path, r.Handler)
+	}
 	s.mux.HandleFunc("/cinematic", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/cinematic.html", http.StatusFound)
 	})

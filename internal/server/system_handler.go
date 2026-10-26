@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
 // systemResponse describes a snapshot of the running fleetsweeper process.
@@ -160,3 +162,9 @@ func SetBuildInfo(version, commit, date string) {
 
 // _ keeps the zap import referenced for future logging additions.
 var _ = zap.NewNop
+
+// handleListScanners returns every scanner with its label, a one-line description, and its
+// report category, so clients name scanners the same way the report does.
+func (s *Server) handleListScanners(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, report.ScannerCatalog())
+}
