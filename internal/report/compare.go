@@ -13,6 +13,13 @@ var setFields = map[string]struct{}{
 	"names": {}, "hosts": {}, "policy_types": {}, "versions": {},
 }
 
+// identityScanners report where a cluster is rather than how it is
+// configured, so their values differ by design and are neither divergences
+// nor norms.
+var identityScanners = map[string]struct{}{ //nolint:gochecknoglobals // Not modified.
+	"geo": {},
+}
+
 // skipFields are internal or uninteresting fields that should not generate divergences.
 var skipFields = map[string]struct{}{
 	"nodes": {}, "services": {}, "ingresses": {}, "policies": {},
