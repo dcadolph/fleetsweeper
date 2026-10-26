@@ -10,10 +10,14 @@ linters:
     - errcheck
     - govet
     - ineffassign
+    - misspell
     - staticcheck
     - unused
 
   settings:
+    misspell:
+      locale: US
+
     errcheck:
       # Print writers and defer-Close patterns are accepted noise.
       # Their errors are not actionable and adding wrappers clutters

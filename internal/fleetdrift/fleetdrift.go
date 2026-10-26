@@ -29,7 +29,7 @@ const APIVersion = "fleetsweeper.io/v1alpha1"
 const Kind = "FleetDriftReport"
 
 // FleetDriftReport mirrors the FleetDriftReport CRD shape declared in
-// deploy/crds/fleetdriftreport.yaml. Marshalling uses sigs.k8s.io/yaml so the
+// deploy/crds/fleetdriftreport.yaml. Marshaling uses sigs.k8s.io/yaml so the
 // emitted document matches the conventions Kubernetes tooling expects.
 type FleetDriftReport struct {
 	// APIVersion identifies the group/version of the resource.
