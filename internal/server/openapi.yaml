@@ -1140,7 +1140,40 @@ paths:
       parameters:
         - {$ref: "#/components/parameters/Scan"}
       responses:
-        "200": {description: OK}
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan_id: {type: string}
+                  timestamp: {type: string, format: date-time}
+                  unlocated:
+                    type: array
+                    items: {type: string}
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        cluster: {type: string}
+                        status: {type: string}
+                        provider: {type: string}
+                        region: {type: string}
+                        city: {type: string}
+                        site: {type: string}
+                        lat: {type: number}
+                        lng: {type: number}
+                        source: {type: string, enum: [auto, configmap, annotation, manual]}
+                        critical_findings: {type: integer}
+                        warning_findings: {type: integer}
+                        deviation_mass:
+                          type: number
+                          description: How far the cluster sits from its norm across every field.
+                        outlier_fields:
+                          type: integer
+                          description: Fields that flag the cluster and raise a finding, at fleet or cohort scope.
 
   /api/locations:
     get:

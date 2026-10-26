@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -270,5 +272,39 @@ func TestHandleDeleteLocation(t *testing.T) {
 	srv.handleDeleteLocation(sw, scopedReq)
 	if sw.Code != http.StatusForbidden {
 		t.Errorf("scoped delete: want 403, got %d", sw.Code)
+	}
+}
+
+// TestGeoEncodesDeviation verifies demo geo points carry deviation mass and flagged-field counts:
+// the RBAC step flags two fields on the stepping cluster, a quiet site has none, every cluster is
+// placed, and each source the demo uses appears.
+func TestGeoEncodesDeviation(t *testing.T) {
+	t.Parallel()
+	h := demoTestServer(t).Handler()
+	var resp struct {
+		Points    []geoPoint `json:"points"`
+		Unlocated []string   `json:"unlocated"`
+	}
+	if code := serve(t, h, http.MethodGet, "/api/geo", "", "", &resp); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	byCluster := map[string]geoPoint{}
+	sources := map[string]bool{}
+	for _, p := range resp.Points {
+		byCluster[p.Cluster] = p
+		sources[p.Source] = true
+	}
+	if len(resp.Points) != len(demoFleet()) || len(resp.Unlocated) != 0 {
+		t.Errorf("placed %d, unlocated %v, want all %d placed", len(resp.Points), resp.Unlocated, len(demoFleet()))
+	}
+	if diff := cmp.Diff(map[string]bool{"auto": true, "configmap": true, "annotation": true, "manual": true}, sources); diff != "" {
+		t.Errorf("sources mismatch (-want +got):\n%s", diff)
+	}
+	step := byCluster[demoStepCluster]
+	if step.OutlierFields < 2 || step.DeviationMass <= 0 {
+		t.Errorf("%s: %d flagged fields, mass %v, want at least 2 and some mass", demoStepCluster, step.OutlierFields, step.DeviationMass)
+	}
+	if got := byCluster["site-dubai-1"].OutlierFields; got != 0 {
+		t.Errorf("site-dubai-1 flags %d fields, want none", got)
 	}
 }

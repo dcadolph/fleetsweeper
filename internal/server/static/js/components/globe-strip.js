@@ -1,11 +1,12 @@
 // The globe strip: the fleet globe at strip height on the dashboard, turning
-// slowly with the worst cluster in view and critical clusters ringed. It does
+// slowly with the worst cluster in view, encoded as on the Globe page: size by
+// deviation from the norm, rings for fields outside it, color by status. It does
 // not take the pointer; a click anywhere opens the full Globe view.
 
 import { api } from '../api.js';
 import { esc, byId, toneColor } from '../dom.js';
 import { onLeave } from '../router.js';
-import { loadGlobeLib, colorOf } from '../views/globe.js';
+import { loadGlobeLib, colorOf, pointSize, ringsFor, ringColor } from '../views/globe.js';
 
 // STRIP_HEIGHT is the strip's height in pixels.
 export const STRIP_HEIGHT = 280;
@@ -52,11 +53,11 @@ export async function mountGlobeStrip() {
       .pointLat('lat').pointLng('lng')
       .pointColor((d) => colorOf(d.status))
       .pointAltitude((d) => (d.status === 'critical' ? 0.06 : 0.02))
-      .pointRadius((d) => (d.status === 'critical' ? 0.9 : 0.5))
+      .pointRadius((d) => pointSize(d, pts))
       .pointsData(pts)
-      .ringColor(() => (t) => 'rgba(248,81,73,' + (1 - t) + ')')
-      .ringMaxRadius(4).ringPropagationSpeed(2).ringRepeatPeriod(1100)
-      .ringsData(pts.filter((p) => p.status === 'critical'))
+      .ringColor(ringColor)
+      .ringMaxRadius('maxR').ringPropagationSpeed('propagationSpeed').ringRepeatPeriod('repeatPeriod')
+      .ringsData(ringsFor(pts))
       .width(wrap.clientWidth)
       .height(STRIP_HEIGHT);
   } catch (e) {
