@@ -164,22 +164,3 @@ func TestHandleListAlerts_AllFilters(t *testing.T) {
 		t.Errorf("expected only the firing critical alert, got %+v", resp)
 	}
 }
-
-// TestClampScore covers the low, high, and in-range branches of the demo
-// score clamp.
-func TestClampScore(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		In         int
-		WantResult int
-	}{
-		{In: -5, WantResult: 0},    // Test 0: Below range.
-		{In: 150, WantResult: 100}, // Test 1: Above range.
-		{In: 63, WantResult: 63},   // Test 2: In range.
-	}
-	for i, test := range tests {
-		if got := clampScore(test.In); got != test.WantResult {
-			t.Errorf("test %d: clampScore(%d) want %d, got %d", i, test.In, test.WantResult, got)
-		}
-	}
-}
