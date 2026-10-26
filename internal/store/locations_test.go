@@ -18,8 +18,8 @@ func TestLocationSetGetDelete(t *testing.T) {
 		Cluster: "store-42",
 		Lat:     40.7128,
 		Lng:     -74.0060,
-		Site:    "Store #42, Manhattan",
-		Notes:   "flagship",
+		Site:    "Edge site 42, Manhattan",
+		Notes:   "edge",
 	}
 	if err := s.SetLocation(ctx, loc); err != nil {
 		t.Fatalf("set: %v", err)
@@ -40,12 +40,12 @@ func TestLocationSetGetDelete(t *testing.T) {
 	}
 
 	// Upsert overwrites the coordinates in place.
-	loc.Lat, loc.Lng, loc.Site = 51.5074, -0.1278, "Store #7, London"
+	loc.Lat, loc.Lng, loc.Site = 51.5074, -0.1278, "London site 7"
 	if err := s.SetLocation(ctx, loc); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	got, _ = s.GetLocation(ctx, "store-42")
-	if got.Lat != 51.5074 || got.Site != "Store #7, London" {
+	if got.Lat != 51.5074 || got.Site != "London site 7" {
 		t.Errorf("upsert did not overwrite: %+v", got)
 	}
 

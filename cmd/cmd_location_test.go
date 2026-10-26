@@ -32,7 +32,7 @@ func TestLocationSetListDelete(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	if err := runLocationSet(newLocationCmd(dbPath, 40.7, -74.0, "Store #42", "note"), []string{"edge-1"}); err != nil {
+	if err := runLocationSet(newLocationCmd(dbPath, 40.7, -74.0, "Edge site 42", "note"), []string{"edge-1"}); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	s, _ := store.NewSQLite(dbPath)
@@ -40,7 +40,7 @@ func TestLocationSetListDelete(t *testing.T) {
 	if err != nil || loc == nil {
 		t.Fatalf("get location: %v", err)
 	}
-	if loc.Site != "Store #42" || loc.Lat != 40.7 {
+	if loc.Site != "Edge site 42" || loc.Lat != 40.7 {
 		t.Errorf("stored location: %+v", loc)
 	}
 	s.Close()

@@ -7,7 +7,7 @@
 #   kubectl --context <your-cluster> annotate namespace kube-system \
 #     fleetsweeper.io/lat=40.7589 \
 #     fleetsweeper.io/lng=-73.9851 \
-#     fleetsweeper.io/site="Store #42, Times Square" \
+#     fleetsweeper.io/site="NYC edge 42" \
 #     --overwrite
 
 apiVersion: v1
@@ -17,5 +17,5 @@ metadata:
   annotations:
     fleetsweeper.io/lat: "40.7589"
     fleetsweeper.io/lng: "-73.9851"
-    fleetsweeper.io/site: "Store #42, Times Square"
-    fleetsweeper.io/notes: "Flagship retail location."
+    fleetsweeper.io/site: "NYC edge 42"
+    fleetsweeper.io/notes: "Edge site."

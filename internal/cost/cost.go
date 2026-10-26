@@ -8,7 +8,7 @@
 //	cluster,period,cost_usd
 //	prod-us-east-1,2026-05,2400.50
 //	prod-eu-west-1,2026-05,1980.00
-//	store-nyc-42,2026-05,180.25
+//	edge-nyc-42,2026-05,180.25
 //
 // Headers are case-insensitive. Extra columns are ignored. Periods can be
 // any string; the correlator does not interpret them but surfaces the most
