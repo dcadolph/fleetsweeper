@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/store"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // falcoEvent mirrors the JSON envelope Falco's HTTP_OUTPUT emits. Only
@@ -138,7 +139,7 @@ func buildFalcoAlert(ev falcoEvent, clusterFromHeader string, now time.Time) sto
 		Status:      "firing",
 		AlertName:   ev.Rule,
 		Severity:    strings.ToLower(ev.Priority),
-		Summary:     truncate(ev.Output, 512),
+		Summary:     util.Truncate(ev.Output, 512),
 		StartsAt:    startsAt,
 		ReceivedAt:  now,
 		Labels:      labels,

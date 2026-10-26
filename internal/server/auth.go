@@ -42,7 +42,7 @@ func (a *Actor) CanManageGroups() bool {
 
 // AllowsCluster reports whether the actor may act on the given cluster.
 // groupLookup, when non-nil, resolves "group:<name>" scope entries to their
-// member cluster names so a group-scoped key authorises any current member.
+// member cluster names so a group-scoped key authorizes any current member.
 func (a *Actor) AllowsCluster(cluster string, groupLookup func(name string) []string) bool {
 	if a.HasWildcardScope() {
 		return true

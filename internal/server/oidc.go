@@ -135,7 +135,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleOIDCCallback completes the dance: validates state, exchanges the
-// authorisation code, verifies the ID token, derives the actor role from
+// authorization code, verifies the ID token, derives the actor role from
 // the configured claim mapping, and sets a signed session cookie.
 func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if s.oidc == nil {

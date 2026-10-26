@@ -13,13 +13,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // APIVersion is the v1alpha2 PolicyReport API group/version. Stable across
@@ -124,12 +124,6 @@ type ResourceRef struct {
 	Name string `json:"name"`
 }
 
-// nameSanitize keeps Kubernetes DNS-1123 characters; runs of others collapse to a dash.
-var nameSanitize = regexp.MustCompile(`[^a-z0-9.-]+`)
-
-// collapseDashes squashes runs of dashes into a single dash for readability.
-var collapseDashes = regexp.MustCompile(`-{2,}`)
-
 // ReportsFor builds one PolicyReport per cluster from r. The namespace argument
 // is required by the upstream CRD; pass the operator's preferred namespace
 // (typically "fleetsweeper" or "policy-reporter"). Fleet-scoped findings are
@@ -143,7 +137,7 @@ func ReportsFor(r *report.Report, scanID, namespace string) []PolicyReport {
 		namespace = "fleetsweeper"
 	}
 
-	findingsByCluster := groupFindings(r.Findings)
+	findingsByCluster := report.GroupFindingsByCluster(r.Findings)
 	scanTime, err := time.Parse(time.RFC3339, r.Timestamp)
 	if err != nil {
 		scanTime = time.Now().UTC()
@@ -162,7 +156,7 @@ func ReportsFor(r *report.Report, scanID, namespace string) []PolicyReport {
 			APIVersion: APIVersion,
 			Kind:       Kind,
 			Metadata: Metadata{
-				Name:      "fleetsweeper-" + sanitizeName(cluster),
+				Name:      util.SanitizeName("fleetsweeper-" + cluster),
 				Namespace: namespace,
 				Labels: map[string]string{
 					"fleetsweeper.io/cluster":      cluster,
@@ -328,20 +322,6 @@ func parseResourceRef(s string) ResourceRef {
 	return ResourceRef{Name: s}
 }
 
-// groupFindings buckets findings by cluster, fanning fleet-scoped findings
-// into the empty key so callers can copy them onto every cluster's report.
-func groupFindings(findings []report.Finding) map[string][]report.Finding {
-	out := map[string][]report.Finding{}
-	for _, f := range findings {
-		key := f.Cluster
-		if key == "" {
-			key = "fleet"
-		}
-		out[key] = append(out[key], f)
-	}
-	return out
-}
-
 // summarize counts result types for the report's Summary field.
 func summarize(results []Result) Summary {
 	var s Summary
@@ -360,19 +340,4 @@ func summarize(results []Result) Summary {
 		}
 	}
 	return s
-}
-
-// sanitizeName returns a DNS-1123-safe rendering of cluster.
-func sanitizeName(cluster string) string {
-	lower := strings.ToLower(cluster)
-	cleaned := nameSanitize.ReplaceAllString(lower, "-")
-	cleaned = collapseDashes.ReplaceAllString(cleaned, "-")
-	cleaned = strings.Trim(cleaned, "-.")
-	if cleaned == "" {
-		return "unnamed"
-	}
-	if len(cleaned) > 200 {
-		cleaned = cleaned[:200]
-	}
-	return cleaned
 }

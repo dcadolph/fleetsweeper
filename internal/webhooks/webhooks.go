@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // requestTimeout caps a single outbound POST. Subscribers run sequentially;
@@ -214,7 +216,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, findings []report.Finding) {
 
 // matches returns whether the finding satisfies a subscriber's filters.
 func matches(s Subscriber, f report.Finding) bool {
-	if !severityAtLeast(f.Severity, s.MinSeverity) {
+	if !util.SeverityAtLeast(f.Severity, s.MinSeverity) {
 		return false
 	}
 	if s.scannerRE != nil && !s.scannerRE.MatchString(f.Scanner) {
@@ -224,25 +226,6 @@ func matches(s Subscriber, f report.Finding) bool {
 		return false
 	}
 	return true
-}
-
-// severityRank assigns a numeric weight to each severity for comparison.
-func severityRank(s string) int {
-	switch s {
-	case report.SeverityCritical:
-		return 3
-	case report.SeverityWarning:
-		return 2
-	case report.SeverityInfo:
-		return 1
-	default:
-		return 0
-	}
-}
-
-// severityAtLeast reports whether got meets the want threshold.
-func severityAtLeast(got, want string) bool {
-	return severityRank(got) >= severityRank(want)
 }
 
 // dedupKey is the fingerprint used to suppress repeat notifications. Scoped
@@ -307,7 +290,7 @@ func renderBody(s Subscriber, f report.Finding) ([]byte, error) {
 	if s.tmpl == nil {
 		// Default envelope: minimal JSON the receiver can parse without a
 		// schema.
-		out, err := yaml.Marshal(map[string]any{
+		return json.Marshal(map[string]any{
 			"severity":    f.Severity,
 			"cluster":     f.Cluster,
 			"scanner":     f.Scanner,
@@ -316,10 +299,6 @@ func renderBody(s Subscriber, f report.Finding) ([]byte, error) {
 			"affected":    f.Affected,
 			"remediation": f.Remediation,
 		})
-		if err != nil {
-			return nil, err
-		}
-		return yamlToJSON(out)
 	}
 	var buf bytes.Buffer
 	data := map[string]any{
@@ -343,16 +322,6 @@ func renderBody(s Subscriber, f report.Finding) ([]byte, error) {
 
 // envMap is a template func returning a value from the environment.
 var envMap = func(k string) string { return os.Getenv(k) }
-
-// yamlToJSON converts a YAML-marshalled byte slice into JSON. We round-trip
-// through sigs.k8s.io/yaml so the default body is valid JSON.
-func yamlToJSON(in []byte) ([]byte, error) {
-	out, err := yaml.YAMLToJSON(in)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
 
 // ErrInvalidConfig is returned by LoadConfig when the YAML is unparseable.
 var ErrInvalidConfig = errors.New("invalid webhook config")

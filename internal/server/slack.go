@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // slackNotifyTimeout is the per-request HTTP timeout for posting to a Slack
@@ -187,16 +188,16 @@ type slackText struct {
 // critical findings drawn from the latest report.
 func buildSlackPayload(fresh []report.Finding, r *report.Report) slackPayload {
 	header := fmt.Sprintf("Fleetsweeper: %d new critical finding%s",
-		len(fresh), plural(len(fresh)))
+		len(fresh), util.Plural(len(fresh)))
 	score := ""
 	if r != nil {
 		score = fmt.Sprintf("Fleet Score: %d/%s ; scored from %d cluster%s across %d dimension%s.",
 			r.FleetScore.Score, r.FleetScore.Grade,
-			r.FleetScore.SampleSize, plural(r.FleetScore.SampleSize),
-			r.FleetScore.Dimensions, plural(r.FleetScore.Dimensions))
+			r.FleetScore.SampleSize, util.Plural(r.FleetScore.SampleSize),
+			r.FleetScore.Dimensions, util.Plural(r.FleetScore.Dimensions))
 		if r.FleetScore.ExcludedClusters > 0 {
 			score += fmt.Sprintf(" %d cluster%s excluded for insufficient data.",
-				r.FleetScore.ExcludedClusters, plural(r.FleetScore.ExcludedClusters))
+				r.FleetScore.ExcludedClusters, util.Plural(r.FleetScore.ExcludedClusters))
 		}
 	}
 
@@ -233,7 +234,7 @@ func buildSlackPayload(fresh []report.Finding, r *report.Report) slackPayload {
 func findingBlock(f report.Finding) slackBlock {
 	body := "*" + slackEscape(f.Title) + "*"
 	if f.Description != "" {
-		body += "\n" + slackEscape(truncate(f.Description, 280))
+		body += "\n" + slackEscape(util.Truncate(f.Description, 280))
 	}
 	if f.Remediation != nil && f.Remediation.Command != "" {
 		body += "\n```" + f.Remediation.Command + "```"
@@ -257,27 +258,4 @@ func findingBlock(f report.Finding) slackBlock {
 func slackEscape(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 	return r.Replace(s)
-}
-
-// truncate shortens s to at most n runes, appending an ellipsis when cut.
-func truncate(s string, n int) string {
-	if n <= 0 || len(s) <= n {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "..."
-}
-
-// plural is the package-level singular/plural suffix helper, re-exposed here
-// so slack.go does not have to import the report package's private helper.
-// We deliberately duplicate the four-line helper rather than create a util
-// package for one function.
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }

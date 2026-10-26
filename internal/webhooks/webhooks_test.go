@@ -79,25 +79,6 @@ func TestLoadConfig_MissingURL(t *testing.T) {
 	}
 }
 
-func TestSeverityAtLeast(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		Got, Want string
-		OK        bool
-	}{
-		{"critical", "warning", true},
-		{"warning", "warning", true},
-		{"info", "warning", false},
-		{"warning", "critical", false},
-		{"unknown", "info", false},
-	}
-	for _, c := range cases {
-		if got := severityAtLeast(c.Got, c.Want); got != c.OK {
-			t.Errorf("severityAtLeast(%q,%q): want %v, got %v", c.Got, c.Want, c.OK, got)
-		}
-	}
-}
-
 func TestMatches_AllFilters(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

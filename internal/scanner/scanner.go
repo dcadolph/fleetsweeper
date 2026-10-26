@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"sort"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 )
@@ -69,4 +70,20 @@ func ErroredResult(name string, err error) Result {
 		reason = err.Error()
 	}
 	return Result{Scanner: name, State: StateErrored, Reason: reason}
+}
+
+// Names returns the unique scanner names across every cluster's results, sorted.
+func Names(results map[string]map[string]Result) []string {
+	seen := make(map[string]struct{})
+	for _, scanners := range results {
+		for name := range scanners {
+			seen[name] = struct{}{}
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

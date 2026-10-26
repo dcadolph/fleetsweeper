@@ -56,7 +56,7 @@ func (readOnlyRootFSCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, stri
 		return nil, ""
 	}
 	var offenders []string
-	for _, c := range allContainers(pod) {
+	for _, c := range admittedContainers(pod) {
 		ro := false
 		if c.SecurityContext != nil && c.SecurityContext.ReadOnlyRootFilesystem != nil {
 			ro = *c.SecurityContext.ReadOnlyRootFilesystem
@@ -87,7 +87,7 @@ func (digestPinCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 		return nil, ""
 	}
 	var offenders []string
-	for _, c := range allContainers(pod) {
+	for _, c := range admittedContainers(pod) {
 		if !strings.Contains(c.Image, "@sha256:") {
 			offenders = append(offenders, c.Name+"="+c.Image)
 		}
@@ -120,7 +120,7 @@ func (nonRootCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 		podLevel = *pod.Spec.SecurityContext.RunAsNonRoot
 	}
 	var offenders []string
-	for _, c := range allContainers(pod) {
+	for _, c := range admittedContainers(pod) {
 		containerLevel := false
 		if c.SecurityContext != nil && c.SecurityContext.RunAsNonRoot != nil {
 			containerLevel = *c.SecurityContext.RunAsNonRoot
@@ -152,7 +152,7 @@ func (noPrivEscCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 		return nil, ""
 	}
 	var offenders []string
-	for _, c := range allContainers(pod) {
+	for _, c := range admittedContainers(pod) {
 		set := false
 		if c.SecurityContext != nil && c.SecurityContext.AllowPrivilegeEscalation != nil {
 			set = !*c.SecurityContext.AllowPrivilegeEscalation
@@ -170,8 +170,10 @@ func (noPrivEscCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 	return []string{msg}, msg
 }
 
-// allContainers returns every init + main container in a pod.
-func allContainers(pod *corev1.Pod) []corev1.Container {
+// admittedContainers returns the init and regular containers of a pod being created. Ephemeral
+// containers are left out on purpose: they arrive later through the ephemeralcontainers
+// subresource, never on pod create, so admission never sees them.
+func admittedContainers(pod *corev1.Pod) []corev1.Container {
 	out := make([]corev1.Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
 	out = append(out, pod.Spec.InitContainers...)
 	out = append(out, pod.Spec.Containers...)

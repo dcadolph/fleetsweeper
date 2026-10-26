@@ -48,7 +48,7 @@ type ProbeResult struct {
 	Err error
 }
 
-// probeCache memoises ProbeResult by image reference so multiple pods
+// probeCache memoizes ProbeResult by image reference so multiple pods
 // referencing the same image only round-trip the registry once per scan
 // across clusters within the cache lifetime.
 type probeCache struct {

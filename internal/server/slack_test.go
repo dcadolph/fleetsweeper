@@ -140,26 +140,6 @@ func TestSlackEscape(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		In, Want string
-		N        int
-	}{
-		{"hello", "hello", 10},
-		{"hello world", "hello...", 5},
-		{"", "", 5},
-	}
-	for i, c := range cases {
-		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
-			t.Parallel()
-			if got := truncate(c.In, c.N); got != c.Want {
-				t.Errorf("truncate(%q,%d): want %q, got %q", c.In, c.N, c.Want, got)
-			}
-		})
-	}
-}
-
 func TestNotifySlackForReport_EndToEnd_Mocked(t *testing.T) {
 	t.Parallel()
 	var got atomic.Int32
