@@ -488,14 +488,21 @@ type setProjection struct {
 	// SkipEmpty leaves a cluster with no named members out of the population,
 	// for sets that describe how a resource is used rather than which exist.
 	SkipEmpty bool
+	// Build turns a member back into the object a what-if adds to the raw
+	// array. Nil when a member does not say enough to build one, as an
+	// ingress class does not name an ingress.
+	Build func(member string) map[string]any
 }
 
 // setProjections maps a scanner to the set field derived from its object
 // array: CRDs by name, services by namespace and name, and the ingress
 // classes a cluster's ingresses use.
 var setProjections = map[string]setProjection{
-	"crds":      {From: "crds", To: "crd_names", Member: memberOf("name")},
-	"services":  {From: "services", To: "service_names", Member: memberOf("namespace", "name")},
+	"crds": {From: "crds", To: "crd_names", Member: memberOf("name"), Build: memberObject("name")},
+	"services": {
+		From: "services", To: "service_names",
+		Member: memberOf("namespace", "name"), Build: memberObject("namespace", "name"),
+	},
 	"ingresses": {From: "ingresses", To: "ingress_classes", Member: memberOf("ingress_class_name"), SkipEmpty: true},
 }
 

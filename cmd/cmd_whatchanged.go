@@ -10,20 +10,29 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dcadolph/fleetsweeper/internal/compare"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
+// maxDriftScans caps how many scans the whatchanged drift ledger reads. A wider
+// window keeps scan-a and the most recent scans up to the cap.
+const maxDriftScans = 50
+
+// maxDriftLines is how many drifted clusters whatchanged lists.
+const maxDriftLines = 10
+
 // whatChangedCmd diffs two scans and prints what's new, what cleared,
 // and how the per-cluster scores moved.
 var whatChangedCmd = &cobra.Command{
 	Use:   "whatchanged [scan-a] [scan-b]",
-	Short: "Diff two scans: new findings, cleared findings, score deltas",
+	Short: "Diff two scans: drifted clusters, new and cleared findings, score deltas",
 	Long: "Compares two scans and prints only what changed. When no IDs\n" +
-		"are passed, the previous and current scans are compared. Useful\n" +
-		"as a post-deploy gut check: ‘the score dropped — what new\n" +
-		"finding showed up?’",
+		"are passed, the previous and current scans are compared. The drift\n" +
+		"ledger reads every stored scan between the two, so each outlier flag\n" +
+		"a cluster gained or lost names the scan it flipped in. Useful as a\n" +
+		"post-deploy gut check: the score dropped, so what moved?",
 	Args: cobra.MaximumNArgs(2),
 	RunE: runWhatChanged,
 }
@@ -51,6 +60,8 @@ type whatChangedDiff struct {
 	ClearedFindings []report.Finding `json:"cleared_findings,omitempty"`
 	// ClusterScoreChanges lists clusters whose score moved.
 	ClusterScoreChanges []clusterScoreChange `json:"cluster_score_changes,omitempty"`
+	// Drift is the drift ledger over every stored scan from A to B.
+	Drift report.Ledger `json:"drift"`
 }
 
 // clusterScoreChange records one cluster's score movement between scans.
@@ -94,14 +105,19 @@ func runWhatChanged(cmd *cobra.Command, args []string) error {
 
 	severity, _ := cmd.Flags().GetString("severity")
 	diff := computeWhatChanged(rptA, rptB, scanA, scanB, severity)
+	window, err := driftWindow(ctx, st, scanA, scanB, rptA, rptB)
+	if err != nil {
+		return err
+	}
+	diff.Drift = report.DriftLedger(window)
 
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	return writeWhatChanged(cmd.OutOrStdout(), diff, jsonOut)
 }
 
 // resolveScans returns the two scan IDs to diff. When args has two IDs
-// they're used in (older, newer) order; the function does NOT reorder
-// — the caller is in charge. With one arg, the second is "latest".
+// they're used in (older, newer) order; the function does NOT reorder,
+// the caller is in charge. With one arg, the second is "latest".
 // With zero, it pairs the latest two scans.
 func resolveScans(ctx context.Context, st store.Store, args []string) (string, string, error) {
 	switch len(args) {
@@ -140,6 +156,49 @@ func latestScanID(ctx context.Context, st store.Store) (string, error) {
 	return scans[0].ID, nil
 }
 
+// driftWindow returns the scans from scanA to scanB, oldest first, with the
+// reports already built for the two ends reused. Scans stored between them are
+// read so a flag flip is stamped with the scan it happened in. When scanA is
+// not older than scanB the window is just the two. A window wider than
+// maxDriftScans keeps scanA and the newest scans up to the cap.
+func driftWindow(ctx context.Context, st store.Store, scanA, scanB string, rptA, rptB *report.Report) ([]report.ScanReport, error) {
+	ends := []report.ScanReport{{ID: scanA, Report: rptA}, {ID: scanB, Report: rptB}}
+	a, err := st.GetScan(ctx, scanA)
+	if err != nil {
+		return nil, fmt.Errorf("get scan %s: %w", scanA, err)
+	}
+	b, err := st.GetScan(ctx, scanB)
+	if err != nil {
+		return nil, fmt.Errorf("get scan %s: %w", scanB, err)
+	}
+	if !a.Timestamp.Before(b.Timestamp) {
+		return ends, nil
+	}
+	between, err := st.GetScansByTimeRange(ctx, a.Timestamp, b.Timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("list scans between %s and %s: %w", scanA, scanB, err)
+	}
+	var ids []string
+	for i := len(between) - 1; i >= 0; i-- {
+		if id := between[i].ID; id != scanA && id != scanB {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) > maxDriftScans-2 {
+		ids = ids[len(ids)-(maxDriftScans-2):]
+	}
+	window := make([]report.ScanReport, 0, len(ids)+2)
+	window = append(window, ends[0])
+	for _, id := range ids {
+		r, err := buildReport(ctx, st, id)
+		if err != nil {
+			return nil, err
+		}
+		window = append(window, report.ScanReport{ID: id, Report: r})
+	}
+	return append(window, ends[1]), nil
+}
+
 // buildReport rebuilds the report for one scan ID.
 func buildReport(ctx context.Context, st store.Store, scanID string) (*report.Report, error) {
 	scan, err := st.GetScan(ctx, scanID)
@@ -153,10 +212,10 @@ func buildReport(ctx context.Context, st store.Store, scanID string) (*report.Re
 	return report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp}), nil
 }
 
-// computeWhatChanged returns the structured diff. Findings are matched
-// across reports by (cluster, scanner, title, severity) so a finding
-// that re-fires on the same cluster with the same title doesn't appear
-// as both new and cleared.
+// computeWhatChanged returns the structured diff. Findings are matched across
+// reports by fingerprint (cluster, scanner, and rule), so a finding whose title
+// count changes is neither new nor cleared. The drift ledger is left for the
+// caller, which has the store.
 func computeWhatChanged(a, b *report.Report, idA, idB, minSeverity string) whatChangedDiff {
 	diff := whatChangedDiff{
 		ScanA:       idA,
@@ -193,8 +252,7 @@ func indexFindings(in []report.Finding, minSeverity string) map[string]report.Fi
 		if !util.SeverityAtLeast(f.Severity, minSeverity) {
 			continue
 		}
-		k := f.Cluster + "|" + f.Scanner + "|" + f.Severity + "|" + f.Title
-		out[k] = f
+		out[report.FindingFingerprint(f)] = f
 	}
 	return out
 }
@@ -265,6 +323,15 @@ func writeWhatChanged(w io.Writer, diff whatChangedDiff, jsonOut bool) error {
 		diff.FleetScoreA, diff.FleetScoreB, diff.FleetScoreDelta)
 	fmt.Fprintln(w)
 
+	fmt.Fprintf(w, "Drifted clusters (%d):\n", len(diff.Drift.Clusters))
+	if len(diff.Drift.Clusters) == 0 {
+		fmt.Fprintln(w, "  (none)")
+	}
+	for _, line := range compare.DriftLines(diff.Drift, maxDriftLines) {
+		fmt.Fprintf(w, "  %s\n", line)
+	}
+	fmt.Fprintln(w)
+
 	renderFindingsBlock(w, "New findings", diff.NewFindings)
 	renderFindingsBlock(w, "Cleared findings", diff.ClearedFindings)
 
@@ -293,7 +360,7 @@ func renderFindingsBlock(w io.Writer, label string, findings []report.Finding) {
 		if title == "" {
 			title = "(untitled)"
 		}
-		fmt.Fprintf(w, "  [%s] %s — %s\n", strings.ToUpper(f.Severity), f.Cluster, title)
+		fmt.Fprintf(w, "  [%s] %s -- %s\n", strings.ToUpper(f.Severity), f.Cluster, title)
 	}
 	fmt.Fprintln(w)
 }

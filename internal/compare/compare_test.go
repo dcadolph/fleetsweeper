@@ -1,12 +1,14 @@
 package compare
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 func TestDiff_NewAndResolved(t *testing.T) {
@@ -183,5 +185,61 @@ func TestDiff_SetDrift(t *testing.T) {
 	}
 	if md := RenderMarkdown(d); !strings.Contains(md, "### Set drift (1)") {
 		t.Errorf("markdown rendering lacks the set drift section:\n%s", md)
+	}
+}
+
+// enforcedReport builds a 10-cluster report on security/enforced_count with
+// c04 at the given value.
+func enforcedReport(c04 float64) *report.Report {
+	base := []float64{20, 22, 23, 24, 24, 25, 26, 26, 28, 30}
+	clusters := make([]string, 0, len(base))
+	results := map[string]map[string]scanner.Result{}
+	for i, v := range base {
+		c := fmt.Sprintf("c%02d", i)
+		if c == "c04" {
+			v = c04
+		}
+		clusters = append(clusters, c)
+		results[c] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+	}
+	return report.Build(clusters, results)
+}
+
+// TestDiff_Drift verifies the diff carries the drift ledger from A to B and
+// both renderings list the drifted cluster above the findings.
+func TestDiff_Drift(t *testing.T) {
+	t.Parallel()
+	d := Diff(enforcedReport(24), enforcedReport(80))
+	if len(d.Drift.Clusters) == 0 || d.Drift.Clusters[0].Cluster != "c04" {
+		t.Fatalf("want c04 first in the drift ledger, got %+v", d.Drift.Clusters)
+	}
+	text := RenderText(d, false)
+	line := "c04 deviation"
+	if !strings.Contains(text, "Drifted clusters (") || !strings.Contains(text, line) ||
+		!strings.Contains(text, "now flagged on security/enforced_count") {
+		t.Errorf("text rendering lacks the drift block:\n%s", text)
+	}
+	if strings.Index(text, "Drifted clusters") > strings.Index(text, "NEW findings") {
+		t.Errorf("drift block is not above the findings:\n%s", text)
+	}
+	if md := RenderMarkdown(d); !strings.Contains(md, "### Drifted clusters (") || !strings.Contains(md, line) {
+		t.Errorf("markdown rendering lacks the drift block:\n%s", md)
+	}
+	if steady := Diff(enforcedReport(24), enforcedReport(24)); len(steady.Drift.Clusters) != 0 {
+		t.Errorf("identical reports drifted: %+v", steady.Drift.Clusters)
+	}
+}
+
+// TestDriftLinesLimit verifies the rendering caps the rows and counts the rest.
+func TestDriftLinesLimit(t *testing.T) {
+	t.Parallel()
+	l := report.Ledger{}
+	for i := range 4 {
+		l.Clusters = append(l.Clusters, report.ClusterDrift{Cluster: fmt.Sprintf("c%d", i), MassAfter: 1, MassDelta: 1})
+	}
+	got := DriftLines(l, 2)
+	want := []string{"c0 deviation 0.0 -> 1.0 (+1.0)", "c1 deviation 0.0 -> 1.0 (+1.0)", "... and 2 more"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("lines mismatch (-want +got):\n%s", diff)
 	}
 }
