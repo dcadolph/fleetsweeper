@@ -40,6 +40,8 @@ var ScannerLabels = map[string]string{
 	"cluster-info":      "Node OS/Kernel Drift",
 	"admission":         "Admission Webhooks",
 	"geo":               "Geographic Location",
+	"vulnerabilities":   "Image Vulnerabilities",
+	"policy-reports":    "Policy Reports",
 }
 
 // htmlPayload is the data embedded in the HTML report as JSON. Everything the

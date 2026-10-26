@@ -22,6 +22,7 @@ func detectMajorityOutliers(r *Report, threshold float64, scope string) []Outlie
 			continue
 		}
 		flat := flattenSection(r.Clusters, sec)
+		prepareFlat(scannerName, flat)
 		for _, field := range collectFields(flat) {
 			if _, skip := skipFields[field]; skip {
 				continue

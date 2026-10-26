@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
@@ -137,5 +139,49 @@ func TestRenderText_ColorWrappers(t *testing.T) {
 	}
 	if !strings.Contains(colored, "\033[") {
 		t.Errorf("colored output should contain ANSI codes")
+	}
+}
+
+// setFinding returns a CRD consensus finding for cluster lacking missing.
+func setFinding(cluster string, missing ...string) report.Finding {
+	return report.Finding{
+		Rule: "crds/missing-consensus", Cluster: cluster, Scanner: "crds", Severity: report.SeverityWarning,
+		Affected: []string{"crd_names"},
+		Norm:     &report.NormBasis{Kind: report.NormKindSet, Missing: missing},
+	}
+}
+
+// TestDiff_SetDrift verifies a persisted set finding reports the members it newly lacks and
+// the ones it got back, and that unchanged or non-set persisted findings report nothing.
+func TestDiff_SetDrift(t *testing.T) {
+	t.Parallel()
+	numeric := report.Finding{
+		Rule: "security/outlier-enforced-count", Cluster: "c3", Scanner: "security",
+		Norm: &report.NormBasis{Kind: report.NormKindNumeric, Median: 4},
+	}
+	a := &report.Report{Findings: []report.Finding{
+		setFinding("c1", "a.example.com"),
+		setFinding("c2", "a.example.com"),
+		numeric,
+	}}
+	b := &report.Report{Findings: []report.Finding{
+		setFinding("c1", "b.example.com", "c.example.com"),
+		setFinding("c2", "a.example.com"),
+		numeric,
+	}}
+	d := Diff(a, b)
+	want := []SetDrift{{
+		Cluster: "c1", Scanner: "crds", Field: "crd_names",
+		NewlyMissing: []string{"b.example.com", "c.example.com"}, Restored: []string{"a.example.com"},
+	}}
+	if diff := cmp.Diff(want, d.SetDrift); diff != "" {
+		t.Errorf("set drift mismatch (-want +got):\n%s", diff)
+	}
+	text := RenderText(d, false)
+	if !strings.Contains(text, "c1 crds/crd_names: now missing b.example.com, c.example.com; restored a.example.com") {
+		t.Errorf("text rendering lacks the set drift line:\n%s", text)
+	}
+	if md := RenderMarkdown(d); !strings.Contains(md, "### Set drift (1)") {
+		t.Errorf("markdown rendering lacks the set drift section:\n%s", md)
 	}
 }

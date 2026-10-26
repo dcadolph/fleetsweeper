@@ -29,7 +29,9 @@ func Categories() []Category {
 		{Name: "Cluster Info", Scanners: []string{"version", "namespaces", "crds"}},
 		{Name: "Workloads", Scanners: []string{"services", "ingresses", "image-audit"}},
 		{Name: "Health & Resources", Scanners: []string{"node-health", "metrics", "resources", "resource-quotas"}},
-		{Name: "Security & Access", Scanners: []string{"workload-security", "rbac-audit", "rbac", "security", "network-policies"}},
+		{Name: "Security & Access", Scanners: []string{
+			"workload-security", "rbac-audit", "rbac", "security", "network-policies", "vulnerabilities", "policy-reports",
+		}},
 		{Name: "Events & Logs", Scanners: []string{"events"}},
 	}
 }

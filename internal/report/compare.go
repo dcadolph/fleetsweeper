@@ -18,6 +18,7 @@ var skipFields = map[string]struct{}{
 	"nodes": {}, "services": {}, "ingresses": {}, "policies": {},
 	"roles": {}, "bindings": {}, "quotas": {}, "limit_ranges": {},
 	"namespaces": {}, "crds": {}, "labels": {}, "conditions": {},
+	"top_images": {}, "top_failures": {}, "by_source": {},
 }
 
 // compare builds a SectionReport by checking whether all clusters produced
