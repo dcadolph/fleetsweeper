@@ -330,10 +330,20 @@ func (p *Postgres) ListClusters(ctx context.Context) ([]ClusterRecord, error) {
 		}
 		c.FirstSeen, _ = time.Parse(time.RFC3339, firstSeen)
 		c.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
-		c.Groups = p.clusterGroups(ctx, c.Name)
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
+	}
+	rows.Close()
+	_, byCluster, err := p.memberships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Groups = byCluster[out[i].Name]
+	}
+	return out, nil
 }
 
 // SaveGroup creates or updates a group with the given cluster members.
@@ -392,10 +402,20 @@ func (p *Postgres) ListGroups(ctx context.Context) ([]GroupRecord, error) {
 		if err := rows.Scan(&g.Name); err != nil {
 			return nil, fmt.Errorf("%w: scan row: %w", ErrQuery, err)
 		}
-		g.Clusters, _ = p.groupClusters(ctx, g.Name)
 		out = append(out, g)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrQuery, err)
+	}
+	rows.Close()
+	byGroup, _, err := p.memberships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Clusters = byGroup[out[i].Name]
+	}
+	return out, nil
 }
 
 // DeleteGroup removes a group. Cascades to group_clusters.
@@ -500,22 +520,15 @@ func (p *Postgres) groupClusters(ctx context.Context, group string) ([]string, e
 	return out, rows.Err()
 }
 
-// clusterGroups returns the group names a cluster belongs to.
-func (p *Postgres) clusterGroups(ctx context.Context, cluster string) []string {
-	rows, err := p.query(ctx,
-		"SELECT group_name FROM group_clusters WHERE cluster_name = ? ORDER BY group_name", cluster)
+// memberships returns every group's clusters and every cluster's groups, each list sorted, in
+// one query, so listing groups or clusters costs two round trips rather than one per row.
+func (p *Postgres) memberships(ctx context.Context) (byGroup, byCluster map[string][]string, err error) {
+	rows, err := p.query(ctx, "SELECT group_name, cluster_name FROM group_clusters ORDER BY group_name, cluster_name")
 	if err != nil {
-		return nil
+		return nil, nil, fmt.Errorf("%w: %w", ErrQuery, err)
 	}
 	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var g string
-		if rows.Scan(&g) == nil {
-			out = append(out, g)
-		}
-	}
-	return out
+	return scanMemberships(rows)
 }
 
 // SaveAck upserts an acknowledgement.
