@@ -217,6 +217,9 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		}
 		section := compare(clusters, perCluster)
 		applySeverity(name, section)
+		if _, identity := identityScanners[name]; identity {
+			section.Uniform, section.Divergences = true, nil
+		}
 		r.Sections[name] = section
 	}
 	sortScannerStatuses(r.Degraded)
