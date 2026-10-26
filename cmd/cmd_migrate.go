@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -91,6 +90,12 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 	if err := copyAuditLog(ctx, src, dst, &counts, out); err != nil {
 		return fmt.Errorf("copy audit log: %w", err)
 	}
+	if err := copyTags(ctx, src, dst, &counts, out); err != nil {
+		return fmt.Errorf("copy tags: %w", err)
+	}
+	if err := copyAlerts(ctx, src, dst, &counts, out); err != nil {
+		return fmt.Errorf("copy alerts: %w", err)
+	}
 
 	verify, _ := cmd.Flags().GetBool("verify")
 	if verify {
@@ -99,8 +104,9 @@ func runMigrate(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	fmt.Fprintf(out, "migrate complete: %d scans, %d groups, %d locations, %d acks, %d keys, %d audit rows\n",
-		counts.Scans, counts.Groups, counts.Locations, counts.Acks, counts.APIKeys, counts.Audit)
+	fmt.Fprintf(out, "migrate complete: %d scans, %d groups, %d locations, %d acks, %d keys, %d audit rows, %d tags, %d alerts\n",
+		counts.Scans, counts.Groups, counts.Locations, counts.Acks, counts.APIKeys, counts.Audit, counts.Tags,
+		counts.Alerts)
 	return nil
 }
 
@@ -119,6 +125,22 @@ type migrationCounts struct {
 	APIKeys int
 	// Audit is the number of audit_log rows copied.
 	Audit int
+	// Tags is the number of cluster tag pairs copied.
+	Tags int
+	// Alerts is the number of alert rows copied.
+	Alerts int
+}
+
+// migrateRowCap bounds every list read migrate makes. A table that reaches it is an error, so a
+// copy is never silently truncated.
+const migrateRowCap = 1_000_000
+
+// checkRowCap returns an error when a list read came back at migrateRowCap rows.
+func checkRowCap(table string, n int) error {
+	if n >= migrateRowCap {
+		return fmt.Errorf("%s has %d or more rows, more than migrate copies in one run", table, migrateRowCap)
+	}
+	return nil
 }
 
 // refuseIfDestinationNotEmpty checks that the destination database has no
@@ -139,29 +161,29 @@ func refuseIfDestinationNotEmpty(ctx context.Context, dst store.Store) error {
 	return nil
 }
 
-// copyScans iterates every scan in the source and re-saves it on the
-// destination, preserving the original scan id by going through SaveScan
-// (which generates a new id) and then walking back. Because SaveScan
-// generates new ids, this preserves data shape but not ids. For backends
-// that need identical ids, run pg_dump/sqlite3 .dump instead.
+// copyScans copies every scan, oldest first, under its source ID and timestamp, so acks,
+// links, and seals that name a scan keep working against the destination.
 func copyScans(ctx context.Context, src, dst store.Store, c *migrationCounts, out fmtWriter) error {
-	scans, err := src.ListScans(ctx, 100000)
+	scans, err := src.ListScans(ctx, migrateRowCap)
 	if err != nil {
 		return err
 	}
+	if err := checkRowCap("scans", len(scans)); err != nil {
+		return err
+	}
 	for i := range scans {
-		s := scans[len(scans)-1-i] // oldest first so chronology survives
+		s := scans[len(scans)-1-i]
 		results, err := src.GetScanResults(ctx, s.ID)
 		if err != nil {
 			return fmt.Errorf("read scan %s: %w", s.ID, err)
 		}
-		if _, err := dst.SaveScan(ctx, s.Clusters, results); err != nil {
+		rec := store.ScanRecord{ID: s.ID, Timestamp: s.Timestamp, Clusters: s.Clusters}
+		if _, err := dst.SaveScanRecord(ctx, rec, results); err != nil {
 			return fmt.Errorf("write scan %s: %w", s.ID, err)
 		}
 		c.Scans++
 	}
 	fmt.Fprintf(out, "  scans:     %d copied\n", c.Scans)
-	_ = scanner.Result{}
 	return nil
 }
 
@@ -236,8 +258,11 @@ func copyAPIKeys(ctx context.Context, src, dst store.Store, c *migrationCounts, 
 
 // copyAuditLog copies every audit log row.
 func copyAuditLog(ctx context.Context, src, dst store.Store, c *migrationCounts, out fmtWriter) error {
-	entries, err := src.ListAuditEntries(ctx, store.AuditListOptions{Limit: 1000000})
+	entries, err := src.ListAuditEntries(ctx, store.AuditListOptions{Limit: migrateRowCap})
 	if err != nil {
+		return err
+	}
+	if err := checkRowCap("audit log", len(entries)); err != nil {
 		return err
 	}
 	for _, e := range entries {
@@ -250,11 +275,48 @@ func copyAuditLog(ctx context.Context, src, dst store.Store, c *migrationCounts,
 	return nil
 }
 
+// copyTags copies every cluster tag pair.
+func copyTags(ctx context.Context, src, dst store.Store, c *migrationCounts, out fmtWriter) error {
+	tags, err := src.ListClusterTags(ctx)
+	if err != nil {
+		return err
+	}
+	for cluster, kv := range tags {
+		for key, value := range kv {
+			if err := dst.SetClusterTag(ctx, cluster, key, value); err != nil {
+				return fmt.Errorf("write tag %s/%s: %w", cluster, key, err)
+			}
+			c.Tags++
+		}
+	}
+	fmt.Fprintf(out, "  tags:      %d copied\n", c.Tags)
+	return nil
+}
+
+// copyAlerts copies every stored AlertManager alert with its received time.
+func copyAlerts(ctx context.Context, src, dst store.Store, c *migrationCounts, out fmtWriter) error {
+	alerts, err := src.ListAlerts(ctx, store.AlertListOptions{Limit: migrateRowCap})
+	if err != nil {
+		return err
+	}
+	if err := checkRowCap("alerts", len(alerts)); err != nil {
+		return err
+	}
+	for _, a := range alerts {
+		if err := dst.UpsertAlert(ctx, a); err != nil {
+			return fmt.Errorf("write alert %s: %w", a.Fingerprint, err)
+		}
+		c.Alerts++
+	}
+	fmt.Fprintf(out, "  alerts:    %d copied\n", c.Alerts)
+	return nil
+}
+
 // verifyCounts re-reads the destination and confirms each table at least
 // matches the copied count. (Greater-than is acceptable in --force mode
 // where the destination already had rows.)
 func verifyCounts(ctx context.Context, dst store.Store, want migrationCounts, out fmtWriter) error {
-	scans, err := dst.ListScans(ctx, 100000)
+	scans, err := dst.ListScans(ctx, migrateRowCap)
 	if err != nil {
 		return err
 	}
@@ -267,6 +329,24 @@ func verifyCounts(ctx context.Context, dst store.Store, want migrationCounts, ou
 	}
 	if len(groups) < want.Groups {
 		return fmt.Errorf("groups verify: want >=%d, got %d", want.Groups, len(groups))
+	}
+	alerts, err := dst.ListAlerts(ctx, store.AlertListOptions{Limit: migrateRowCap})
+	if err != nil {
+		return err
+	}
+	if len(alerts) < want.Alerts {
+		return fmt.Errorf("alerts verify: want >=%d, got %d", want.Alerts, len(alerts))
+	}
+	tags, err := dst.ListClusterTags(ctx)
+	if err != nil {
+		return err
+	}
+	tagCount := 0
+	for _, kv := range tags {
+		tagCount += len(kv)
+	}
+	if tagCount < want.Tags {
+		return fmt.Errorf("tags verify: want >=%d, got %d", want.Tags, tagCount)
 	}
 	fmt.Fprintln(out, "verify: ok")
 	return nil

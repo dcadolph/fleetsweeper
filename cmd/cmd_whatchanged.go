@@ -150,7 +150,7 @@ func buildReport(ctx context.Context, st store.Store, scanID string) (*report.Re
 	if err != nil {
 		return nil, fmt.Errorf("get scan results %s: %w", scanID, err)
 	}
-	return report.Build(scan.Clusters, results), nil
+	return report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp}), nil
 }
 
 // computeWhatChanged returns the structured diff. Findings are matched

@@ -118,5 +118,5 @@ func loadReport(ctx context.Context, s *store.SQLite, id string) (*report.Report
 	if err != nil {
 		return nil, err
 	}
-	return report.Build(scan.Clusters, results), nil
+	return report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp}), nil
 }

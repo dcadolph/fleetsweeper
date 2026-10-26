@@ -272,9 +272,18 @@ func contractGroups(t *testing.T, st Store) {
 }
 
 // contractClusterHistory checks per-cluster history is newest first, breaks
-// timestamp ties by scan ID, honors the limit, and excludes other clusters.
+// timestamp ties by scan ID, honors the limit, excludes other clusters, and
+// carries each result's State and Reason.
 func contractClusterHistory(t *testing.T, st Store) {
 	ctx := context.Background()
+	degraded := map[string]map[string]scanner.Result{"alpha": {"version": {
+		Scanner: "version", Data: map[string]any{"id": "0000000000000-z"},
+		State: scanner.StateDegraded, Reason: "nodes: forbidden",
+	}}}
+	rec := ScanRecord{ID: "0000000000000-z", Timestamp: contractEpoch.Add(-time.Minute), Clusters: []string{"alpha"}}
+	if _, err := st.SaveScanRecord(ctx, rec, degraded); err != nil {
+		t.Fatalf("save degraded scan: %v", err)
+	}
 	saveAt(t, st, "0000000000001-a", 0, "alpha", "beta")
 	saveAt(t, st, "0000000000002-b", time.Minute, "alpha")
 	saveAt(t, st, "0000000000003-c", time.Minute, "alpha")
@@ -288,6 +297,10 @@ func contractClusterHistory(t *testing.T, st Store) {
 		{ScanID: "0000000000003-c", Cluster: "alpha", Scanner: "version", DataJSON: []byte(`{"id":"0000000000003-c"}`)},
 		{ScanID: "0000000000002-b", Cluster: "alpha", Scanner: "version", DataJSON: []byte(`{"id":"0000000000002-b"}`)},
 		{ScanID: "0000000000001-a", Cluster: "alpha", Scanner: "version", DataJSON: []byte(`{"id":"0000000000001-a"}`)},
+		{
+			ScanID: "0000000000000-z", Cluster: "alpha", Scanner: "version", DataJSON: []byte(`{"id":"0000000000000-z"}`),
+			State: scanner.StateDegraded, Reason: "nodes: forbidden",
+		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("history mismatch (-want +got):\n%s", diff)

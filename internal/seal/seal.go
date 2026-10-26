@@ -1,19 +1,21 @@
-// Package seal provides HMAC-SHA256 sealing for scan reports. The intent
-// is auditor-grade tamper detection on saved or exported reports: an
-// operator configures a secret with --seal-key, the same secret is used to
-// produce a "seal" alongside the bundle, and "fleetsweeper verify" checks
-// that the bundle's report bytes match the seal. The signature format and
-// header conventions mirror the inbound webhook signature scheme so a
+// Package seal provides HMAC-SHA256 sealing for export bundles. The intent is auditor-grade
+// tamper detection: an operator configures a secret with --seal-key, the bundle carries a
+// MANIFEST that lists every file with its SHA-256, the secret signs the MANIFEST, and
+// "fleetsweeper verify" checks the signature and then every file against the MANIFEST. The
+// signature format and header conventions mirror the inbound webhook signature scheme so a
 // single secret style is reusable across the tool.
 package seal
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -22,14 +24,12 @@ import (
 // inbound webhook signature header.
 const Prefix = "sha256="
 
-// FileName is the conventional filename used inside an export bundle to
-// carry the signature of report.json. Kept as a constant so the export and
-// verify code paths cannot drift apart.
-const FileName = "report.sig"
+// ManifestFile is the bundle entry listing every other file with its SHA-256. The signature
+// covers it, so it vouches for every file it lists.
+const ManifestFile = "MANIFEST"
 
-// SourceFile is the bundle entry that the signature in FileName covers.
-// Verification always re-signs SourceFile and compares against FileName.
-const SourceFile = "report.json"
+// FileName is the bundle entry carrying the signature of ManifestFile.
+const FileName = "MANIFEST.sig"
 
 // ErrMissingKey is returned when sealing or verifying without a secret.
 var ErrMissingKey = errors.New("seal: secret key is required")
@@ -41,6 +41,13 @@ var ErrMalformed = errors.New("seal: signature is malformed")
 // ErrMismatch is returned when a signature does not match the data. This
 // is the value to look for when reporting tamper detection.
 var ErrMismatch = errors.New("seal: signature mismatch")
+
+// ErrManifest is returned when a MANIFEST cannot be parsed.
+var ErrManifest = errors.New("seal: manifest is malformed")
+
+// ErrContents is returned when a bundle's files do not match its MANIFEST: a listed file is
+// missing or altered, or a file is not listed.
+var ErrContents = errors.New("seal: bundle contents do not match the manifest")
 
 // Sign returns the canonical "sha256=<hex>" signature for data using key.
 // Returns ErrMissingKey when key is empty so callers cannot accidentally
@@ -124,4 +131,69 @@ func decodeSignature(signature string) ([]byte, error) {
 		return nil, ErrMalformed
 	}
 	return raw, nil
+}
+
+// Manifest returns the MANIFEST for files, keyed by path relative to the bundle root: one
+// "<sha256 hex>  <path>" line per file, sorted by path, the layout sha256sum writes. Entries
+// named ManifestFile or FileName are left out.
+func Manifest(files map[string][]byte) []byte {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		if name == ManifestFile || name == FileName {
+			continue
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var b bytes.Buffer
+	for _, name := range names {
+		sum := sha256.Sum256(files[name])
+		fmt.Fprintf(&b, "%s  %s\n", hex.EncodeToString(sum[:]), name)
+	}
+	return b.Bytes()
+}
+
+// CheckManifest verifies that files match manifest exactly: every listed file is present with
+// the listed digest, and every file other than ManifestFile and FileName is listed. It does not
+// check the signature; callers verify the manifest's signature first. The error wraps
+// ErrContents and names each missing, altered, and unlisted file.
+func CheckManifest(manifest []byte, files map[string][]byte) error {
+	listed := make(map[string]string)
+	sc := bufio.NewScanner(bytes.NewReader(manifest))
+	for sc.Scan() {
+		sum, name, ok := strings.Cut(sc.Text(), "  ")
+		if !ok || name == "" || len(sum) != 2*sha256.Size {
+			return fmt.Errorf("%w: line %q", ErrManifest, sc.Text())
+		}
+		if _, dup := listed[name]; dup {
+			return fmt.Errorf("%w: %s listed twice", ErrManifest, name)
+		}
+		listed[name] = sum
+	}
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("%w: %w", ErrManifest, err)
+	}
+
+	var problems []string
+	for name, want := range listed {
+		data, ok := files[name]
+		if !ok {
+			problems = append(problems, "missing "+name)
+			continue
+		}
+		got := sha256.Sum256(data)
+		if hex.EncodeToString(got[:]) != want {
+			problems = append(problems, "altered "+name)
+		}
+	}
+	for name := range files {
+		if _, ok := listed[name]; !ok && name != ManifestFile && name != FileName {
+			problems = append(problems, "unlisted "+name)
+		}
+	}
+	if len(problems) > 0 {
+		slices.Sort(problems)
+		return fmt.Errorf("%w: %s", ErrContents, strings.Join(problems, ", "))
+	}
+	return nil
 }

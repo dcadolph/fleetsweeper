@@ -46,7 +46,7 @@ func (s *Server) findingSeries(ctx context.Context, n int) ([]scanFindings, erro
 			s.log.Warn("finding series: get scan results", zap.String("scan", sc.ID), zap.Error(err))
 			continue
 		}
-		rpt := report.Build(sc.Clusters, results)
+		rpt := report.Build(sc.Clusters, results, report.BuildOptions{Timestamp: sc.Timestamp})
 		out = append(out, scanFindings{ScanID: sc.ID, Timestamp: sc.Timestamp, Findings: rpt.Findings})
 	}
 	return out, nil

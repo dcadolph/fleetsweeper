@@ -29,6 +29,10 @@ type ScanResultRecord struct {
 	Scanner string `json:"scanner"`
 	// DataJSON is the raw JSON-encoded scanner output.
 	DataJSON []byte `json:"data_json"`
+	// State is how much to trust DataJSON, as the scanner reported it.
+	State scanner.State `json:"state,omitempty"`
+	// Reason explains a State other than OK.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ClusterRecord represents a known cluster.

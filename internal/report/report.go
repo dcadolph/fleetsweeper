@@ -106,6 +106,9 @@ type BuildOptions struct {
 	// tagged clusters land in tagged cohorts instead of being auto-grouped.
 	// Untagged clusters still get auto-cohorted.
 	ClusterTags map[string]string
+	// Timestamp is when the scan behind the report ran. A report rebuilt from a stored scan
+	// passes that scan's time, so rebuilding it later yields the same report. Zero means now.
+	Timestamp time.Time
 }
 
 // CategoryReport holds a category and its scanner names for the report.
@@ -166,8 +169,12 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		opt.OutlierThreshold = 3.5
 	}
 
+	ts := opt.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
 	r := &Report{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Timestamp: ts.UTC().Format(time.RFC3339),
 		Clusters:  clusters,
 		Sections:  make(map[string]*SectionReport),
 	}

@@ -448,7 +448,7 @@ func (s *SQLite) RemoveClusterFromGroup(ctx context.Context, group, cluster stri
 // GetClusterHistory returns scan results for a cluster across scans.
 func (s *SQLite) GetClusterHistory(ctx context.Context, cluster string, limit int) ([]ScanResultRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT sr.scan_id, sr.cluster, sr.scanner, sr.data_json
+		`SELECT sr.scan_id, sr.cluster, sr.scanner, sr.data_json, sr.state, sr.reason
 		 FROM scan_results sr
 		 JOIN scans s ON s.id = sr.scan_id
 		 WHERE sr.cluster = ?
@@ -462,11 +462,12 @@ func (s *SQLite) GetClusterHistory(ctx context.Context, cluster string, limit in
 	var records []ScanResultRecord
 	for rows.Next() {
 		var r ScanResultRecord
-		var dataJSON string
-		if err := rows.Scan(&r.ScanID, &r.Cluster, &r.Scanner, &dataJSON); err != nil {
+		var dataJSON, state string
+		if err := rows.Scan(&r.ScanID, &r.Cluster, &r.Scanner, &dataJSON, &state, &r.Reason); err != nil {
 			return nil, fmt.Errorf("%w: scan row: %w", ErrQuery, err)
 		}
 		r.DataJSON = []byte(dataJSON)
+		r.State = scanner.State(state)
 		records = append(records, r)
 	}
 	return records, rows.Err()

@@ -181,7 +181,7 @@ func runHistoryShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get results: %w", err)
 	}
 
-	rpt := report.Build(scan.Clusters, results)
+	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 	out, err := jsonutil.Marshal(rpt, pretty)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -219,8 +219,8 @@ func runHistoryDiff(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get results %s: %w", args[1], err)
 	}
 
-	rpt1 := report.Build(scan1.Clusters, results1)
-	rpt2 := report.Build(scan2.Clusters, results2)
+	rpt1 := report.Build(scan1.Clusters, results1, report.BuildOptions{Timestamp: scan1.Timestamp})
+	rpt2 := report.Build(scan2.Clusters, results2, report.BuildOptions{Timestamp: scan2.Timestamp})
 
 	diff := buildScanDiff(scan1.ID, scan2.ID, rpt1, rpt2)
 	out, err := jsonutil.Marshal(diff, pretty)

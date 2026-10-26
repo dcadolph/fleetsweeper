@@ -9,14 +9,19 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
-// execExport runs the export subcommand against a temp DB.
+// execExport runs the export subcommand against a temp DB. Every export flag is reset to its
+// default before args because rootCmd keeps flag values across Execute calls.
 func execExport(t *testing.T, dbPath string, args ...string) error {
 	t.Helper()
 	defer lockRootCmd(t)()
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)
-	full := append([]string{"export"}, args...)
+	full := []string{
+		"export", "--scan-id=latest", "--output=", "--cost-csv=", "--seal-key=",
+		"--policy-report-namespace=fleetsweeper",
+	}
+	full = append(full, args...)
 	full = append(full, "--db="+dbPath)
 	rootCmd.SetArgs(full)
 	return rootCmd.Execute()

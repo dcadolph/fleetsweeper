@@ -58,7 +58,7 @@ func (s *Server) fleetScoreHistory(ctx context.Context, limit int) []report.Flee
 			s.log.Warn("forecast: get results", zap.String("scan_id", scan.ID), zap.Error(err))
 			continue
 		}
-		rpt := report.Build(scan.Clusters, results)
+		rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 		out = append(out, report.FleetScoreHistoryPoint{
 			ScanID:    scan.ID,
 			Timestamp: scan.Timestamp,
@@ -177,7 +177,7 @@ func (s *Server) clusterScoreHistories(ctx context.Context, limit int) (map[stri
 				zap.String("scan_id", scan.ID), zap.Error(err))
 			continue
 		}
-		rpt := report.Build(scan.Clusters, results)
+		rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 		for _, cs := range report.ComputeClusterScores(rpt) {
 			histories[cs.Cluster] = append(histories[cs.Cluster],
 				report.FleetScoreHistoryPoint{

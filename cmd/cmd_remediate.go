@@ -132,7 +132,7 @@ func pickFinding(ctx context.Context, cmd *cobra.Command, scanID, cluster, scann
 	if err != nil {
 		return report.Finding{}, fmt.Errorf("get scan results: %w", err)
 	}
-	rpt := report.Build(scan.Clusters, results)
+	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 
 	candidates := filterRemediable(rpt.Findings, cluster, scannerFilter)
 	if len(candidates) == 0 {
