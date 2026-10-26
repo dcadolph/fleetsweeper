@@ -973,3 +973,38 @@ func TestOutlierRule(t *testing.T) {
 		})
 	}
 }
+
+// TestClusterHealthOwnFindings verifies a cluster's status and counts come
+// from its own findings, so a fleet-scoped finding marks no cluster.
+func TestClusterHealthOwnFindings(t *testing.T) {
+	t.Parallel()
+	r := &Report{Clusters: []string{"a", "b"}}
+	tests := []struct {
+		WantStatus map[string]string
+		Findings   []Finding
+	}{{ // Test 0: Fleet-scoped warning only.
+		Findings:   []Finding{{Cluster: "fleet", Severity: SeverityWarning, Rule: "version/skew"}},
+		WantStatus: map[string]string{"a": "healthy", "b": "healthy"},
+	}, { // Test 1: Fleet-scoped critical and one cluster warning.
+		Findings: []Finding{
+			{Cluster: "fleet", Severity: SeverityCritical, Rule: "version/skew"},
+			{Cluster: "b", Severity: SeverityWarning, Rule: "certs/expiring-30d"},
+		},
+		WantStatus: map[string]string{"a": "healthy", "b": "degraded"},
+	}, { // Test 2: A cluster critical.
+		Findings:   []Finding{{Cluster: "a", Severity: SeverityCritical, Rule: "node-health/not-ready"}},
+		WantStatus: map[string]string{"a": "critical", "b": "healthy"},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := map[string]string{}
+			for _, h := range GenerateClusterHealth(r, test.Findings) {
+				got[h.Name] = h.Status
+			}
+			if diff := cmp.Diff(test.WantStatus, got); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
