@@ -734,3 +734,4 @@ kbd {
 .meter-card { display: flex; flex-direction: column; gap: 4px; }
 .meter-value { font-size: var(--fs-28); font-weight: 700; font-variant-numeric: tabular-nums; }
 .meter-bar { width: 100%; height: 6px; margin-top: 6px; }
+.whatif-score { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 8px; }
