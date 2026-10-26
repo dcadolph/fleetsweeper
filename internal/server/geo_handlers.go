@@ -40,6 +40,11 @@ type geoPoint struct {
 	CriticalFindings int `json:"critical_findings"`
 	// WarningFindings is the count of warning findings for this cluster.
 	WarningFindings int `json:"warning_findings"`
+	// DeviationMass is how far the cluster sits from its norm across every field.
+	DeviationMass float64 `json:"deviation_mass"`
+	// OutlierFields is how many fields flag the cluster, at fleet or cohort scope, counting only
+	// flags that raise a finding.
+	OutlierFields int `json:"outlier_fields"`
 }
 
 // handleGetGeo returns the geographic placement of every cluster in the
@@ -73,6 +78,7 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rpt := s.buildReport(r.Context(), *latest, results)
+	flaggedFields := outlierFieldCounts(rpt)
 	statusByCluster := make(map[string]report.ClusterHealth, len(rpt.ClusterHealths))
 	for _, h := range rpt.ClusterHealths {
 		statusByCluster[h.Name] = h
@@ -101,6 +107,8 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 				Source:           "manual",
 				CriticalFindings: critical,
 				WarningFindings:  warning,
+				DeviationMass:    rpt.DeviationMass[cluster],
+				OutlierFields:    flaggedFields[cluster],
 			})
 			continue
 		}
@@ -122,6 +130,8 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 			Source:           auto.Source,
 			CriticalFindings: critical,
 			WarningFindings:  warning,
+			DeviationMass:    rpt.DeviationMass[cluster],
+			OutlierFields:    flaggedFields[cluster],
 		})
 	}
 
@@ -134,6 +144,33 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 		"points":    points,
 		"unlocated": unlocated,
 	})
+}
+
+// outlierFieldCounts returns, per cluster, how many distinct fields flag it at fleet or cohort
+// scope, leaving out fleet flags its tagged cohort explains, since those raise no finding.
+func outlierFieldCounts(r *report.Report) map[string]int {
+	fields := map[string]map[string]bool{}
+	add := func(o report.OutlierResult) {
+		if fields[o.Cluster] == nil {
+			fields[o.Cluster] = map[string]bool{}
+		}
+		fields[o.Cluster][o.Scanner+"/"+o.Field] = true
+	}
+	for _, o := range r.Outliers {
+		if o.ExplainedBy == "" {
+			add(o)
+		}
+	}
+	for _, c := range r.Cohorts {
+		for _, o := range c.Outliers {
+			add(o)
+		}
+	}
+	out := make(map[string]int, len(fields))
+	for c, f := range fields {
+		out[c] = len(f)
+	}
+	return out
 }
 
 // autoGeo is the subset of the geo scanner's Data we consume here. Decoded

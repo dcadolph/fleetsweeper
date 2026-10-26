@@ -32,6 +32,29 @@ export function colorOf(status) {
   return toneColor(statusTone(norm(status)));
 }
 
+// pointSize returns a marker radius growing with the cluster's deviation mass relative to the
+// largest in pts, so the clusters furthest from their norm stand out.
+export function pointSize(p, pts) {
+  const top = Math.max(1, ...pts.map((x) => x.deviation_mass || 0));
+  return 0.3 + 0.7 * Math.sqrt((p.deviation_mass || 0) / top);
+}
+
+// ringsFor returns the pulsing rings: one source per cluster with a field outside the norm, its
+// rings spaced closer the more fields flag it, in the cluster's status color.
+export function ringsFor(pts) {
+  return pts.filter((p) => p.outlier_fields > 0).map((p) => ({
+    lat: p.lat, lng: p.lng, maxR: 4 + Math.min(p.outlier_fields, 4), propagationSpeed: 2,
+    repeatPeriod: 2400 / Math.min(p.outlier_fields, 4), color: colorOf(p.status),
+  }));
+}
+
+// ringColor fades a ring from its color to transparent as it spreads.
+export function ringColor(d) {
+  const hex = (d.color || '#f85149').replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return (t) => `rgba(${r},${g},${b},${1 - t})`;
+}
+
 // renderGlobe builds the page shell; initGlobe mounts the scene.
 export async function renderGlobe() {
   renderBar('<input type="search" class="input-w" placeholder="Search clusters..." data-change="globe-search" aria-label="Search clusters">' +
@@ -41,8 +64,9 @@ export async function renderGlobe() {
     '<div id="globeFilter" class="flex flex-wrap gap-6 mb-8"></div>' +
     '<div class="split-side"><div id="globe-wrap" class="globe-wrap"></div>' +
     '<div class="globe-side"><div id="globe-summary" class="sect">Loading...</div><div id="globe-action" class="sect action hidden"></div>' +
-    '<div class="sect eyebrow">Clusters worst first</div><div id="globe-list" class="globe-list"></div></div></div>' +
-    '<div class="legend">' + STATUSES.slice().reverse().map((s) => `<span><span class="dot fill-${statusTone(s)}"></span> ${s}${s === 'critical' ? ' (pulsing)' : ''}</span>`).join('') +
+    '<div class="sect eyebrow">Clusters furthest from the norm first</div><div id="globe-list" class="globe-list"></div></div></div>' +
+    '<div class="legend">' + STATUSES.slice().reverse().map((s) => `<span><span class="dot fill-${statusTone(s)}"></span> ${s}</span>`).join('') +
+    '<span>size: deviation from the norm</span><span>rings: fields outside the norm</span>' +
     '<span class="ml-auto"><span id="globe-located-count">0</span> placed &middot; <span id="globe-unlocated-count">0</span> unplaced</span></div>' +
     '<div id="globe-unlocated" class="note mt-4"></div>';
   return { html: h, post: initGlobe };
@@ -114,9 +138,10 @@ async function initGlobe() {
         `<div class="fw-600 mb-4">${esc(d.cluster)}</div><div class="c-t2">${esc(d.status)} &middot; ${esc(SOURCE_LABELS[d.source] || d.source)}</div>` +
         (d.region ? `<div class="c-t2">${esc(d.region)}${d.provider ? ' &middot; ' + esc(d.provider) : ''}</div>` : '') +
         (d.critical ? `<div class="c-crit">${d.critical} critical</div>` : '') +
-        (d.warning ? `<div class="c-warn">${d.warning} warning</div>` : '') + '</div>')
+        (d.warning ? `<div class="c-warn">${d.warning} warning</div>` : '') +
+        `<div class="c-t2">deviation ${(d.mass || 0).toFixed(1)}${d.fields ? ' &middot; ' + d.fields + ' field' + (d.fields === 1 ? '' : 's') + ' outside the norm' : ''}</div></div>`)
       .onPointClick((d) => selectCluster(d.cluster))
-      .ringColor(() => (t) => 'rgba(248,81,73,' + (1 - t) + ')')
+      .ringColor(ringColor)
       .ringMaxRadius('maxR').ringPropagationSpeed('propagationSpeed').ringRepeatPeriod('repeatPeriod')
       .labelLat('lat').labelLng('lng').labelText('text').labelSize('size')
       .labelColor((d) => d.color).labelDotRadius(0.25).labelResolution(2);
@@ -154,11 +179,11 @@ function applyLayers() {
   state.globe
     .pointsData(pts.map((p) => ({
       lat: p.lat, lng: p.lng,
-      size: p.status === 'critical' ? 0.8 : state.selected === p.cluster ? 0.7 : 0.4,
+      size: pointSize(p, state.points) + (state.selected === p.cluster ? 0.15 : 0),
       color: colorOf(p.status), cluster: p.cluster, status: p.status, source: p.source, region: p.region, provider: p.provider,
-      critical: p.critical_findings, warning: p.warning_findings,
+      critical: p.critical_findings, warning: p.warning_findings, mass: p.deviation_mass, fields: p.outlier_fields,
     })))
-    .ringsData(pts.filter((p) => p.status === 'critical').map((p) => ({ lat: p.lat, lng: p.lng, maxR: 5, propagationSpeed: 2, repeatPeriod: 1100 })))
+    .ringsData(ringsFor(pts))
     .labelsData(pts.filter((p) => p.source !== 'auto' || p.status === 'critical' || state.selected === p.cluster).map((p) => ({
       lat: p.lat, lng: p.lng, text: p.site || p.cluster,
       size: state.selected === p.cluster ? 0.55 : p.source !== 'auto' ? 0.45 : 0.35,
@@ -175,11 +200,10 @@ function renderSide() {
   filterEl.innerHTML = STATUSES.map((s) => `<button class="btn filter-btn${state.filter[s] ? ' c-' + statusTone(s) : ' off'}" data-action="globe-filter" data-status="${s}" aria-pressed="${state.filter[s]}">${s} ${counts[s]}</button>`).join('');
   byId('globe-summary').innerHTML = STATUSES.map((s) => `<div class="flex between"><span>${s[0].toUpperCase() + s.slice(1)}</span><span class="c-${statusTone(s)} fw-600">${counts[s]}</span></div>`).join('');
 
-  const rank = { critical: 0, degraded: 1, busy: 2, healthy: 3 };
   const q = state.search.toLowerCase();
   const visible = state.points.filter((p) => state.filter[norm(p.status)] &&
     (!q || [p.cluster, p.site, p.region, p.city].some((v) => (v || '').toLowerCase().includes(q))))
-    .sort((a, b) => ((rank[norm(a.status)] ?? 4) - (rank[norm(b.status)] ?? 4)) || (a.cluster || '').localeCompare(b.cluster || ''));
+    .sort((a, b) => ((b.deviation_mass || 0) - (a.deviation_mass || 0)) || (a.cluster || '').localeCompare(b.cluster || ''));
   const list = byId('globe-list');
   list.innerHTML = visible.length ? visible.map((p) => `<button class="globe-row${state.selected === p.cluster ? ' sel' : ''}" data-action="globe-select" data-cluster="${esc(p.cluster)}">` +
     `<span class="dot fill-${statusTone(norm(p.status))}"></span><span class="grow"><span class="fs-12 fw-500 ellipsis">${esc(p.cluster)}</span>` +
