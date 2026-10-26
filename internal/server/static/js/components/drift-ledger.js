@@ -6,7 +6,7 @@
 import { esc, clusterHref } from '../dom.js';
 import { fmt, linear } from '../viz.js';
 
-// ROWS is how many clusters the ledger lists.
+// ROWS is how many clusters the ledger lists unless told otherwise.
 const ROWS = 8;
 
 // sparkline draws a series as a small polyline with its last point marked.
@@ -35,13 +35,13 @@ function flagChips(flags, gained, scanIndex, total) {
 }
 
 // renderDriftLedger returns the ledger's markup. period describes the span
-// for the header, e.g. "the last 7 days".
-export function renderDriftLedger(ledger, period) {
+// for the header, e.g. "the last 7 days", and opts.rows caps the rows listed.
+export function renderDriftLedger(ledger, period, opts) {
   const scans = (ledger && ledger.scans) || [];
-  const rows = ((ledger && ledger.clusters) || []).slice(0, ROWS);
+  const rows = ((ledger && ledger.clusters) || []).slice(0, (opts && opts.rows) || ROWS);
   const span = scans.length < 2
     ? 'Drift needs at least two scans in the window.'
-    : `Across ${scans.length} scans in ${esc(period)}.`;
+    : `Across ${scans.length} scans, ${esc(period)}.`;
   if (scans.length < 2 || !rows.length) {
     return `<p class="note">${span}</p>` + (scans.length >= 2 ? '<div class="empty">No cluster moved against the norm in this window.</div>' : '');
   }
@@ -60,4 +60,23 @@ export function renderDriftLedger(ledger, period) {
       '</span></div>';
   });
   return h + '</div>';
+}
+
+// driftMarkdown formats the ledger as Markdown for pasting into a channel or a ticket.
+export function driftMarkdown(ledger, period) {
+  const scans = (ledger && ledger.scans) || [];
+  const rows = (ledger && ledger.clusters) || [];
+  const lines = [`## Drift across ${scans.length} scans, ${period}`, ''];
+  if (!rows.length) lines.push('No cluster moved against the norm.');
+  rows.forEach((r) => {
+    let line = `- ${r.cluster}: deviation ${fmt(r.mass_before)} to ${fmt(r.mass_after)} (${r.mass_delta > 0 ? '+' : ''}${fmt(Math.round(r.mass_delta * 10) / 10)})`;
+    const gained = (r.gained || []).map((f) => f.scanner + '/' + f.field);
+    const lost = (r.lost || []).map((f) => f.scanner + '/' + f.field);
+    if (gained.length) line += `, now outside the norm on ${gained.join(', ')}`;
+    if (lost.length) line += `, back inside on ${lost.join(', ')}`;
+    const top = (r.fields || [])[0];
+    if (top) line += `; ${top.scanner}/${top.field} ${top.before || '-'} to ${top.after || '-'}`;
+    lines.push(line);
+  });
+  return lines.join('\n');
 }

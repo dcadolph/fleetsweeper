@@ -12,7 +12,7 @@ import { esc } from './dom.js';
 import { morph } from './morph.js';
 
 // P is the current page state. query holds the hash's query parameters.
-export const P = { page: 'dash', cluster: null, scanId: null, diffA: null, diffB: null, query: {} };
+export const P = { page: 'dash', cluster: null, scanId: null, query: {} };
 
 const leaveHooks = [];
 
@@ -60,6 +60,10 @@ export function stateFromHash() {
   const parts = path.split('/');
   if (parts[0] === 'cluster' && parts[1]) return { page: 'detail', cluster: decodeURIComponent(parts[1]), query };
   if (parts[0] === 'scan' && parts[1]) return { page: 'scanReport', scanId: decodeURIComponent(parts[1]), query };
+  if (parts[0] === 'diff') {
+    history.replaceState(null, '', '#/drift');
+    return { page: 'drift', query: {} };
+  }
   const known = ROUTES.some((r) => r.id === parts[0]);
   return { page: known ? parts[0] : 'dash', query };
 }

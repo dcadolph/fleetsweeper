@@ -99,7 +99,7 @@ func TestRouteTable(t *testing.T) {
 	}
 	sort.Strings(got)
 	want := []string{
-		"alerts", "capacity", "clusters", "cohorts", "dash", "detail", "diff", "findings", "globe",
+		"alerts", "capacity", "clusters", "cohorts", "dash", "detail", "drift", "findings", "globe",
 		"groups", "heatmap", "incidents", "manage", "outliers", "replay", "scanReport", "scans", "trends",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
