@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -763,6 +764,211 @@ func TestHistoryFindingRules(t *testing.T) {
 			}
 			if diff := cmp.Diff(util.Fingerprint("a", "events", test.WantRule), f.Fingerprint); diff != "" {
 				t.Errorf("fingerprint mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// fleetResults builds scanner results for clusters c00 to c<n-1> from one
+// payload per cluster, all under scannerName.
+func fleetResults(scannerName string, payloads []map[string]any) ([]string, map[string]map[string]scanner.Result) {
+	clusters := make([]string, 0, len(payloads))
+	results := make(map[string]map[string]scanner.Result, len(payloads))
+	for i, p := range payloads {
+		c := fmt.Sprintf("c%02d", i)
+		clusters = append(clusters, c)
+		results[c] = map[string]scanner.Result{scannerName: {Scanner: scannerName, Data: p}}
+	}
+	return clusters, results
+}
+
+// ruleHit is the part of a finding the set and vulnerability tests pin.
+type ruleHit struct {
+	// Rule is the finding's rule.
+	Rule string
+	// Cluster is the finding's cluster.
+	Cluster string
+	// Severity is the finding's severity.
+	Severity string
+	// Missing is the finding's Norm.Missing, for set findings.
+	Missing []string
+}
+
+// TestSetAndVulnerabilityRules builds whole reports and checks which findings
+// the CRD, service, ingress-class, vulnerability, and policy-report scanners
+// produce, by rule.
+func TestSetAndVulnerabilityRules(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+
+	crd := func(names ...string) map[string]any {
+		items := make([]any, 0, len(names))
+		for _, n := range names {
+			items = append(items, map[string]any{"name": n, "group": "g", "versions": []any{"v1"}, "scope": "Namespaced"})
+		}
+		return map[string]any{"count": len(names), "crds": items}
+	}
+	svc := func(names ...string) map[string]any {
+		items := make([]any, 0, len(names))
+		for _, n := range names {
+			ns, name, _ := strings.Cut(n, "/")
+			items = append(items, map[string]any{"namespace": ns, "name": name, "type": "ClusterIP"})
+		}
+		return map[string]any{"count": len(names), "services": items}
+	}
+	ing := func(classes ...string) map[string]any {
+		items := make([]any, 0, len(classes))
+		for i, c := range classes {
+			items = append(items, map[string]any{"namespace": "web", "name": fmt.Sprintf("i%d", i), "ingress_class_name": c})
+		}
+		return map[string]any{"count": len(classes), "ingresses": items}
+	}
+	vuln := func(available bool, critical int) map[string]any {
+		image := "api:1"
+		if critical > 20 {
+			image = "api:2"
+		}
+		return map[string]any{
+			"available": available, "reports": 4, "critical": critical, "high": 5, "medium": 9, "low": 2, "unknown": 0,
+			"top_images": []any{map[string]any{"namespace": "web", "workload": "api", "image": image, "critical": 3}},
+		}
+	}
+	policy := func(fail int) map[string]any {
+		return map[string]any{
+			"available": true, "reports": 3, "total_fail": fail, "total_warn": 1, "total_error": 0,
+			"by_source": []any{map[string]any{"source": "kyverno", "fail": fail}},
+		}
+	}
+	cm := []string{"certificates.cert-manager.io", "issuers.cert-manager.io"}
+
+	tests := []struct {
+		Scanner    string
+		Payloads   []map[string]any
+		WantResult []ruleHit
+	}{{ // Test 0: One of ten clusters lacks a CRD the other nine have; a CRD on two clusters is not consensus.
+		Scanner: "crds",
+		Payloads: []map[string]any{
+			crd(cm...), crd(cm...), crd(cm...), crd(cm...), crd(cm...),
+			crd(cm...), crd(cm...), crd(append(cm, "foo.example.com")...), crd(append(cm, "foo.example.com")...),
+			crd("certificates.cert-manager.io"),
+		},
+		WantResult: []ruleHit{{
+			Rule: "crds/missing-consensus", Cluster: "c09", Severity: SeverityWarning,
+			Missing: []string{"issuers.cert-manager.io"},
+		}},
+	}, { // Test 1: A cluster missing a service the fleet runs is info.
+		Scanner: "services",
+		Payloads: []map[string]any{
+			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes", "monitoring/prometheus"),
+			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes"),
+			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes", "monitoring/prometheus"),
+			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes", "monitoring/prometheus"),
+			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes", "monitoring/prometheus"),
+		},
+		WantResult: []ruleHit{{
+			Rule: "services/missing-consensus", Cluster: "c03", Severity: SeverityInfo,
+			Missing: []string{"monitoring/prometheus"},
+		}},
+	}, { // Test 2: A cluster on another ingress class is flagged; one with no ingresses is not.
+		Scanner: "ingresses",
+		Payloads: []map[string]any{
+			ing("nginx"), ing("nginx"), ing("nginx"), ing("nginx"), ing("nginx"),
+			ing("nginx"), ing("nginx"), ing("nginx"), ing("traefik"), ing(),
+		},
+		WantResult: []ruleHit{{
+			Rule: "ingresses/missing-consensus", Cluster: "c08", Severity: SeverityInfo,
+			Missing: []string{"nginx"},
+		}},
+	}, { // Test 3: A critical CVE count far above the fleet is a warning, every CVE is an info, and a cluster without the scanner is not a zero.
+		Scanner: "vulnerabilities",
+		Payloads: []map[string]any{
+			vuln(true, 10), vuln(true, 11), vuln(true, 11), vuln(true, 12), vuln(true, 12),
+			vuln(true, 12), vuln(true, 13), vuln(true, 13), vuln(true, 14), vuln(true, 40), vuln(false, 0),
+		},
+		WantResult: []ruleHit{
+			{Rule: "vulnerabilities/critical-outlier", Cluster: "c09", Severity: SeverityWarning},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c00", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c01", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c02", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c03", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c04", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c05", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c06", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c07", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c08", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/critical-present", Cluster: "c09", Severity: SeverityInfo},
+			{Rule: "vulnerabilities/outlier-available", Cluster: "c10", Severity: SeverityInfo},
+		},
+	}, { // Test 4: A policy failure count far above the fleet is a warning.
+		Scanner: "policy-reports",
+		Payloads: []map[string]any{
+			policy(10), policy(11), policy(11), policy(12), policy(12),
+			policy(12), policy(13), policy(13), policy(14), policy(60),
+		},
+		WantResult: []ruleHit{
+			{Rule: "policy-reports/fail-outlier", Cluster: "c09", Severity: SeverityWarning},
+		},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := fleetResults(test.Scanner, test.Payloads)
+			r := Build(clusters, results)
+			var got []ruleHit
+			for _, f := range r.Findings {
+				if f.Scanner != test.Scanner {
+					continue
+				}
+				h := ruleHit{Rule: f.Rule, Cluster: f.Cluster, Severity: f.Severity}
+				if f.Norm != nil {
+					h.Missing = f.Norm.Missing
+				}
+				got = append(got, h)
+			}
+			sort.Slice(got, func(i, j int) bool {
+				if got[i].Rule != got[j].Rule {
+					return got[i].Rule < got[j].Rule
+				}
+				return got[i].Cluster < got[j].Cluster
+			})
+			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("findings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestOutlierRule verifies named fields get their own rule and every other
+// field keeps the field-derived slug, in both scopes.
+func TestOutlierRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Scanner    string
+		Field      string
+		Cohort     bool
+		WantResult string
+	}{{ // Test 0: CRD set, fleet scope.
+		Scanner: "crds", Field: "crd_names", WantResult: "crds/missing-consensus",
+	}, { // Test 1: CRD set, cohort scope.
+		Scanner: "crds", Field: "crd_names", Cohort: true, WantResult: "crds/cohort-missing-consensus",
+	}, { // Test 2: Critical CVE count.
+		Scanner: "vulnerabilities", Field: "critical", WantResult: "vulnerabilities/critical-outlier",
+	}, { // Test 3: Policy failures, cohort scope.
+		Scanner: "policy-reports", Field: "total_fail", Cohort: true, WantResult: "policy-reports/cohort-fail-outlier",
+	}, { // Test 4: An unnamed field keeps the derived slug.
+		Scanner: "vulnerabilities", Field: "medium", WantResult: "vulnerabilities/outlier-medium",
+	}, { // Test 5: An unnamed field in a cohort keeps the derived cohort slug.
+		Scanner: "crds", Field: "count", Cohort: true, WantResult: "crds/cohort-outlier-count",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := outlierRule(test.Scanner, test.Field, test.Cohort)
+			if diff := cmp.Diff(test.WantResult, got); diff != "" {
+				t.Errorf("rule mismatch (-want +got):\n%s", diff)
+			}
+			if title := RuleTitle(got); title == got {
+				t.Errorf("rule %q has no title", got)
 			}
 		})
 	}

@@ -55,6 +55,48 @@ var ruleTitles = map[string]string{
 	"admission/ca-expiring":              "Admission webhook CA bundles expiring soon",
 	"cluster-info/node-platform-drift":   "Node-level platform drift",
 	"cohort/wrong-cohort":                "Cluster may be in the wrong cohort",
+
+	// Named fleet-relative and vulnerability rules.
+	"vulnerabilities/critical-present":        "Images with critical vulnerabilities",
+	"crds/missing-consensus":                  "Missing CRDs most of the fleet has",
+	"crds/cohort-missing-consensus":           "Missing CRDs most of its cohort has",
+	"services/missing-consensus":              "Missing services most of the fleet runs",
+	"services/cohort-missing-consensus":       "Missing services most of its cohort runs",
+	"ingresses/missing-consensus":             "Missing ingress classes most of the fleet uses",
+	"ingresses/cohort-missing-consensus":      "Missing ingress classes most of its cohort uses",
+	"vulnerabilities/critical-outlier":        "Critical vulnerability count deviates from the fleet norm",
+	"vulnerabilities/cohort-critical-outlier": "Critical vulnerability count deviates from its cohort",
+	"vulnerabilities/high-outlier":            "High vulnerability count deviates from the fleet norm",
+	"vulnerabilities/cohort-high-outlier":     "High vulnerability count deviates from its cohort",
+	"policy-reports/fail-outlier":             "Policy failure count deviates from the fleet norm",
+	"policy-reports/cohort-fail-outlier":      "Policy failure count deviates from its cohort",
+}
+
+// namedOutlierRules gives the fleet-relative check on a few fields a rule of
+// its own instead of the field-derived "outlier-<field>" slug, keyed by
+// "<scanner>/<field>". The cohort variant inserts "cohort-" before the slug.
+var namedOutlierRules = map[string]string{
+	"crds/crd_names":            "missing-consensus",
+	"services/service_names":    "missing-consensus",
+	"ingresses/ingress_classes": "missing-consensus",
+	"vulnerabilities/critical":  "critical-outlier",
+	"vulnerabilities/high":      "high-outlier",
+	"policy-reports/total_fail": "fail-outlier",
+}
+
+// outlierRule returns the rule of a fleet-relative finding on field, or of a
+// within-cohort finding when cohort is set.
+func outlierRule(scannerName, field string, cohort bool) string {
+	if slug, ok := namedOutlierRules[scannerName+"/"+field]; ok {
+		if cohort {
+			return scannerName + "/cohort-" + slug
+		}
+		return scannerName + "/" + slug
+	}
+	if cohort {
+		return fieldRule(scannerName, ruleCohortOutlierPrefix, field)
+	}
+	return fieldRule(scannerName, ruleOutlierPrefix, field)
 }
 
 // fieldRule returns the rule for a check derived from a scanner field, e.g.

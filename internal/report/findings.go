@@ -158,6 +158,7 @@ func GenerateFindings(r *Report) []Finding {
 	findings = append(findings, quotaFindings(r)...)
 	findings = append(findings, eventFindings(r)...)
 	findings = append(findings, certFindings(r)...)
+	findings = append(findings, vulnerabilityFindings(r)...)
 	findings = append(findings, deprecatedAPIFindings(r)...)
 	findings = append(findings, coverageFindings(r)...)
 	findings = append(findings, admissionFindings(r)...)
@@ -178,7 +179,7 @@ func outlierFindings(r *Report) []Finding {
 	findings := make([]Finding, 0, len(r.Outliers))
 	for _, o := range r.Outliers {
 		findings = append(findings, Finding{
-			Rule:        fieldRule(o.Scanner, ruleOutlierPrefix, o.Field),
+			Rule:        outlierRule(o.Scanner, o.Field, false),
 			Title:       fmt.Sprintf("%s deviates from fleet norm on %s", o.Cluster, o.Field),
 			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).", o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner]),
 			Severity:    o.Severity,
@@ -211,7 +212,7 @@ func cohortOutlierFindings(r *Report) []Finding {
 				continue
 			}
 			findings = append(findings, Finding{
-				Rule:  fieldRule(o.Scanner, ruleCohortOutlierPrefix, o.Field),
+				Rule:  outlierRule(o.Scanner, o.Field, true),
 				Title: fmt.Sprintf("%s deviates from its cohort on %s", o.Cluster, o.Field),
 				Description: fmt.Sprintf(
 					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).",
@@ -1324,6 +1325,52 @@ func certFindings(r *Report) []Finding {
 				Affected:    capList(warning, 10),
 			})
 		}
+	}
+	return findings
+}
+
+// vulnerabilityFindings reports every cluster whose vulnerability scanner found
+// at least one critical CVE. It is an absolute rule at info severity: the
+// fleet-relative critical-outlier rule says whether the count is unusual, this
+// one says the CVEs exist at all.
+func vulnerabilityFindings(r *Report) []Finding {
+	sec := r.Sections["vulnerabilities"]
+	if sec == nil {
+		return nil
+	}
+	flat := flattenSection(r.Clusters, sec)
+	var findings []Finding
+	for _, cluster := range r.Clusters {
+		m := flat[cluster]
+		if available, _ := m["available"].(bool); !available {
+			continue
+		}
+		critical := int(toFloat64(m["critical"]))
+		if critical <= 0 {
+			continue
+		}
+		var images []string
+		raw, _ := m["top_images"].([]any)
+		for _, item := range raw {
+			img, ok := item.(map[string]any)
+			if !ok || toFloat64(img["critical"]) <= 0 {
+				continue
+			}
+			name, _ := img["image"].(string)
+			images = append(images, fmt.Sprintf("%s (%d critical)", name, int(toFloat64(img["critical"]))))
+		}
+		findings = append(findings, Finding{
+			Rule:        "vulnerabilities/critical-present",
+			Title:       fmt.Sprintf("%s runs images with %d critical vulnerabilities", cluster, critical),
+			Description: "The cluster's vulnerability reports list critical CVEs in running images. Rebuild or upgrade the images and redeploy.",
+			Severity:    SeverityInfo,
+			Cluster:     cluster,
+			Scanner:     "vulnerabilities",
+			Affected:    capList(images, 10),
+			Remediation: &Remediation{
+				Command: fmt.Sprintf("kubectl --context %s %s", cluster, scannerInspect["vulnerabilities"]),
+			},
+		})
 	}
 	return findings
 }

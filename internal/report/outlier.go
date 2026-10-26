@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strings"
 )
 
 // minMADSample is the minimum number of values required before MAD-based
@@ -160,6 +161,7 @@ func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult 
 		}
 
 		flat := flattenSection(r.Clusters, sec)
+		prepareFlat(scannerName, flat)
 		fields := collectFields(flat)
 
 		for _, field := range fields {
@@ -336,7 +338,8 @@ func dominantString(counts map[string]int) string {
 // detectSetOutliers flags clusters missing items present in the consensus set.
 // Consensus requires an item to appear in at least minSetConsensusShare of
 // clusters, eliminating the discontinuity the previous integer-divide
-// threshold produced at small N.
+// threshold produced at small N. A cluster that does not report the field at
+// all is left out of the population; a null list counts as an empty set.
 func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) []OutlierResult {
 	itemCounts := make(map[string]int)
 	clusterSets := make(map[string]map[string]struct{}, len(clusters))
@@ -346,13 +349,16 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 		if m == nil {
 			continue
 		}
+		v, present := m[field]
+		if !present {
+			continue
+		}
+		arr, _ := v.([]any)
 		set := make(map[string]struct{})
-		if arr, ok := m[field].([]any); ok {
-			for _, item := range arr {
-				s := fmt.Sprintf("%v", item)
-				set[s] = struct{}{}
-				itemCounts[s]++
-			}
+		for _, item := range arr {
+			s := fmt.Sprintf("%v", item)
+			set[s] = struct{}{}
+			itemCounts[s]++
 		}
 		clusterSets[c] = set
 	}
@@ -395,6 +401,104 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 		}
 	}
 	return outliers
+}
+
+// setProjection turns an array of objects into the member set the set
+// detector compares. The raw array stays in skipFields, so only the projected
+// member names reach the detector.
+type setProjection struct {
+	// From is the array field the scanner reports.
+	From string
+	// To is the field the member set is published under.
+	To string
+	// Member returns the member an item names, or "" when the item names none.
+	Member func(item map[string]any) string
+	// SkipEmpty leaves a cluster with no named members out of the population,
+	// for sets that describe how a resource is used rather than which exist.
+	SkipEmpty bool
+}
+
+// setProjections maps a scanner to the set field derived from its object
+// array: CRDs by name, services by namespace and name, and the ingress
+// classes a cluster's ingresses use.
+var setProjections = map[string]setProjection{
+	"crds":      {From: "crds", To: "crd_names", Member: memberOf("name")},
+	"services":  {From: "services", To: "service_names", Member: memberOf("namespace", "name")},
+	"ingresses": {From: "ingresses", To: "ingress_classes", Member: memberOf("ingress_class_name"), SkipEmpty: true},
+}
+
+// availabilityGated lists scanners whose counts measure nothing on a cluster
+// where the scanned feature is not installed. Their numeric fields are left
+// out of the population there, so a cluster without a vulnerability scanner is
+// not read as one with zero vulnerabilities.
+var availabilityGated = map[string]struct{}{
+	"vulnerabilities": {},
+	"policy-reports":  {},
+}
+
+// memberOf returns a Member func that joins the string values of keys with
+// "/", or returns "" when any of them is missing or empty.
+func memberOf(keys ...string) func(map[string]any) string {
+	return func(item map[string]any) string {
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			s, _ := item[k].(string)
+			if s == "" {
+				return ""
+			}
+			parts = append(parts, s)
+		}
+		return strings.Join(parts, "/")
+	}
+}
+
+// prepareFlat rewrites flattened scanner data in place for the outlier
+// detectors: it adds the projected member set of a projected array field and
+// drops the counts of an availability-gated scanner on clusters where its
+// feature is not installed.
+func prepareFlat(scannerName string, flat map[string]map[string]any) {
+	if p, ok := setProjections[scannerName]; ok {
+		for _, m := range flat {
+			v, present := m[p.From]
+			if !present {
+				continue
+			}
+			raw, _ := v.([]any)
+			seen := make(map[string]struct{}, len(raw))
+			members := make([]any, 0, len(raw))
+			for _, item := range raw {
+				obj, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				name := p.Member(obj)
+				if name == "" {
+					continue
+				}
+				if _, dup := seen[name]; dup {
+					continue
+				}
+				seen[name] = struct{}{}
+				members = append(members, name)
+			}
+			if len(members) == 0 && p.SkipEmpty {
+				continue
+			}
+			m[p.To] = members
+		}
+	}
+	if _, ok := availabilityGated[scannerName]; ok {
+		for _, m := range flat {
+			if available, _ := m["available"].(bool); available {
+				continue
+			}
+			for k, v := range m {
+				if _, numeric := v.(float64); numeric {
+					delete(m, k)
+				}
+			}
+		}
+	}
 }
 
 // flattenSection converts per-cluster data to maps of JSON fields.

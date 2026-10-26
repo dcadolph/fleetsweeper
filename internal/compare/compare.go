@@ -35,6 +35,10 @@ type ScanDiff struct {
 	Resolved []report.Finding `json:"resolved"`
 	// Persisted are findings present in both reports.
 	Persisted []report.Finding `json:"persisted"`
+	// SetDrift lists persisted set-membership findings whose missing members
+	// changed, so a cluster that loses another CRD shows up even though its
+	// finding persisted.
+	SetDrift []SetDrift `json:"set_drift"`
 	// ClusterStatusChanges lists clusters whose health status moved.
 	ClusterStatusChanges []ClusterStatusChange `json:"cluster_status_changes"`
 	// AddedClusters are clusters present in B but not in A.
@@ -49,6 +53,21 @@ type ScanDiff struct {
 	WarningBefore int `json:"warning_before"`
 	// WarningAfter is the count of warning findings in B.
 	WarningAfter int `json:"warning_after"`
+}
+
+// SetDrift is a change in the consensus members one cluster lacks for one set
+// field between two reports.
+type SetDrift struct {
+	// Cluster is the kubeconfig context name.
+	Cluster string `json:"cluster"`
+	// Scanner is the scanner that reported the set.
+	Scanner string `json:"scanner"`
+	// Field is the set field, e.g. crd_names.
+	Field string `json:"field"`
+	// NewlyMissing are consensus members missing in B that were not missing in A.
+	NewlyMissing []string `json:"newly_missing"`
+	// Restored are members missing in A that are no longer missing in B.
+	Restored []string `json:"restored"`
 }
 
 // ClusterStatusChange captures one cluster's health-status transition.
@@ -105,8 +124,11 @@ func (d *ScanDiff) populateFindings(a, b *report.Report) {
 	}
 
 	for k, f := range bIdx {
-		if _, ok := aIdx[k]; ok {
+		if prev, ok := aIdx[k]; ok {
 			d.Persisted = append(d.Persisted, f)
+			if sd, changed := setDrift(prev, f); changed {
+				d.SetDrift = append(d.SetDrift, sd)
+			}
 		} else {
 			d.New = append(d.New, f)
 		}
@@ -119,6 +141,48 @@ func (d *ScanDiff) populateFindings(a, b *report.Report) {
 	sort.Slice(d.New, lessBySeverityThenTitle(d.New))
 	sort.Slice(d.Resolved, lessBySeverityThenTitle(d.Resolved))
 	sort.Slice(d.Persisted, lessBySeverityThenTitle(d.Persisted))
+	sort.Slice(d.SetDrift, func(i, j int) bool {
+		if d.SetDrift[i].Cluster != d.SetDrift[j].Cluster {
+			return d.SetDrift[i].Cluster < d.SetDrift[j].Cluster
+		}
+		if d.SetDrift[i].Scanner != d.SetDrift[j].Scanner {
+			return d.SetDrift[i].Scanner < d.SetDrift[j].Scanner
+		}
+		return d.SetDrift[i].Field < d.SetDrift[j].Field
+	})
+}
+
+// setDrift compares the missing members of one set finding across two reports.
+// It reports changed only when both carry a set norm and the missing lists differ.
+func setDrift(a, b report.Finding) (SetDrift, bool) {
+	if a.Norm == nil || b.Norm == nil || a.Norm.Kind != report.NormKindSet || b.Norm.Kind != report.NormKindSet {
+		return SetDrift{}, false
+	}
+	before := make(map[string]struct{}, len(a.Norm.Missing))
+	for _, m := range a.Norm.Missing {
+		before[m] = struct{}{}
+	}
+	after := make(map[string]struct{}, len(b.Norm.Missing))
+	for _, m := range b.Norm.Missing {
+		after[m] = struct{}{}
+	}
+	sd := SetDrift{Cluster: b.Cluster, Scanner: b.Scanner}
+	if len(b.Affected) > 0 {
+		sd.Field = b.Affected[0]
+	}
+	for _, m := range b.Norm.Missing {
+		if _, ok := before[m]; !ok {
+			sd.NewlyMissing = append(sd.NewlyMissing, m)
+		}
+	}
+	for _, m := range a.Norm.Missing {
+		if _, ok := after[m]; !ok {
+			sd.Restored = append(sd.Restored, m)
+		}
+	}
+	sort.Strings(sd.NewlyMissing)
+	sort.Strings(sd.Restored)
+	return sd, len(sd.NewlyMissing) > 0 || len(sd.Restored) > 0
 }
 
 // populateClusters records cluster additions, removals, and status moves.
@@ -226,6 +290,13 @@ func RenderText(d ScanDiff, color bool) string {
 	renderFindingsSection(&b, "NEW", d.New, red, reset())
 	renderFindingsSection(&b, "RESOLVED", d.Resolved, green, reset())
 
+	if len(d.SetDrift) > 0 {
+		fmt.Fprintf(&b, "%sSet drift (%d):%s\n", yellow, len(d.SetDrift), reset())
+		for _, s := range d.SetDrift {
+			fmt.Fprintf(&b, "  %s %s/%s:%s\n", s.Cluster, s.Scanner, s.Field, setDriftText(s))
+		}
+		fmt.Fprintln(&b)
+	}
 	if len(d.ClusterStatusChanges) > 0 {
 		fmt.Fprintf(&b, "%sCluster status changes:%s\n", yellow, reset())
 		for _, c := range d.ClusterStatusChanges {
@@ -305,6 +376,13 @@ func RenderMarkdown(d ScanDiff) string {
 		}
 		fmt.Fprintln(&b)
 	}
+	if len(d.SetDrift) > 0 {
+		fmt.Fprintf(&b, "### Set drift (%d)\n\n", len(d.SetDrift))
+		for _, s := range d.SetDrift {
+			fmt.Fprintf(&b, "- `%s` %s/%s:%s\n", s.Cluster, s.Scanner, s.Field, setDriftText(s))
+		}
+		fmt.Fprintln(&b)
+	}
 	if len(d.ClusterStatusChanges) > 0 {
 		fmt.Fprintf(&b, "### Cluster status changes (%d)\n\n", len(d.ClusterStatusChanges))
 		for _, c := range d.ClusterStatusChanges {
@@ -322,6 +400,19 @@ func RenderMarkdown(d ScanDiff) string {
 		}
 	}
 	return b.String()
+}
+
+// setDriftText renders the newly missing and restored members of s, e.g.
+// " now missing a, b; restored c".
+func setDriftText(s SetDrift) string {
+	var parts []string
+	if len(s.NewlyMissing) > 0 {
+		parts = append(parts, "now missing "+strings.Join(s.NewlyMissing, ", "))
+	}
+	if len(s.Restored) > 0 {
+		parts = append(parts, "restored "+strings.Join(s.Restored, ", "))
+	}
+	return " " + strings.Join(parts, "; ")
 }
 
 // wrap returns an ANSI escape sequence for color code, or empty when color is off.

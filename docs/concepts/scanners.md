@@ -37,6 +37,39 @@ divergences with severity levels (critical, warning, info). Findings name
 the specific offending nodes, pods, bindings, and images so operators can
 act without spelunking the JSON.
 
+## Membership, not just counts
+
+Three scanners report lists, and fleetsweeper compares them as sets of
+names, not only as counts. A name that at least 60% of the clusters have is
+part of the consensus, and a cluster that lacks it gets a finding naming
+what is missing.
+
+| Set | Members | Rule | Severity |
+| --- | --- | --- | --- |
+| `crd_names` | CRD names | `crds/missing-consensus` | warning |
+| `service_names` | `namespace/name` of each service | `services/missing-consensus` | info |
+| `ingress_classes` | Ingress classes in use | `ingresses/missing-consensus` | info |
+
+A cluster with no ingresses at all is left out of the ingress-class
+comparison, since it uses no class rather than the wrong one. Within a
+cohort the rules read `crds/cohort-missing-consensus` and so on.
+`fleetsweeper compare` and `fleetsweeper watch` list, for a cluster whose
+set finding persisted, the members it newly lacks and the ones it got back.
+
+## Vulnerabilities and policy reports
+
+The critical and high CVE counts from Trivy Operator and the PolicyReport
+failure count are compared across the fleet like any other count, under
+their own rules: `vulnerabilities/critical-outlier` and
+`policy-reports/fail-outlier` (warning), and `vulnerabilities/high-outlier`
+(info). A cluster where Trivy Operator or the PolicyReport CRDs are not
+installed reports `available: false`, and its counts stay out of the fleet
+population, so it never reads as a cluster with zero vulnerabilities.
+
+Independent of the fleet, `vulnerabilities/critical-present` fires at info
+severity on every cluster whose reports list at least one critical CVE,
+naming the worst images.
+
 ## Read-only by design
 
 Every scanner uses `get` / `list` / `watch` only. Required permissions are
