@@ -28,7 +28,7 @@ function norm(status) {
 }
 
 // colorOf returns the theme color of a cluster status.
-function colorOf(status) {
+export function colorOf(status) {
   return toneColor(statusTone(norm(status)));
 }
 
@@ -54,7 +54,7 @@ function showError(wrap, msg, detail) {
 }
 
 // loadGlobeLib loads the vendored globe.gl once.
-function loadGlobeLib() {
+export function loadGlobeLib() {
   if (window.Globe) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');

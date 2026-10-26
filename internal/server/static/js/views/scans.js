@@ -1,10 +1,14 @@
 // Scan history and the report of one stored scan.
 
-import { api } from '../api.js';
-import { esc, scanHref, clusterHref, statusTone } from '../dom.js';
+import { api, scannerLabel } from '../api.js';
+import { esc, scanHref, clusterHref, statusTone, sevTone, byId } from '../dom.js';
+import { TIPS, tip } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
 import { P } from '../router.js';
+import { on } from '../actions.js';
+
+let lastScanReport = null;
 
 // renderScans lists the 50 most recent scans.
 export async function renderScans() {
@@ -24,8 +28,15 @@ export async function renderScans() {
 export async function renderScanReport() {
   renderBar();
   const rpt = await api('/scans/' + encodeURIComponent(P.scanId) + '/report');
+  lastScanReport = rpt;
   let h = '<a class="back" href="#/scans">&larr; Back to scan history</a>';
   h += `<h2>Scan report</h2><p class="sub">${esc(rpt.timestamp)} &middot; ${rpt.clusters.length} clusters</p>`;
+  if (rpt.brief && rpt.brief.headline) {
+    h += '<div class="panel"><div class="eyebrow mb-4">Scan summary</div>' +
+      `<div class="fs-14 fw-600 mb-4">${esc(rpt.brief.headline)}</div>` +
+      (rpt.brief.lines || []).map((l) => `<div class="fs-12 c-t2">&bull; ${esc(l)}</div>`).join('') + '</div>';
+  }
+  h += scannerTable(rpt);
   if (rpt.findings && rpt.findings.length) h += `<h3>Findings (${rpt.findings.length})</h3>` + rpt.findings.map(renderFinding).join('');
   if (rpt.cluster_healths && rpt.cluster_healths.length) {
     h += '<h3>Cluster health</h3><div class="g g3">';
@@ -37,3 +48,53 @@ export async function renderScanReport() {
   }
   return h;
 }
+
+// scannerTable lists every scanner with whether the fleet agreed on it and
+// a button for the per-cluster values of each divergent field.
+function scannerTable(rpt) {
+  const keys = Object.keys(rpt.sections || {}).sort();
+  if (!keys.length) return '';
+  let h = '<h3>Scanners</h3><div class="tw"><table><thead><tr><th>Scanner</th><th>Fleet</th>' +
+    '<th data-tip="Click a count to see per-cluster values">Divergent fields</th></tr></thead><tbody>';
+  keys.forEach((k) => {
+    const sec = rpt.sections[k];
+    const n = sec.divergences ? sec.divergences.length : 0;
+    h += `<tr><td class="fw-500"${tip(k) ? ` data-tip="${esc(tip(k))}"` : ''}>${esc(scannerLabel(k))}</td>` +
+      `<td class="${sec.uniform ? 'c-ok' : 'c-crit'}" data-tip="${esc(sec.uniform ? TIPS.uniform : TIPS.divergent)}">${sec.uniform ? 'Uniform' : 'Divergent'}</td>`;
+    h += n > 0
+      ? `<td class="mono"><button class="btn btn-ac" data-action="scanner-divergences" data-scanner="${esc(k)}">${n} fields</button></td>`
+      : '<td class="mono c-t3">0</td>';
+    h += '</tr>';
+  });
+  return h + '</tbody></table></div><div id="scannerDivDetail"></div>';
+}
+
+// showScannerDivergences fills the per-field, per-cluster divergence table of
+// one scanner.
+function showScannerDivergences(key) {
+  const rpt = lastScanReport;
+  const sec = rpt && rpt.sections && rpt.sections[key];
+  const el = byId('scannerDivDetail');
+  if (!sec || !sec.divergences || !el) return;
+  const clusters = rpt.clusters || [];
+  let h = '<div class="panel inset mt-12"><div class="flex between items-center mb-8">' +
+    `<h4>${esc(scannerLabel(key))} divergences</h4><button class="btn btn-sm" data-action="clear" data-target="scannerDivDetail">Close</button></div>`;
+  h += `<div class="tw"><table><thead><tr><th data-tip="${esc(TIPS.sev_critical)}">Severity</th><th>Field</th>` +
+    clusters.map((c) => `<th><a href="${esc(clusterHref(c))}">${esc(c)}</a></th>`).join('') + '</tr></thead><tbody>';
+  sec.divergences.forEach((d) => {
+    const tone = sevTone(d.severity);
+    const first = d.values && d.values[clusters[0]] ? d.values[clusters[0]] : '';
+    h += `<tr><td data-tip="${esc(tip('sev_' + d.severity))}"><span class="flex items-center gap-4"><span class="dot fill-${tone}"></span><span class="fs-12">${esc(d.severity)}</span></span></td>` +
+      `<td class="fw-500"${tip(d.field) ? ` data-tip="${esc(tip(d.field))}"` : ''}>${esc(d.field)}</td>`;
+    clusters.forEach((c) => {
+      const val = d.values && d.values[c] ? d.values[c] : '-';
+      const diff = val !== first && val !== '-';
+      h += `<td class="mono${diff ? ' c-crit fw-600' : ''}">${esc(val)}</td>`;
+    });
+    h += '</tr>';
+  });
+  el.innerHTML = h + '</tbody></table></div></div>';
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+on('scanner-divergences', (el) => showScannerDivergences(el.dataset.scanner));

@@ -5,7 +5,7 @@
 
 import { ROUTES, routeById } from './routes.js';
 import { destroyCharts, themeCharts } from './charts.js';
-import { renderSidebar } from './shell.js';
+import { renderSidebar, refreshBadges } from './shell.js';
 import { esc } from './dom.js';
 
 // P is the current page state.
@@ -65,6 +65,7 @@ export async function render() {
     try { leaveHooks.shift()(); } catch (_) { /* a failing hook must not block the next page */ }
   }
   renderSidebar(P.page);
+  refreshBadges();
   document.body.classList.remove('nav-open');
   const el = document.getElementById('ct');
   el.innerHTML = '<div class="loading">Loading...</div>';
