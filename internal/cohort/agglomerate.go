@@ -106,7 +106,9 @@ func buildDendrogram(n int, dist [][]float64) []merge {
 				if j <= i || !active[j] {
 					continue
 				}
-				if v < best {
+				// Break distance ties by the lowest index pair, since map
+				// order would otherwise make the merge order random.
+				if v < best || (v == best && (i < a || (i == a && j < b))) {
 					best = v
 					a, b = i, j
 				}
