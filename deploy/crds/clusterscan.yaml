@@ -50,7 +50,7 @@ spec:
                     type: string
                 emit:
                   type: object
-                  description: What artefacts to emit on each scan completion.
+                  description: What artifacts to emit on each scan completion.
                   properties:
                     fleetDriftReport:
                       type: boolean
@@ -78,7 +78,7 @@ spec:
                 lastScanTime:
                   type: string
                   format: date-time
-                  description: When the most recently completed scan finished.
+                  description: When the most recent successful scan finished.
                 nextScanTime:
                   type: string
                   format: date-time
@@ -101,25 +101,43 @@ spec:
                   type: integer
                   minimum: 0
                   description: Number of clusters that returned data in the most recent scan.
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                  description: The metadata.generation this status was computed from.
+                consecutiveFailures:
+                  type: integer
+                  minimum: 0
+                  description: Scans that failed since the last success. A failed scan is retried after one minute, doubling with each failure, never later than spec.interval.
                 message:
                   type: string
                   description: Human-readable summary of the most recent reconciliation outcome.
                 conditions:
                   type: array
-                  description: Standard Kubernetes status conditions for downstream tooling.
+                  description: Ready (the last scan succeeded), Scanning (a scan is running), and Failed (the last scan or the spec failed).
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
                   items:
                     type: object
-                    required: [type, status, lastTransitionTime]
+                    required: [type, status, lastTransitionTime, reason, message]
                     properties:
                       type:
                         type: string
+                        enum: [Ready, Scanning, Failed]
                       status:
                         type: string
                         enum: ["True", "False", "Unknown"]
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                        minimum: 0
                       reason:
                         type: string
+                        enum: [ScanStarted, ScanSucceeded, ScanFailed, InvalidSpec, Paused]
                       message:
                         type: string
+                        maxLength: 32768
                       lastTransitionTime:
                         type: string
                         format: date-time
@@ -132,6 +150,9 @@ spec:
         - name: Phase
           type: string
           jsonPath: .status.phase
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
         - name: Score
           type: integer
           jsonPath: .status.observedScore

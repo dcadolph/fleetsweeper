@@ -1,7 +1,7 @@
 # Least-privilege ClusterRole + ServiceAccount + ClusterRoleBinding for
-# fleetsweeper running in-cluster. Every resource fleetsweeper lists is
-# granted get,list,watch only. No mutating verbs are granted because the tool
-# only reads cluster state.
+# fleetsweeper running in-cluster. Every resource fleetsweeper scans is
+# granted get,list,watch only. The only writes are the controller's own:
+# ClusterScan status, FleetDriftReports, and Events on ClusterScans.
 
 ---
 apiVersion: v1
@@ -97,6 +97,11 @@ rules:
     resources:
       - clusterscans/status
     verbs: ["get", "update", "patch"]
+  # Controller mode: record scan start, success, and failure as Events on the ClusterScan.
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs: ["create", "patch"]
   - apiGroups: ["fleetsweeper.io"]
     resources:
       - fleetdriftreports
