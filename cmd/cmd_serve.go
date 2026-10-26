@@ -60,6 +60,8 @@ func init() {
 	serveCmd.Flags().String("admission-key", "", "Path to the matching PEM private key.")
 	serveCmd.Flags().StringSlice("admission-dns", []string{"fleetsweeper.fleetsweeper.svc"}, "Additional DNS SANs to include on the generated certificate.")
 	serveCmd.Flags().String("admission-mode", "advisory", "advisory: warn only; enforce: deny pods that deviate from the fleet norm.")
+	serveCmd.Flags().String("admission-baseline", "", "Path to a pinned baseline YAML file, in the format baseline export writes. The webhook checks pods against it instead of the latest scan. Empty uses the store.")
+	serveCmd.Flags().Int("admission-stable-scans", admission.DefaultStableScans, "Consecutive recent scans a check's fleet norm must hold before enforce mode denies on it. Until then the pod is allowed with a warning. A pinned baseline is exempt.")
 	serveCmd.Flags().String("oidc-issuer-url", "", "OIDC issuer discovery URL (for example https://accounts.google.com). Empty disables browser SSO.")
 	serveCmd.Flags().String("oidc-client-id", "", "OIDC client ID registered with the identity provider.")
 	serveCmd.Flags().String("oidc-client-secret", "", "OIDC client secret matching --oidc-client-id.")
@@ -242,14 +244,21 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		certPath, _ := cmd.Flags().GetString("admission-cert")
 		keyPath, _ := cmd.Flags().GetString("admission-key")
 		dns, _ := cmd.Flags().GetStringSlice("admission-dns")
+		pinPath, _ := cmd.Flags().GetString("admission-baseline")
+		stableScans, _ := cmd.Flags().GetInt("admission-stable-scans")
+		provider, err := newAdmissionProvider(pinPath, stableScans, s, log)
+		if err != nil {
+			return err
+		}
+		handler := admission.NewHandler(provider, admission.DefaultChecks(), mode, log)
+		handler.StableScans = stableScans
 		admServer, err := admission.NewServer(admission.ServerConfig{
 			Addr:     admAddr,
 			CertPath: certPath,
 			KeyPath:  keyPath,
 			DNSNames: dns,
 			Log:      log,
-			Handler: admission.NewHandler(admission.NewStoreBaselineProvider(s, 60*time.Second),
-				admission.DefaultChecks(), mode, log),
+			Handler:  handler,
 		})
 		if err != nil {
 			return fmt.Errorf("admission server: %w", err)
@@ -304,6 +313,30 @@ func campaign(ctx context.Context, log *zap.Logger, term func(ctx context.Contex
 		}
 	}
 	return nil
+}
+
+// newAdmissionProvider returns the webhook's baseline source: the pinned file at pinPath when
+// one is given, else the store, derived from the last stableScans scans.
+func newAdmissionProvider(pinPath string, stableScans int, s store.Store, log *zap.Logger) (admission.BaselineProvider, error) {
+	if stableScans < 1 {
+		return nil, fmt.Errorf("%w: got %d", ErrStableScans, stableScans)
+	}
+	if pinPath != "" {
+		b, err := admission.LoadBaselineFile(pinPath)
+		if err != nil {
+			return nil, err
+		}
+		if !b.Sufficient() {
+			log.Warn("pinned admission baseline is below the sample threshold: the webhook will not evaluate pods",
+				zap.String("path", pinPath), zap.Int("sample_pods", b.SamplePods),
+				zap.Int("sample_containers", b.SampleContainers))
+		}
+		return admission.NewPinnedBaselineProvider(b), nil
+	}
+	p := admission.NewStoreBaselineProvider(s, 60*time.Second)
+	p.Log = log
+	p.Depth = stableScans
+	return p, nil
 }
 
 // resolveScheduleContexts determines which contexts to use for scheduled scans.

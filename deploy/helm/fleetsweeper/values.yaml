@@ -112,6 +112,9 @@ admission:
   enabled: false
   # advisory: only warn. enforce: deny non-conforming pods.
   mode: advisory
+  # Consecutive recent scans a check's fleet norm must hold before enforce
+  # mode denies on it. Until then the pod is allowed with a warning.
+  stableScans: 3
   # failurePolicy: Ignore is the safer default; the webhook never causes
   # admission failures when the fleetsweeper service is unreachable. Set
   # to Fail in regulated environments where missing the check is worse

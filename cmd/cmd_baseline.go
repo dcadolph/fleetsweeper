@@ -97,13 +97,9 @@ func runBaselineDiff(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	body, err := os.ReadFile(args[0])
+	saved, err := admission.LoadBaselineFile(args[0])
 	if err != nil {
-		return fmt.Errorf("read %q: %w", args[0], err)
-	}
-	var saved admission.Baseline
-	if err := yaml.Unmarshal(body, &saved); err != nil {
-		return fmt.Errorf("parse %q: %w", args[0], err)
+		return err
 	}
 	epsilon, _ := cmd.Flags().GetFloat64("epsilon")
 

@@ -35,6 +35,11 @@ type Handler struct {
 	// MaxBytes caps the request body the handler will read. NewHandler sets it to
 	// DefaultMaxBytes; a zero value on a literal Handler is read as the default.
 	MaxBytes int64
+	// StableScans is how many consecutive recent scans, the latest included, a check's norm
+	// must have held before enforce mode denies on it. Until then the pod is allowed with a
+	// warning naming the check. A pinned baseline is exempt. NewHandler sets it to
+	// DefaultStableScans; a zero value on a literal Handler is read as the default.
+	StableScans int
 }
 
 // DefaultMaxBytes is the request body cap NewHandler applies, matching the apiserver's own
@@ -49,7 +54,10 @@ func NewHandler(provider BaselineProvider, checks []Check, mode Mode, log *zap.L
 	if log == nil {
 		panic("admission: NewHandler: Log required")
 	}
-	return &Handler{Provider: provider, Checks: checks, Mode: mode, Log: log, MaxBytes: DefaultMaxBytes}
+	return &Handler{
+		Provider: provider, Checks: checks, Mode: mode, Log: log,
+		MaxBytes: DefaultMaxBytes, StableScans: DefaultStableScans,
+	}
 }
 
 // codecs is the shared serializer factory used to decode incoming
@@ -128,15 +136,26 @@ func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionReques
 		return resp
 	}
 
+	window := h.StableScans
+	if window <= 0 {
+		window = DefaultStableScans
+	}
 	var denies []string
 	for _, chk := range h.Checks {
 		ws, deny := chk.Evaluate(pod, baseline)
 		for _, w := range ws {
 			resp.Warnings = append(resp.Warnings, "fleetsweeper: "+w)
 		}
-		if deny != "" {
-			denies = append(denies, deny)
+		if deny == "" || !h.Mode.enforcing() {
+			continue
 		}
+		if held := heldScans(chk, pod, baseline, window); held < window {
+			resp.Warnings = append(resp.Warnings, fmt.Sprintf(
+				"fleetsweeper: %s not enforced: its fleet norm has held for %d of the %d consecutive scans enforcement needs",
+				chk.Name(), held, window))
+			continue
+		}
+		denies = append(denies, deny)
 	}
 
 	if h.Mode.enforcing() && len(denies) > 0 {
@@ -148,6 +167,27 @@ func (h *Handler) evaluate(ctx context.Context, req *admissionv1.AdmissionReques
 		}
 	}
 	return resp
+}
+
+// heldScans counts the consecutive recent scans, the latest first, whose baseline makes chk deny
+// pod, stopping at want. The check denies only when its fraction clears Threshold, so for a pod
+// that violates the check this counts the scans the norm has held for. A pinned baseline holds
+// for every scan.
+func heldScans(chk Check, pod *corev1.Pod, b Baseline, want int) int {
+	if b.Pinned {
+		return want
+	}
+	held := 1
+	for _, prev := range b.Previous {
+		if held >= want || !prev.Sufficient() {
+			break
+		}
+		if _, deny := chk.Evaluate(pod, prev); deny == "" {
+			break
+		}
+		held++
+	}
+	return held
 }
 
 // writeUnevaluated writes an allow response carrying a warning for a review

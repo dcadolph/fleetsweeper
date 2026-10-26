@@ -9,4 +9,6 @@ var (
 	ErrNoClients = errors.New("no clusters reachable")
 	// ErrNoDatabase indicates the --db flag is required but was not provided.
 	ErrNoDatabase = errors.New("--db is required for this command")
+	// ErrStableScans indicates --admission-stable-scans is below one.
+	ErrStableScans = errors.New("--admission-stable-scans must be at least 1")
 )

@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 
+	"github.com/dcadolph/fleetsweeper/internal/admission"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -141,6 +142,65 @@ func TestCampaign(t *testing.T) {
 			}
 			if terms != test.WantTerms {
 				t.Errorf("terms = %d, want %d", terms, test.WantTerms)
+			}
+		})
+	}
+}
+
+// TestNewAdmissionProvider verifies a pinned baseline file overrides the store, the store
+// provider loads one baseline per scan in the stability window, and bad input is rejected.
+func TestNewAdmissionProvider(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "adm.db")
+	seedBaselineStore(t, dbPath)
+	pinned := filepath.Join(dir, "pinned.yaml")
+	if err := os.WriteFile(pinned, []byte("sample_pods: 50\nsample_containers: 100\ndigest_pin_fraction: 0.5\n"), 0o600); err != nil {
+		t.Fatalf("write pinned: %v", err)
+	}
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte("digest_pin_fraction: 2\n"), 0o600); err != nil {
+		t.Fatalf("write bad: %v", err)
+	}
+	s, err := store.NewSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	tests := []struct {
+		Want        error
+		PinPath     string
+		StableScans int
+		WantDigest  float64
+		WantPinned  bool
+		WantDepth   int
+	}{{ // Test 0: A pinned file overrides the store's baseline.
+		PinPath: pinned, StableScans: 3, WantDigest: 0.5, WantPinned: true,
+	}, { // Test 1: Without a file the store supplies the baseline over the stability window.
+		StableScans: 4, WantDigest: 0.9, WantDepth: 4,
+	}, { // Test 2: A window below one is rejected.
+		StableScans: 0, Want: ErrStableScans,
+	}, { // Test 3: An invalid pinned file is rejected.
+		PinPath: bad, StableScans: 3, Want: admission.ErrBaselineFile,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			p, err := newAdmissionProvider(test.PinPath, test.StableScans, s, zap.NewNop())
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if err != nil {
+				return
+			}
+			b := p.Current(context.Background())
+			if b.DigestPinFraction != test.WantDigest || b.Pinned != test.WantPinned {
+				t.Errorf("baseline digest = %v pinned = %v, want %v and %v",
+					b.DigestPinFraction, b.Pinned, test.WantDigest, test.WantPinned)
+			}
+			if sp, ok := p.(*admission.StoreBaselineProvider); ok && sp.Depth != test.WantDepth {
+				t.Errorf("Depth = %d, want %d", sp.Depth, test.WantDepth)
 			}
 		})
 	}

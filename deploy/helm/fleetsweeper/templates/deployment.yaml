@@ -63,6 +63,7 @@ spec:
             {{- if .Values.admission.enabled }}
             - --admission-addr=:8443
             - --admission-mode={{ .Values.admission.mode }}
+            - --admission-stable-scans={{ .Values.admission.stableScans | default 3 }}
             - --admission-dns={{ .Release.Name }}-admission.{{ .Release.Namespace }}.svc
             - --admission-dns={{ .Release.Name }}-admission.{{ .Release.Namespace }}.svc.cluster.local
             {{- end }}

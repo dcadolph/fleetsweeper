@@ -3,6 +3,9 @@ package admission
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -23,8 +26,12 @@ type fakeStore struct {
 	scans []store.ScanRecord
 	// scansErr is returned alongside scans.
 	scansErr error
-	// results is returned by GetScanResults.
+	// results is returned by GetScanResults for a scan not in byScan.
 	results map[string]map[string]scanner.Result
+	// byScan holds per-scan results keyed by scan ID.
+	byScan map[string]map[string]map[string]scanner.Result
+	// failScan makes GetScanResults fail for this scan ID.
+	failScan string
 	// resultsErr is returned alongside results.
 	resultsErr error
 	// delay makes ListScans slow so concurrent callers overlap.
@@ -35,21 +42,30 @@ type fakeStore struct {
 	listCalls int
 }
 
-// ListScans returns the canned scan records and increments the call counter.
-func (f *fakeStore) ListScans(_ context.Context, _ int) ([]store.ScanRecord, error) {
+// ListScans returns up to limit canned scan records and increments the call counter.
+func (f *fakeStore) ListScans(_ context.Context, limit int) ([]store.ScanRecord, error) {
 	f.mu.Lock()
 	f.listCalls++
 	delay := f.delay
 	scans, err := f.scans, f.scansErr
 	f.mu.Unlock()
 	time.Sleep(delay)
+	if limit > 0 && len(scans) > limit {
+		scans = scans[:limit]
+	}
 	return scans, err
 }
 
 // GetScanResults returns the canned per-cluster scanner results.
-func (f *fakeStore) GetScanResults(_ context.Context, _ string) (map[string]map[string]scanner.Result, error) {
+func (f *fakeStore) GetScanResults(_ context.Context, id string) (map[string]map[string]scanner.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if id == f.failScan {
+		return nil, errors.New("scan results unavailable")
+	}
+	if r, ok := f.byScan[id]; ok {
+		return r, nil
+	}
 	return f.results, f.resultsErr
 }
 
@@ -524,5 +540,141 @@ func TestStoreBaselineProviderCallerCancel(t *testing.T) {
 	}
 	if n := fs.calls(); n != 1 {
 		t.Errorf("listCalls = %d, want 1", n)
+	}
+}
+
+// TestStoreBaselineProviderHistory verifies the provider derives one baseline per recent scan up
+// to Depth, newest first, and fails the whole recompute when an earlier scan cannot be read.
+func TestStoreBaselineProviderHistory(t *testing.T) {
+	t.Parallel()
+	digestScan := func(noDigest int) map[string]map[string]scanner.Result {
+		r := imageAuditData(100, noDigest)
+		r.State = scanner.StateOK
+		return map[string]map[string]scanner.Result{"a": {"image-audit": r}}
+	}
+	scans := []store.ScanRecord{{ID: "s3"}, {ID: "s2"}, {ID: "s1"}}
+	byScan := map[string]map[string]map[string]scanner.Result{
+		"s3": digestScan(5), "s2": digestScan(20), "s1": digestScan(50),
+	}
+	type point struct {
+		ID     string
+		Digest float64
+	}
+	tests := []struct {
+		Store    *fakeStore
+		Depth    int
+		WantCur  point
+		WantPrev []point
+		WantErr  bool
+	}{{ // Test 0: Depth 3 loads the latest scan and the two before it, newest first.
+		Store: &fakeStore{scans: scans, byScan: byScan}, Depth: 3,
+		WantCur: point{"s3", 0.95}, WantPrev: []point{{"s2", 0.8}, {"s1", 0.5}},
+	}, { // Test 1: Depth 1 loads the latest scan alone.
+		Store: &fakeStore{scans: scans, byScan: byScan}, Depth: 1, WantCur: point{"s3", 0.95},
+	}, { // Test 2: A store with fewer scans than Depth returns what it has.
+		Store: &fakeStore{scans: scans[:2], byScan: byScan}, Depth: 5,
+		WantCur: point{"s3", 0.95}, WantPrev: []point{{"s2", 0.8}},
+	}, { // Test 3: Depth 0 reads as 1.
+		Store: &fakeStore{scans: scans, byScan: byScan}, Depth: 0, WantCur: point{"s3", 0.95},
+	}, { // Test 4: An unreadable earlier scan fails the recompute.
+		Store: &fakeStore{scans: scans, byScan: byScan, failScan: "s1"}, Depth: 3, WantErr: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			p := NewStoreBaselineProvider(test.Store, time.Minute)
+			p.Depth = test.Depth
+			b, err := p.recompute(context.Background())
+			if (err != nil) != test.WantErr {
+				t.Fatalf("err = %v, want error %v", err, test.WantErr)
+			}
+			if test.WantErr {
+				return
+			}
+			if diff := cmp.Diff(test.WantCur, point{b.SourceScanID, b.DigestPinFraction}); diff != "" {
+				t.Errorf("current mismatch (-want +got):\n%s", diff)
+			}
+			var prev []point
+			for _, pb := range b.Previous {
+				prev = append(prev, point{pb.SourceScanID, pb.DigestPinFraction})
+			}
+			if diff := cmp.Diff(test.WantPrev, prev, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("previous mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNewStoreBaselineProviderDepth verifies the provider defaults to the handler's stability
+// window.
+func TestNewStoreBaselineProviderDepth(t *testing.T) {
+	t.Parallel()
+	if got := NewStoreBaselineProvider(&fakeStore{}, 0).Depth; got != DefaultStableScans {
+		t.Errorf("Depth = %d, want %d", got, DefaultStableScans)
+	}
+}
+
+// TestPinnedBaselineProvider verifies a pinned provider serves its baseline marked Pinned with
+// no history, whatever it was given.
+func TestPinnedBaselineProvider(t *testing.T) {
+	t.Parallel()
+	in := Baseline{SamplePods: 20, SampleContainers: 40, DigestPinFraction: 0.9,
+		Previous: []Baseline{{DigestPinFraction: 0.1}}}
+	got := NewPinnedBaselineProvider(in).Current(context.Background())
+	want := Baseline{SamplePods: 20, SampleContainers: 40, DigestPinFraction: 0.9, Pinned: true}
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("baseline mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestLoadBaselineFile verifies a pinned baseline file loads in the export format and that a
+// typo, an out-of-range fraction, or a negative count is rejected.
+func TestLoadBaselineFile(t *testing.T) {
+	t.Parallel()
+	valid := "sample_pods: 20\nsample_containers: 40\ndigest_pin_fraction: 0.9\n" +
+		"non_root_fraction: 0.8\nno_privilege_escalation_fraction: 0.75\n" +
+		"named_service_account_fraction: 0.7\nread_only_root_fs_fraction: 0.6\nsource_scan_id: s1\n"
+	tests := []struct {
+		Body         string
+		Missing      bool
+		WantBaseline Baseline
+		Want         error
+	}{{ // Test 0: The export format loads every field.
+		Body: valid,
+		WantBaseline: Baseline{SamplePods: 20, SampleContainers: 40, DigestPinFraction: 0.9,
+			NonRootFraction: 0.8, NoPrivilegeEscalationFraction: 0.75, NamedServiceAccountFraction: 0.7,
+			ReadOnlyRootFSFraction: 0.6, SourceScanID: "s1"},
+	}, { // Test 1: An unknown field is rejected.
+		Body: valid + "digest_pin_fracton: 0.9\n", Want: ErrBaselineFile,
+	}, { // Test 2: A fraction above 1 is rejected.
+		Body: "sample_pods: 20\nnon_root_fraction: 1.5\n", Want: ErrBaselineFile,
+	}, { // Test 3: A negative fraction is rejected.
+		Body: "read_only_root_fs_fraction: -0.1\n", Want: ErrBaselineFile,
+	}, { // Test 4: NaN is rejected.
+		Body: "digest_pin_fraction: .nan\n", Want: ErrBaselineFile,
+	}, { // Test 5: A negative sample count is rejected.
+		Body: "sample_containers: -1\n", Want: ErrBaselineFile,
+	}, { // Test 6: A missing file is rejected.
+		Missing: true, Want: ErrBaselineFile,
+	}, { // Test 7: A file that is not YAML is rejected.
+		Body: "{not: [yaml", Want: ErrBaselineFile,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "baseline.yaml")
+			if !test.Missing {
+				if err := os.WriteFile(path, []byte(test.Body), 0o600); err != nil {
+					t.Fatalf("write: %v", err)
+				}
+			}
+			got, err := LoadBaselineFile(path)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if diff := cmp.Diff(test.WantBaseline, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("baseline mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

@@ -49,6 +49,12 @@ type Baseline struct {
 	ReadOnlyRootFSFraction float64 `json:"read_only_root_fs_fraction" yaml:"read_only_root_fs_fraction"`
 	// SourceScanID is the scan the baseline was derived from.
 	SourceScanID string `json:"source_scan_id,omitempty" yaml:"source_scan_id,omitempty"`
+	// Previous holds the baselines of the scans before SourceScanID, newest first, so the
+	// handler can tell whether a norm has held across scans.
+	Previous []Baseline `json:"-" yaml:"-"`
+	// Pinned marks a baseline an operator loaded from a file. A pinned norm does not move
+	// between scans, so the stability gate does not apply to it.
+	Pinned bool `json:"-" yaml:"-"`
 }
 
 // Sufficient reports whether the baseline has enough data to make a
