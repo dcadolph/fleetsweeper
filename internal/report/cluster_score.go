@@ -7,7 +7,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// ClusterScore is the per-cluster analogue of FleetScore. Same 0-100 scale,
+// ClusterScore is the per-cluster analog of FleetScore. Same 0-100 scale,
 // computed from one cluster's findings and health rather than the whole
 // fleet. Used for per-cluster forecasts and as a ranking key on the dashboard.
 type ClusterScore struct {

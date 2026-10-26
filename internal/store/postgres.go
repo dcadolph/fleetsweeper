@@ -19,7 +19,7 @@ import (
 // Postgres implements Store against a PostgreSQL database. It is functionally
 // equivalent to SQLite but tolerates concurrent writers, so multi-replica
 // fleetsweeper deployments share a single backend. Timestamps are stored as
-// RFC3339 TEXT and JSON columns as TEXT so the same row marshalling code as
+// RFC3339 TEXT and JSON columns as TEXT so the same row marshaling code as
 // SQLite continues to work; the performance cost is negligible at the row
 // volumes Fleetsweeper produces.
 type Postgres struct {

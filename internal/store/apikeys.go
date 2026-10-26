@@ -244,7 +244,7 @@ func scanAPIKeyRows(rows *sql.Rows) (*APIKeyRecord, error) {
 }
 
 // finishAPIKey populates the time and slice fields on an APIKeyRecord after the
-// raw columns have been scanned. Centralises parsing so both row and rows
+// raw columns have been scanned. Centralizes parsing so both row and rows
 // helpers stay consistent.
 func finishAPIKey(rec *APIKeyRecord, scopeJSON, created string, expires, lastUsed, revoked, createdBy sql.NullString) error {
 	if err := json.Unmarshal([]byte(scopeJSON), &rec.ClusterScope); err != nil {

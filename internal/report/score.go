@@ -183,7 +183,7 @@ func findingCost(findings []Finding) (float64, []FleetScoreDriver) {
 	return total, drivers
 }
 
-// clusterHealthCost penalises fleets where a meaningful fraction of clusters
+// clusterHealthCost penalizes fleets where a meaningful fraction of clusters
 // are not healthy. Scaling by fraction-of-fleet keeps the cost proportional:
 // one critical cluster in a fleet of three hurts more than one critical
 // cluster in a fleet of thirty.
@@ -248,7 +248,7 @@ func versionSkewCost(healths []ClusterHealth) (float64, FleetScoreDriver) {
 	return 0, FleetScoreDriver{}
 }
 
-// worstNodeCost penalises the fleet according to the cluster with the worst
+// worstNodeCost penalizes the fleet according to the cluster with the worst
 // unhealthy-node ratio. We take the worst rather than the average so a single
 // cluster melting down does not get hidden by a healthy long tail.
 func worstNodeCost(healths []ClusterHealth) (float64, FleetScoreDriver) {
