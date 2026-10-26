@@ -25,19 +25,15 @@ type scanFindings struct {
 
 // findingSeries rebuilds the fleet findings for the most recent n scans, oldest
 // first, so callers can measure how findings appear, resolve, and recur over
-// time. In demo mode it returns a synthesized series; otherwise it rebuilds each
-// stored scan through the real report engine.
+// time. It rebuilds each stored scan through the real report engine.
 func (s *Server) findingSeries(ctx context.Context, n int) ([]scanFindings, error) {
-	if s.demo {
-		return demoFindingSeries(n), nil
-	}
-
 	scans, err := s.store.ListScans(ctx, n)
 	if err != nil {
 		return nil, err
 	}
 
 	out := make([]scanFindings, 0, len(scans))
+	opts := s.reportOptions(ctx, s.log)
 	// ListScans returns newest first; walk it in reverse for oldest to newest.
 	for i := len(scans) - 1; i >= 0; i-- {
 		sc := scans[i]
@@ -46,7 +42,8 @@ func (s *Server) findingSeries(ctx context.Context, n int) ([]scanFindings, erro
 			s.log.Warn("finding series: get scan results", zap.String("scan", sc.ID), zap.Error(err))
 			continue
 		}
-		rpt := report.Build(sc.Clusters, results, report.BuildOptions{Timestamp: sc.Timestamp})
+		opts.Timestamp = sc.Timestamp
+		rpt := s.reports.get(sc.ID, sc.Clusters, results, opts)
 		out = append(out, scanFindings{ScanID: sc.ID, Timestamp: sc.Timestamp, Findings: rpt.Findings})
 	}
 	return out, nil

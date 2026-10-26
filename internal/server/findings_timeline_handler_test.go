@@ -50,9 +50,9 @@ func TestFindingsTimelineDemo(t *testing.T) {
 		Query     string
 		WantCount int
 	}{
-		{Query: "", WantCount: replayDefaultScans},       // Test 0: Default window.
-		{Query: "?scans=12", WantCount: 12},              // Test 1: Explicit window.
-		{Query: "?scans=999", WantCount: replayMaxScans}, // Test 2: Clamped to the cap.
+		{Query: "", WantCount: replayDefaultScans},                       // Test 0: Default window.
+		{Query: "?scans=12", WantCount: 12},                              // Test 1: Explicit window.
+		{Query: "?scans=999", WantCount: min(replayMaxScans, demoScans)}, // Test 2: Clamped to the cap and the scans stored.
 	}
 
 	for testNum, test := range tests {

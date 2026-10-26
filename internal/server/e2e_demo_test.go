@@ -31,12 +31,12 @@ func TestE2E_DemoMode_AllEndpoints(t *testing.T) {
 		Optional    bool
 	}{
 		{Name: "geo", Path: "/api/geo",
-			WantStatus: http.StatusOK, WantMustHas: []string{"points", "demo"}},
+			WantStatus: http.StatusOK, WantMustHas: []string{"points"}},
 		{Name: "scans-list", Path: "/api/scans?limit=5",
 			WantStatus: http.StatusOK, WantMustHas: []string{}},
-		{Name: "scan-detail", Path: "/api/scans/" + demoScanID,
+		{Name: "scan-detail", Path: "/api/scans/" + demoScanIDAt(demoScans-1),
 			WantStatus: http.StatusOK, WantMustHas: []string{"id"}},
-		{Name: "scan-report", Path: "/api/scans/" + demoScanID + "/report",
+		{Name: "scan-report", Path: "/api/scans/" + demoScanIDAt(demoScans-1) + "/report",
 			WantStatus:  http.StatusOK,
 			WantMustHas: []string{"fleet_score", "summary", "cluster_healths", "findings"}},
 		{Name: "clusters", Path: "/api/clusters",

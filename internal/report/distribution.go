@@ -73,6 +73,9 @@ type ClusterValue struct {
 	Z float64 `json:"z,omitempty"`
 	// Outlier is true when the detector flagged this cluster.
 	Outlier bool `json:"outlier,omitempty"`
+	// Explained names the operator-tagged cohort whose own norm holds this
+	// fleet outlier, empty otherwise. An explained outlier raises no finding.
+	Explained string `json:"explained,omitempty"`
 }
 
 // massOf returns the sum over values of |Z| capped at maxMassZ.
@@ -103,17 +106,17 @@ func markOutliers(d *Distribution, outliers []OutlierResult, z bool) {
 	}
 }
 
-// deviationMass sums, per cluster, the capped |Z| of its values across the
-// fleet-scope distributions. Clusters with zero mass are left out, and a nil
-// map means no cluster deviates at all.
-func deviationMass(dists []Distribution) map[string]float64 {
+// deviationMass sums, per cluster, the capped |z| of its values across the
+// fleet-scope distributions, each z taken by normZ. Clusters with zero mass are
+// left out, and a nil map means no cluster deviates at all.
+func deviationMass(dists []Distribution, normZ func(d Distribution, v ClusterValue) float64) map[string]float64 {
 	var out map[string]float64
 	for _, d := range dists {
 		if d.Scope != NormScopeFleet {
 			continue
 		}
 		for _, v := range d.Values {
-			m := math.Min(math.Abs(v.Z), maxMassZ)
+			m := math.Min(math.Abs(normZ(d, v)), maxMassZ)
 			if m == 0 {
 				continue
 			}

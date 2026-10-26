@@ -37,7 +37,7 @@ func init() {
 	serveCmd.Flags().String("auth-token", "", "Bearer token required for mutating endpoints (POST, DELETE).")
 	serveCmd.Flags().Bool("insecure", false, "Disable authentication entirely. Required if --auth-token is empty and you accept the risk.")
 	serveCmd.Flags().StringSlice("cors-origin", nil, "Allowed CORS origins. Repeat for multiple. Empty means cross-origin requests are refused.")
-	serveCmd.Flags().Bool("demo", false, "Serve a synthetic fleet on /globe when no scans exist. Useful for previewing the UI without any real clusters.")
+	serveCmd.Flags().Bool("demo", false, "Serve a synthetic 26-cluster fleet from an in-memory store seeded with six days of scans. Previews the UI without any real clusters; does not take --db.")
 	serveCmd.Flags().String("slack-webhook-url", "", "Slack incoming-webhook URL. When set, new critical findings are posted to this channel after each scan.")
 	serveCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs after every scan. One file per cluster. Empty disables.")
 	serveCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs after every scan. Empty disables.")
@@ -93,6 +93,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	ctx, stop := context.WithCancel(cmdContext(cmd))
 	defer stop()
 	log := logutil.UnwrapLogger(ctx)
+	if demo {
+		started := time.Now()
+		if err := server.SeedDemo(ctx, s, started.UTC().Truncate(time.Minute)); err != nil {
+			return err
+		}
+		log.Info("demo fleet seeded", zap.Duration("took", time.Since(started)))
+	}
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
 	addr, _ := cmd.Flags().GetString("addr")
 	adminAddr, _ := cmd.Flags().GetString("admin-addr")
@@ -350,13 +357,16 @@ func resolveScheduleContexts(kubeconfigPath string, explicit []string, all bool)
 	return explicit, nil
 }
 
-// openServeStore opens whichever backend --db / --db-driver point at, falling
-// back to an in-memory SQLite database when --demo is set without --db so
-// reviewers can preview the UI with a single command. Outside demo mode a
-// missing --db is still an error.
+// openServeStore opens whichever backend --db / --db-driver point at. --demo
+// runs on an in-memory SQLite database the server seeds with the demo fleet,
+// so it refuses a --db rather than write the demo into a real database.
+// Outside demo mode a missing --db is still an error.
 func openServeStore(cmd *cobra.Command, demo bool) (store.Store, error) {
 	dbPath, _ := cmd.Flags().GetString("db")
-	if dbPath == "" && demo {
+	if demo {
+		if dbPath != "" {
+			return nil, ErrDemoDatabase
+		}
 		return store.NewSQLite(":memory:")
 	}
 	return openAnyStore(cmd)

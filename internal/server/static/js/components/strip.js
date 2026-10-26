@@ -20,9 +20,11 @@ export function renderStrips(dists, opts) {
 
 // renderStrip returns one strip row.
 export function renderStrip(d, highlight) {
-  const flagged = d.values.filter((v) => v.outlier).length;
+  const flagged = d.values.filter((v) => v.outlier && !v.explained).length;
+  const held = d.values.filter((v) => v.explained).length;
   const head = `<div class="strip-head"><span class="strip-name">${esc(fieldLabel(d))}</span>` +
     `<span class="note">${esc(d.kind)} · n=${d.sample_size}${d.scope !== 'fleet' ? ' · ' + esc(d.scope) : ''}${d.limited_sample ? ' · limited sample' : ''}</span>` +
+    (held ? `<span class="note strip-held" data-tip="Outside the fleet norm but inside the norm of the cohort they are tagged with, so no finding.">${held} held by their cohort</span>` : '') +
     (flagged ? `<span class="strip-flag">${flagged} outside the norm</span>` : '') + '</div>';
   const body = d.kind === 'numeric' ? numericSVG(d, highlight) : categorical(d, highlight);
   return `<div class="strip" data-field="${esc(fieldLabel(d))}">${head}${body}</div>`;
@@ -53,9 +55,11 @@ function numericSVG(d, highlight) {
     if (typeof v.number !== 'number') return;
     const cy = H / 2 + jitter(d.scanner + d.field + v.cluster) * (H / 2 - 10);
     const ring = v.cluster === highlight;
-    const tipText = `${v.cluster}: ${fmt(v.number)}${v.z ? ' (z ' + fmt(v.z) + ')' : ''}${v.outlier ? ', outside the norm' : ''}`;
+    const state = v.explained ? `, outside the fleet norm, inside cohort ${v.explained}` : v.outlier ? ', outside the norm' : '';
+    const tipText = `${v.cluster}: ${fmt(v.number)}${v.z ? ' (z ' + fmt(v.z) + ')' : ''}${state}`;
+    const cls = v.explained ? ' held' : v.outlier ? ' out' : '';
     svg += `<a href="${esc(clusterHref(v.cluster))}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}">` +
-      `<circle class="dot-pt${v.outlier ? ' out' : ''}${ring ? ' ring' : ''}" cx="${x(v.number).toFixed(1)}" cy="${cy.toFixed(1)}" r="${ring ? 6 : v.outlier ? 5 : 3.5}"/></a>`;
+      `<circle class="dot-pt${cls}${ring ? ' ring' : ''}" cx="${x(v.number).toFixed(1)}" cy="${cy.toFixed(1)}" r="${ring ? 6 : v.outlier ? 5 : 3.5}"/></a>`;
   });
   svg += '</svg>';
   const scale = `<div class="strip-scale"><span>${esc(fmt(lo))}</span><span>median ${esc(fmt(d.median))}${d.band > 0 ? ' ± ' + esc(fmt(d.band)) : ', MAD 0, no band'}</span><span>${esc(fmt(hi))}</span></div>`;
@@ -64,7 +68,7 @@ function numericSVG(d, highlight) {
 
 // categorical summarizes a string or set distribution.
 function categorical(d, highlight) {
-  const out = d.values.filter((v) => v.outlier);
+  const out = d.values.filter((v) => v.outlier && !v.explained);
   const norm = d.kind === 'string'
     ? `mode <span class="mono">${esc(d.mode)}</span> held by ${Math.round((d.mode_share || 0) * 100)}%`
     : `${(d.consensus || []).length} members most clusters have`;

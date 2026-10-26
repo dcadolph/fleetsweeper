@@ -32,9 +32,9 @@ export function renderMatrix(dists, order, cohortOf) {
         h += `<div class="mx-cell mx-none${start ? ' mx-start' : ''}" role="gridcell" data-tip="${esc(c + ' · ' + fieldLabel(d) + ': no reading')}"></div>`;
         return;
       }
-      const level = d.kind === 'numeric' ? zLevel(v.z) : v.outlier ? 5 : 0;
-      const tipText = `${c} · ${fieldLabel(d)}: ${v.number != null ? v.number : v.text || (v.missing ? 'missing ' + v.missing.length : '')}${v.z ? ' (z ' + v.z.toFixed(1) + ')' : ''}`;
-      h += `<button class="mx-cell z${level}${v.outlier ? ' mx-out' : ''}${start ? ' mx-start' : ''}" role="gridcell" data-action="matrix-cell" ` +
+      const level = v.explained ? 0 : d.kind === 'numeric' ? zLevel(v.z) : v.outlier ? 5 : 0;
+      const tipText = `${c} · ${fieldLabel(d)}: ${v.number != null ? v.number : v.text || (v.missing ? 'missing ' + v.missing.length : '')}${v.z ? ' (z ' + v.z.toFixed(1) + ')' : ''}${v.explained ? ', inside cohort ' + v.explained : ''}`;
+      h += `<button class="mx-cell z${level}${v.outlier && !v.explained ? ' mx-out' : ''}${start ? ' mx-start' : ''}" role="gridcell" data-action="matrix-cell" ` +
         `data-col="${i}" data-cluster="${esc(c)}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></button>`;
     });
   });

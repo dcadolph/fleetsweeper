@@ -147,6 +147,14 @@ func (s *Server) scanAndSave(ctx context.Context, log *zap.Logger, scanID string
 	return rpt, len(clusterNames), nil
 }
 
+// buildReport rebuilds the report of a stored scan with the server's build options, the same
+// ones a fresh scan's report is built with, so every endpoint reports one scan the same way.
+func (s *Server) buildReport(ctx context.Context, rec store.ScanRecord, results map[string]map[string]scanner.Result) *report.Report {
+	opts := s.reportOptions(ctx, s.log)
+	opts.Timestamp = rec.Timestamp
+	return report.Build(rec.Clusters, results, opts)
+}
+
 // reportOptions loads the cluster tags and groups a freshly saved scan's report is built with.
 // The scan is already saved, so a failed lookup is logged and that input left out rather than
 // failing the scan.

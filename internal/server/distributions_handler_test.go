@@ -7,13 +7,12 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"go.uber.org/zap"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -23,16 +22,7 @@ import (
 // demoTestServer returns an insecure demo server over an empty store.
 func demoTestServer(t *testing.T) *Server {
 	t.Helper()
-	st, err := store.NewSQLite(filepath.Join(t.TempDir(), "demo.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	srv := New(Config{Store: st, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Insecure: true, Demo: true})
-	t.Cleanup(func() {
-		srv.Close()
-		st.Close()
-	})
-	return srv
+	return newDemoServer(t)
 }
 
 // serve sends one request through the server's full handler chain and decodes a 200 body into
@@ -58,7 +48,7 @@ func serve(t *testing.T, h http.Handler, method, target, body, token string, out
 func TestDemoDistributions(t *testing.T) {
 	t.Parallel()
 	h := demoTestServer(t).Handler()
-	want := demoScanInput().build().Distributions
+	want := demoTestReport().Distributions
 
 	var all distributionsResponse
 	if code := serve(t, h, http.MethodGet, "/api/distributions?scope=*", "", "", &all); code != http.StatusOK {
@@ -67,7 +57,7 @@ func TestDemoDistributions(t *testing.T) {
 	if diff := cmp.Diff(want, all.Distributions); diff != "" {
 		t.Errorf("distributions mismatch (-engine +served):\n%s", diff)
 	}
-	if all.ScanID != demoScanID {
+	if all.ScanID != demoScanIDAt(demoScans-1) {
 		t.Errorf("scan id %q", all.ScanID)
 	}
 
@@ -89,8 +79,25 @@ func TestDemoDistributions(t *testing.T) {
 	}
 }
 
-// TestDemoDrift verifies the demo history's stepping cluster leads the drift ledger, with the
-// flag it gained stamped by the scan of the step.
+// stepGained returns the scan where the stepping cluster gained its RBAC flag in the ledger, or
+// "" when it has no row or no such flag.
+func stepGained(l report.Ledger) string {
+	for _, row := range l.Clusters {
+		if row.Cluster != demoStepCluster {
+			continue
+		}
+		for _, g := range row.Gained {
+			if g.Scanner == "rbac" && g.Field == "cluster_role_count" {
+				return g.Scan
+			}
+		}
+	}
+	return ""
+}
+
+// TestDemoDrift verifies the demo's two planted changes lead the drift ledger: the memory
+// incident on prod-us-east-1 and the RBAC step on the stepping cluster, whose flag is stamped by
+// the scan of the step.
 func TestDemoDrift(t *testing.T) {
 	t.Parallel()
 	h := demoTestServer(t).Handler()
@@ -98,39 +105,32 @@ func TestDemoDrift(t *testing.T) {
 	if code := serve(t, h, http.MethodGet, "/api/drift?scans=24", "", "", &l); code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
-	if len(l.Scans) != 24 || len(l.Clusters) == 0 {
+	if len(l.Scans) != 24 || len(l.Clusters) < 2 {
 		t.Fatalf("ledger: %d scans, %d rows", len(l.Scans), len(l.Clusters))
 	}
-	top := l.Clusters[0]
-	if top.Cluster != demoStepCluster {
-		t.Fatalf("first row %s, want %s", top.Cluster, demoStepCluster)
+	top := []string{l.Clusters[0].Cluster, l.Clusters[1].Cluster}
+	if diff := cmp.Diff([]string{"prod-us-east-1", demoStepCluster}, top, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+		t.Errorf("leading rows mismatch (-want +got):\n%s", diff)
 	}
-	step := 24 - 24/3
-	wantScan := demoScanID + "-t" + itoa(step)
-	found := false
-	for _, g := range top.Gained {
-		if g.Scanner == "rbac" && g.Field == "cluster_role_count" {
-			found = g.Scan == wantScan
-		}
-	}
-	if !found {
-		t.Errorf("want rbac/cluster_role_count gained at %s, got %+v", wantScan, top.Gained)
+	if want, got := demoScanIDAt(demoScans-demoScans/3), stepGained(l); got != want {
+		t.Errorf("want rbac/cluster_role_count gained at %s, got %q", want, got)
 	}
 }
 
-// TestDemoDriftWindow verifies a since window in demo mode reads the demo series, keeps the
-// newest ?scans=N, and keeps the RBAC step inside the window.
+// TestDemoDriftWindow verifies a since window keeps the newest ?scans=N of the stored demo
+// scans, with the RBAC step inside the window.
 func TestDemoDriftWindow(t *testing.T) {
 	t.Parallel()
 	h := demoTestServer(t).Handler()
 	tests := []struct {
-		WantTop   string
+		WantStep  string
 		Query     string
 		WantScans int
 	}{{ // Test 0: Last 7 days capped at 10 scans.
-		Query: "scans=10&since=" + time.Now().Add(-7*24*time.Hour).UTC().Format(time.RFC3339), WantScans: 10, WantTop: demoStepCluster,
+		Query: "scans=10&since=" + demoTestNow.Add(-7*24*time.Hour).Format(time.RFC3339), WantScans: 10,
+		WantStep: demoScanIDAt(demoScans - demoScans/3),
 	}, { // Test 1: A window that starts in the future holds no scans.
-		Query: "since=" + time.Now().Add(time.Hour).UTC().Format(time.RFC3339), WantScans: 0,
+		Query: "since=" + demoTestNow.Add(time.Hour).Format(time.RFC3339), WantScans: 0,
 	}}
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
@@ -142,12 +142,8 @@ func TestDemoDriftWindow(t *testing.T) {
 			if diff := cmp.Diff(test.WantScans, len(l.Scans)); diff != "" {
 				t.Errorf("scan count mismatch (-want +got):\n%s", diff)
 			}
-			top := ""
-			if len(l.Clusters) > 0 {
-				top = l.Clusters[0].Cluster
-			}
-			if diff := cmp.Diff(test.WantTop, top); diff != "" {
-				t.Errorf("top row mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(test.WantStep, stepGained(l)); diff != "" {
+				t.Errorf("step stamp mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -181,8 +177,9 @@ func TestDemoDistributionHistory(t *testing.T) {
 			t.Errorf("points out of order at %d", i)
 		}
 	}
-	if jump := value(out.Points[8]) - value(out.Points[7]); jump != 60 {
-		t.Errorf("want a step of 60 between points 7 and 8, got %v", jump)
+	step := (demoScans - demoScans/3) - (demoScans - 12)
+	if jump := value(out.Points[step]) - value(out.Points[step-1]); jump != 60 {
+		t.Errorf("want a step of 60 between points %d and %d, got %v", step-1, step, jump)
 	}
 }
 
@@ -204,8 +201,8 @@ func TestDemoAttributionMapDetail(t *testing.T) {
 	if code := serve(t, h, http.MethodGet, "/api/cohorts/map", "", "", &m); code != http.StatusOK {
 		t.Fatalf("map status %d", code)
 	}
-	if len(m.Map.Points) != len(demoPoints()) || len(m.Map.LeafOrder) != len(demoPoints()) {
-		t.Errorf("map: %d points, %d leaves, want %d", len(m.Map.Points), len(m.Map.LeafOrder), len(demoPoints()))
+	if len(m.Map.Points) != len(demoFleet()) || len(m.Map.LeafOrder) != len(demoFleet()) {
+		t.Errorf("map: %d points, %d leaves, want %d", len(m.Map.Points), len(m.Map.LeafOrder), len(demoFleet()))
 	}
 
 	var detail struct {
@@ -229,15 +226,15 @@ func TestDemoAttributionMapDetail(t *testing.T) {
 	}
 }
 
-// TestDemoWhatIf verifies fixing a demo outlier projects a higher score and that bad requests
-// are rejected without a write.
+// TestDemoWhatIf verifies fixing a demo outlier moves it to its cohort's median and projects a
+// strictly higher score, and that bad requests are rejected without a write.
 func TestDemoWhatIf(t *testing.T) {
 	t.Parallel()
 	h := demoTestServer(t).Handler()
-	rpt := demoScanInput().build()
+	rpt := demoTestReport()
 	var target report.OutlierResult
 	for _, o := range rpt.Outliers {
-		if o.Kind == report.NormKindNumeric && o.Severity != report.SeverityInfo {
+		if o.Kind == report.NormKindNumeric && o.Severity != report.SeverityInfo && o.ExplainedBy == "" {
 			target = o
 			break
 		}
@@ -250,17 +247,18 @@ func TestDemoWhatIf(t *testing.T) {
 	if code := serve(t, h, http.MethodPost, "/api/whatif", body, "", &out); code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
-	// The demo score sits at the floor of every capped term, so one fix cannot move it yet;
-	// unit 26 retunes the demo and tightens this to a strict rise.
-	if out.Outcome.ScoreAfter < out.Outcome.ScoreBefore {
-		t.Errorf("score fell: %d -> %d", out.Outcome.ScoreBefore, out.Outcome.ScoreAfter)
+	if out.Outcome.ScoreAfter <= out.Outcome.ScoreBefore {
+		t.Errorf("score did not rise: %d -> %d", out.Outcome.ScoreBefore, out.Outcome.ScoreAfter)
 	}
-	cleared := false
-	for _, c := range out.Outcome.ClearedOutliers {
-		cleared = cleared || c == target.Cluster
+	if want := demoTags()[target.Cluster]; out.Outcome.Fix.Scope != want {
+		t.Errorf("fix scope %q, want the cluster's cohort %q", out.Outcome.Fix.Scope, want)
 	}
-	if !cleared {
-		t.Errorf("fixing %s did not clear it: %+v", target.Cluster, out.Outcome.ClearedOutliers)
+	if out.Outcome.After != nil {
+		for _, v := range out.Outcome.After.Values {
+			if v.Cluster == target.Cluster && v.Number != nil && *v.Number != out.Outcome.Before.Median {
+				t.Errorf("%s moved to %v, want the cohort median %v", target.Cluster, *v.Number, out.Outcome.Before.Median)
+			}
+		}
 	}
 	for _, c := range []struct {
 		Body string

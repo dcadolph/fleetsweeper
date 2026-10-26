@@ -1,13 +1,4 @@
-// HTTP access to the fleetsweeper API. Every read goes through api() so an
-// interceptor (the demo enrichment) can wrap it in one place.
-
-const interceptors = [];
-
-// intercept registers fn(path, next) around every api() read. fn must call
-// next(path) to reach the server, and may change what comes back.
-export function intercept(fn) {
-  interceptors.push(fn);
-}
+// HTTP access to the fleetsweeper API.
 
 // fetchJSON performs a GET against /api and returns the decoded body, or
 // throws with the status text on a non-2xx response.
@@ -17,10 +8,9 @@ async function fetchJSON(path) {
   return r.json();
 }
 
-// api reads path under /api through the registered interceptors.
+// api reads path under /api.
 export function api(path) {
-  const chain = interceptors.reduceRight((next, fn) => (p) => fn(p, next), fetchJSON);
-  return chain(path);
+  return fetchJSON(path);
 }
 
 // authHeaders returns the Authorization header for the token saved in this

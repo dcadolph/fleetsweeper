@@ -13,7 +13,7 @@ func TestWriteFleetDriftIfConfigured(t *testing.T) {
 
 	// No-op when unconfigured.
 	srv.fleetDriftOutputDir = ""
-	srv.writeFleetDriftIfConfigured(demoReport(), "scan-1")
+	srv.writeFleetDriftIfConfigured(demoTestReport(), "scan-1")
 
 	// No-op on a nil report even when configured.
 	srv.fleetDriftOutputDir = t.TempDir()
@@ -25,7 +25,7 @@ func TestWriteFleetDriftIfConfigured(t *testing.T) {
 	// Write path produces at least one file for the demo report.
 	dir := t.TempDir()
 	srv.fleetDriftOutputDir = dir
-	srv.writeFleetDriftIfConfigured(demoReport(), "scan-2")
+	srv.writeFleetDriftIfConfigured(demoTestReport(), "scan-2")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -42,7 +42,7 @@ func TestWritePolicyReportIfConfigured(t *testing.T) {
 	srv, _ := testServer(t)
 
 	srv.policyReportOutputDir = ""
-	srv.writePolicyReportIfConfigured(demoReport(), "scan-1")
+	srv.writePolicyReportIfConfigured(demoTestReport(), "scan-1")
 
 	dir := t.TempDir()
 	srv.policyReportOutputDir = dir
@@ -52,7 +52,7 @@ func TestWritePolicyReportIfConfigured(t *testing.T) {
 		t.Errorf("nil report should write nothing, got %d files", len(entries))
 	}
 
-	srv.writePolicyReportIfConfigured(demoReport(), "scan-2")
+	srv.writePolicyReportIfConfigured(demoTestReport(), "scan-2")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -69,6 +69,6 @@ func TestDispatchWebhooks_NoopWhenUnconfigured(t *testing.T) {
 	srv, _ := testServer(t)
 	srv.webhookDispatcher = nil
 	// Should be a safe no-op with both a real and a nil report.
-	srv.dispatchWebhooksIfConfigured(t.Context(), demoReport())
+	srv.dispatchWebhooksIfConfigured(t.Context(), demoTestReport())
 	srv.dispatchWebhooksIfConfigured(t.Context(), nil)
 }

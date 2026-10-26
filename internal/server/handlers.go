@@ -18,41 +18,6 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
-// writeDemoClusterDetail synthesizes a per-cluster detail payload from
-// demoReport so the cluster-detail page works end-to-end in demo mode.
-func (s *Server) writeDemoClusterDetail(ctx context.Context, w http.ResponseWriter, cluster string) {
-	rpt := demoReport()
-	var health *report.ClusterHealth
-	for i := range rpt.ClusterHealths {
-		if rpt.ClusterHealths[i].Name == cluster {
-			health = &rpt.ClusterHealths[i]
-			break
-		}
-	}
-	if health == nil {
-		writeError(w, http.StatusNotFound, "cluster not found in demo fleet")
-		return
-	}
-	var findings []report.Finding
-	for _, f := range rpt.Findings {
-		if f.Cluster == cluster || f.Cluster == "fleet" {
-			findings = append(findings, f)
-		}
-	}
-	s.markAcked(ctx, findings)
-	peers, dists := clusterPlacement(rpt, cluster)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"cluster":       cluster,
-		"scan_id":       demoScanID,
-		"scan_time":     demoTimestamp(),
-		"health":        health,
-		"findings":      findings,
-		"scanner_data":  map[string]any{},
-		"peers":         peers,
-		"distributions": dists,
-	})
-}
-
 // errorResponse is a JSON error body.
 type errorResponse struct {
 	// Error is a sanitized error message safe to return to clients.
@@ -181,21 +146,12 @@ func (s *Server) handleListScans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list scans failed")
 		return
 	}
-	if len(scans) == 0 && s.demo {
-		writeJSON(w, http.StatusOK, []store.ScanRecord{demoScanRecord()})
-		return
-	}
 	writeJSON(w, http.StatusOK, scans)
 }
 
 // handleGetScan returns a scan record by ID.
 func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if s.demo && id == demoScanID {
-		rec := demoScanRecord()
-		writeJSON(w, http.StatusOK, rec)
-		return
-	}
 	scan, err := s.store.GetScan(r.Context(), id)
 	if err != nil {
 		s.writeStoreError(w, err, "get scan", "scan not found")
@@ -208,13 +164,6 @@ func (s *Server) handleGetScan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
-
-	if s.demo && id == demoScanID {
-		rpt := demoReport()
-		s.markAcked(ctx, rpt.Findings)
-		writeJSON(w, http.StatusOK, rpt)
-		return
-	}
 
 	scan, err := s.store.GetScan(ctx, id)
 	if err != nil {
@@ -229,7 +178,7 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
+	rpt := s.buildReport(ctx, *scan, results)
 
 	if len(r.URL.Query()["tag"]) > 0 {
 		tagAllows, err := s.parseTagFilter(ctx, r)
@@ -357,15 +306,6 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list clusters failed")
 		return
 	}
-	if len(clusters) == 0 && s.demo {
-		rec := demoScanRecord()
-		out := make([]store.ClusterRecord, 0, len(rec.Clusters))
-		for _, c := range rec.Clusters {
-			out = append(out, store.ClusterRecord{Name: c, FirstSeen: rec.Timestamp, LastSeen: rec.Timestamp})
-		}
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
 	tags, err := s.store.ListClusterTags(r.Context())
 	if err != nil {
 		s.writeStoreError(w, err, "list cluster tags", "cluster tags not found")
@@ -390,10 +330,6 @@ func (s *Server) handleGetClusterDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if latest == nil {
-		if s.demo {
-			s.writeDemoClusterDetail(r.Context(), w, cluster)
-			return
-		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -473,9 +409,6 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "list groups failed")
 		return
 	}
-	if len(groups) == 0 && s.demo {
-		groups = demoGroups()
-	}
 	writeJSON(w, http.StatusOK, groups)
 }
 
@@ -536,16 +469,6 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(scans) < 2 {
-		if s.demo {
-			trends := demoFleetTrends()
-			findings := report.GenerateTrendFindings(nil, trends)
-			s.markAcked(r.Context(), findings)
-			writeJSON(w, http.StatusOK, map[string]any{
-				"fleet_trends": trends,
-				"findings":     findings,
-			})
-			return
-		}
 		writeJSON(w, http.StatusOK, map[string]string{"message": "need at least 2 scans for trends"})
 		return
 	}
@@ -646,16 +569,6 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if latest == nil {
-		if s.demo {
-			rpt := demoReport()
-			s.markAcked(r.Context(), rpt.Findings)
-			writeJSON(w, http.StatusOK, map[string]any{
-				"scan_id":  demoScanID,
-				"outliers": demoOutliers(),
-				"findings": rpt.Findings,
-			})
-			return
-		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -674,7 +587,9 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{OutlierThreshold: threshold, Timestamp: latest.Timestamp})
+	opts := s.reportOptions(r.Context(), s.log)
+	opts.Timestamp, opts.OutlierThreshold = latest.Timestamp, threshold
+	rpt := report.Build(latest.Clusters, results, opts)
 	s.markAcked(r.Context(), rpt.Findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scan_id":  latest.ID,
@@ -694,14 +609,6 @@ func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if latest == nil {
-		if s.demo {
-			rpt := demoReport()
-			writeJSON(w, http.StatusOK, map[string]any{
-				"scan_id": demoScanID,
-				"cohorts": rpt.Cohorts,
-			})
-			return
-		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -764,13 +671,6 @@ func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if latest == nil {
-		if s.demo {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"scan_id":  demoScanID,
-				"capacity": demoReport().Capacity,
-			})
-			return
-		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -810,20 +710,11 @@ type contextInfo struct {
 // handleListContexts returns the kubeconfig contexts available to the server,
 // each annotated with whether the cluster has already been scanned. The UI
 // uses this to power the "Add cluster" page so operators can grow the fleet
-// without leaving the dashboard. In demo mode the synthetic fleet's contexts
-// are returned so the page is not empty on first paint.
+// without leaving the dashboard. The demo never reaches real clusters, so in
+// demo mode the list is empty and nothing can be added to the seeded fleet.
 func (s *Server) handleListContexts(w http.ResponseWriter, r *http.Request) {
 	if s.demo {
-		seen := make(map[string]bool, len(demoPoints()))
-		out := make([]contextInfo, 0, len(demoPoints()))
-		for _, p := range demoPoints() {
-			if seen[p.Cluster] {
-				continue
-			}
-			seen[p.Cluster] = true
-			out = append(out, contextInfo{Name: p.Cluster, Scanned: true})
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, []contextInfo{})
 		return
 	}
 	contexts, err := kube.AvailableContexts(s.kubeconfigPath)

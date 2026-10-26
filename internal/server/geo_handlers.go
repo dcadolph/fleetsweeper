@@ -45,25 +45,13 @@ type geoPoint struct {
 // handleGetGeo returns the geographic placement of every cluster in the
 // latest scan. Manual overrides take precedence over auto-detected regions
 // from the geo scanner, and clusters with neither are omitted (the UI shows
-// a count of those separately). When the server is in demo mode and no
-// real scans exist yet, a synthetic fleet is returned so operators can
-// preview the globe.
+// a count of those separately).
 func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 	latest, ok := s.latestScan(w, r, "geo: list scans")
 	if !ok {
 		return
 	}
 	if latest == nil {
-		if s.demo {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"scan_id":   demoScanID,
-				"timestamp": demoTimestamp(),
-				"points":    demoPoints(),
-				"unlocated": []string{},
-				"demo":      true,
-			})
-			return
-		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return
 	}
@@ -84,7 +72,7 @@ func (s *Server) handleGetGeo(w http.ResponseWriter, r *http.Request) {
 		manualByCluster[m.Cluster] = m
 	}
 
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
+	rpt := s.buildReport(r.Context(), *latest, results)
 	statusByCluster := make(map[string]report.ClusterHealth, len(rpt.ClusterHealths))
 	for _, h := range rpt.ClusterHealths {
 		statusByCluster[h.Name] = h

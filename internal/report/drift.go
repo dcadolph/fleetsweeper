@@ -207,6 +207,12 @@ func movedFields(before, after map[fieldKey]map[string]ClusterValue, cluster str
 	return out
 }
 
+// flagged reports whether v carries an outlier flag that raises a finding: one its tagged cohort
+// does not explain.
+func flagged(v ClusterValue) bool {
+	return v.Outlier && v.Explained == ""
+}
+
 // flagChanges returns the outlier flags cluster gained and lost between the
 // first and last scan, each stamped with the scan where it last flipped.
 func flagChanges(scans []ScanReport, values []map[fieldKey]map[string]ClusterValue, cluster string) ([]FlagChange, []FlagChange) {
@@ -219,14 +225,14 @@ func flagChanges(scans []ScanReport, values []map[fieldKey]map[string]ClusterVal
 	var gained, lost []FlagChange
 	last := len(scans) - 1
 	for k := range keys {
-		start := values[0][k][cluster].Outlier
-		end := values[last][k][cluster].Outlier
+		start := flagged(values[0][k][cluster])
+		end := flagged(values[last][k][cluster])
 		if start == end {
 			continue
 		}
 		flip := last
 		for i := last; i > 0; i-- {
-			if values[i][k][cluster].Outlier != values[i-1][k][cluster].Outlier {
+			if flagged(values[i][k][cluster]) != flagged(values[i-1][k][cluster]) {
 				flip = i
 				break
 			}

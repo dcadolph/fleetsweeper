@@ -27,26 +27,28 @@ type scanInput struct {
 	Results map[string]map[string]scanner.Result
 	// Opts are the build options, with Timestamp set to the scan time.
 	Opts report.BuildOptions
+	// Cache, when set, holds reports already rebuilt for this scan and options.
+	Cache *reportCache
 }
 
-// build rebuilds the report for the scan.
+// build returns the report for the scan, from the cache when one is set. The report may be
+// shared, so callers read it and copy anything they change.
 func (in *scanInput) build() *report.Report {
+	if in.Cache != nil {
+		return in.Cache.get(in.ID, in.Clusters, in.Results, in.Opts)
+	}
 	return report.Build(in.Clusters, in.Results, in.Opts)
 }
 
 // loadScanInput returns the scan a read endpoint reports on, chosen by ?scan= or else the
-// latest, with its results and the server's build options. In demo mode with no stored scans it
-// returns the demo fleet. It writes the error response and returns ok=false on failure,
-// including a 404 when there is no scan at all.
+// latest, with its results and the server's build options. It writes the error response and
+// returns ok=false on failure, including a 404 when there is no scan at all.
 func (s *Server) loadScanInput(w http.ResponseWriter, r *http.Request, op string) (*scanInput, bool) {
 	latest, ok := s.latestScan(w, r, op)
 	if !ok {
 		return nil, false
 	}
 	if latest == nil {
-		if s.demo {
-			return demoScanInput(), true
-		}
 		writeError(w, http.StatusNotFound, "no scans available")
 		return nil, false
 	}
@@ -68,20 +70,16 @@ func (s *Server) scanInputWith(w http.ResponseWriter, r *http.Request, rec store
 		return nil, false
 	}
 	opts.Timestamp = rec.Timestamp
-	return &scanInput{ID: rec.ID, Timestamp: rec.Timestamp, Clusters: rec.Clusters, Results: results, Opts: opts}, true
+	return &scanInput{ID: rec.ID, Timestamp: rec.Timestamp, Clusters: rec.Clusters, Results: results, Opts: opts, Cache: &s.reports}, true
 }
 
-// loadScanSeries returns up to n of the most recent scans, oldest first, ready to rebuild. In
-// demo mode with no stored scans it returns the demo series. It writes the error response and
-// returns ok=false on failure.
+// loadScanSeries returns up to n of the most recent scans, oldest first, ready to rebuild. It
+// writes the error response and returns ok=false on failure.
 func (s *Server) loadScanSeries(w http.ResponseWriter, r *http.Request, n int, op string) ([]*scanInput, bool) {
 	scans, err := s.store.ListScans(r.Context(), n)
 	if err != nil {
 		s.writeStoreError(w, err, op+": list scans", "no scans available")
 		return nil, false
-	}
-	if len(scans) == 0 && s.demo {
-		return demoScanSeries(n), true
 	}
 	opts := s.reportOptions(r.Context(), s.log)
 	out := make([]*scanInput, 0, len(scans))
@@ -232,9 +230,8 @@ func (s *Server) handleGetDrift(w http.ResponseWriter, r *http.Request) {
 }
 
 // loadScanRange returns the stored scans between ?since= and ?until=, oldest first, keeping
-// the newest ?scans=N (default and ceiling maxHistoryScans). A missing bound is open. In demo
-// mode with no stored scans it windows the demo series. It writes the error response and
-// returns ok=false on a bad bound or a store failure.
+// the newest ?scans=N (default and ceiling maxHistoryScans). A missing bound is open. It writes
+// the error response and returns ok=false on a bad bound or a store failure.
 func (s *Server) loadScanRange(w http.ResponseWriter, r *http.Request) ([]*scanInput, bool) {
 	since, ok := queryTime(w, r, "since", time.Unix(0, 0).UTC())
 	if !ok {
@@ -251,9 +248,6 @@ func (s *Server) loadScanRange(w http.ResponseWriter, r *http.Request) ([]*scanI
 		return nil, false
 	}
 	keep := queryLimit(r, "scans", maxHistoryScans, maxHistoryScans)
-	if len(scans) == 0 && s.demo {
-		return demoScanWindow(since, until, keep), true
-	}
 	if len(scans) > keep {
 		scans = scans[:keep]
 	}

@@ -43,8 +43,8 @@ func TestResolveScheduleContexts(t *testing.T) {
 	}
 }
 
-// TestOpenServeStore verifies the demo in-memory fallback, the missing-db
-// error, and opening a real path.
+// TestOpenServeStore verifies the demo in-memory store, the demo's refusal of
+// a --db, the missing-db error, and opening a real path.
 func TestOpenServeStore(t *testing.T) {
 	// Demo mode with no --db falls back to an in-memory store.
 	st, err := openServeStore(newStoreCmd(""), true)
@@ -55,6 +55,11 @@ func TestOpenServeStore(t *testing.T) {
 		t.Fatal("demo store is nil")
 	}
 	st.Close()
+
+	// Demo mode refuses a --db rather than seed the demo into it.
+	if _, err := openServeStore(newStoreCmd(filepath.Join(t.TempDir(), "x.db")), true); !errors.Is(err, ErrDemoDatabase) {
+		t.Errorf("demo with --db: want ErrDemoDatabase, got %v", err)
+	}
 
 	// Non-demo with no --db is an error.
 	if _, err := openServeStore(newStoreCmd(""), false); !errors.Is(err, ErrNoDatabase) {

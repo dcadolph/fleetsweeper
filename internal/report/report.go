@@ -242,8 +242,9 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Capacity = AnalyzeCapacity(r, opt.Groups)
 	var cohortDists []Distribution
 	r.Cohorts, cohortDists = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
+	applyCohortNorms(r, cohortDists)
 	r.Distributions = append(r.Distributions, cohortDists...)
-	r.DeviationMass = deviationMass(r.Distributions)
+	sortDistributions(r.Distributions)
 	r.Findings = GenerateFindings(r)
 	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
 	r.Incidents = FuseIncidents(r.Findings)
