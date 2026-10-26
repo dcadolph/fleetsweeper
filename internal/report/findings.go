@@ -178,6 +178,9 @@ func GenerateFindings(r *Report) []Finding {
 func outlierFindings(r *Report) []Finding {
 	findings := make([]Finding, 0, len(r.Outliers))
 	for _, o := range r.Outliers {
+		if o.ExplainedBy != "" {
+			continue
+		}
 		findings = append(findings, Finding{
 			Rule:        outlierRule(o.Scanner, o.Field, false),
 			Title:       fmt.Sprintf("%s deviates from fleet norm on %s", o.Cluster, o.Field),

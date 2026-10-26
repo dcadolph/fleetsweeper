@@ -5,7 +5,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/seal"
 )
 
@@ -52,7 +51,7 @@ func (s *Server) handleGetScanSeal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "get scan results failed")
 		return
 	}
-	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
+	rpt := s.buildReport(ctx, *scan, results)
 	files, err := seal.BundleFiles(rpt, results, scan.ID, seal.BundleOptions{Sealed: true})
 	if err != nil {
 		s.log.Error("build bundle", zap.Error(err))

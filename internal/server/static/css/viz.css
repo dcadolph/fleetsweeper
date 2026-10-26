@@ -75,6 +75,7 @@
 .strip-svg .median { stroke: var(--median); stroke-width: 2; }
 .strip-svg .dot-pt { fill: var(--dot); opacity: 0.85; }
 .strip-svg .dot-pt.out { fill: var(--status-crit); opacity: 1; }
+.strip-svg .dot-pt.held { fill: var(--surface-1); stroke: var(--dot); stroke-width: 1.5; opacity: 1; }
 .strip-svg .dot-pt.ring { fill: var(--accent); stroke: var(--text-1); stroke-width: 2; opacity: 1; }
 .strip-svg a:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
 .strip-scale { display: flex; justify-content: space-between; font-size: var(--fs-12); color: var(--text-3); font-variant-numeric: tabular-nums; }
@@ -168,3 +169,5 @@ a.chip.chip-ring { outline: 2px solid var(--accent); }
 
 /* Peers */
 .peers { display: flex; flex-wrap: wrap; gap: 6px; }
+.strip-held { margin-left: auto; }
+.strip-held + .strip-flag { margin-left: 0; }

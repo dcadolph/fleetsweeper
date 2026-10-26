@@ -84,18 +84,18 @@ func TestHandleGetScan_FoundAndMissing(t *testing.T) {
 	}
 }
 
-// TestHandleGetScan_DemoRecord verifies demo mode returns the synthetic
-// scan record for the reserved demo scan ID.
+// TestHandleGetScan_DemoRecord verifies demo mode serves the newest seeded
+// demo scan record by its ID.
 func TestHandleGetScan_DemoRecord(t *testing.T) {
 	t.Parallel()
 	srv := newDemoServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/scans/"+demoScanID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/scans/"+demoScanIDAt(demoScans-1), nil)
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	if decodeObj(t, w)["id"] != demoScanID {
+	if decodeObj(t, w)["id"] != demoScanIDAt(demoScans-1) {
 		t.Errorf("expected demo scan id, got %s", w.Body.String())
 	}
 }
@@ -448,9 +448,9 @@ func TestHandleCreateGroup_Validation(t *testing.T) {
 	}
 }
 
-// TestHandleListContexts_DemoReturnsFleet verifies the demo path enumerates
-// the synthetic fleet's contexts as already-scanned.
-func TestHandleListContexts_DemoReturnsFleet(t *testing.T) {
+// TestHandleListContexts_DemoListsNone verifies the demo offers no kubeconfig
+// contexts, so it never reaches a real cluster.
+func TestHandleListContexts_DemoListsNone(t *testing.T) {
 	t.Parallel()
 	srv := newDemoServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/contexts", nil)
@@ -463,11 +463,8 @@ func TestHandleListContexts_DemoReturnsFleet(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(out) == 0 {
-		t.Error("demo contexts should not be empty")
-	}
-	if !out[0].Scanned {
-		t.Error("demo contexts should be marked scanned")
+	if len(out) != 0 {
+		t.Errorf("demo listed %d contexts, want none", len(out))
 	}
 }
 

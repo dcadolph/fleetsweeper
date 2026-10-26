@@ -231,10 +231,6 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if len(alerts) == 0 && s.demo {
-		alerts = demoAlerts()
-	}
-
 	acked := s.ackedFingerprints(r.Context())
 	views := make([]alertView, len(alerts))
 	for i, al := range alerts {

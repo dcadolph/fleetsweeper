@@ -8,8 +8,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
+
+// demoTestNow is when the newest scan of the test demo fleet runs.
+var demoTestNow = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) //nolint:gochecknoglobals // Not modified, simplifies testing.
+
+// demoTestReport builds the newest demo scan's report with the options the demo server uses:
+// cohort tags and groups.
+func demoTestReport() *report.Report {
+	groups := map[string][]string{}
+	for _, g := range demoGroups() {
+		groups[g.Name] = g.Clusters
+	}
+	opts := report.BuildOptions{ClusterTags: demoTags(), Groups: groups, Timestamp: demoTestNow}
+	return report.Build(demoClusterNames(), demoResults(demoScans-1, demoScans, demoTestNow, demoTestNow), opts)
+}
 
 // TestDemoReportRunsRealEngine verifies that serve --demo exercises the real
 // report engine: the synthetic fleet produces populated per-scanner sections,
@@ -18,7 +35,7 @@ import (
 func TestDemoReportRunsRealEngine(t *testing.T) {
 	t.Parallel()
 
-	r := demoReport()
+	r := demoTestReport()
 
 	if len(r.Sections) == 0 {
 		t.Fatal("demo report has no per-scanner sections; the outlier engine cannot run")
@@ -36,7 +53,7 @@ func TestDemoReportRunsRealEngine(t *testing.T) {
 		t.Error("expected degraded coverage from the planted errored scanner")
 	}
 	if len(r.Findings) == 0 {
-		t.Error("expected findings from the engine plus curated narratives")
+		t.Error("expected findings from the planted incidents")
 	}
 }
 
@@ -48,7 +65,7 @@ func TestDemoFindingsCarryRules(t *testing.T) {
 
 	normScanners := map[string]bool{"security": true, "metrics": true, "events": true, "namespaces": true}
 	seen := map[string]string{}
-	for _, f := range demoReport().Findings {
+	for _, f := range demoTestReport().Findings {
 		if prev, dup := seen[f.Fingerprint]; dup {
 			t.Errorf("findings %q and %q share fingerprint %s", prev, f.Title, f.Fingerprint)
 		}
@@ -72,13 +89,11 @@ func TestDemoFindingsCarryRules(t *testing.T) {
 // yields the same JSON and HTML bytes every time, which sealing a stored scan depends on.
 func TestBuildDeterministic(t *testing.T) {
 	t.Parallel()
-	var clusters []string
-	for _, p := range demoPoints() {
-		clusters = append(clusters, p.Cluster)
-	}
-	opts := report.BuildOptions{ClusterTags: demoTags(), Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	clusters := demoClusterNames()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	opts := report.BuildOptions{ClusterTags: demoTags(), Timestamp: at}
 	render := func() []byte {
-		r := report.Build(clusters, demoResults(), opts)
+		r := report.Build(clusters, demoResults(demoScans-1, demoScans, at, at), opts)
 		js, err := json.Marshal(r)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
@@ -98,10 +113,10 @@ func TestBuildDeterministic(t *testing.T) {
 }
 
 // TestDemoScoreReconciles verifies the demo report's score ledger counts the
-// same findings the report lists, after the curated findings are layered on.
+// same findings the report lists.
 func TestDemoScoreReconciles(t *testing.T) {
 	t.Parallel()
-	r := demoReport()
+	r := demoTestReport()
 	count := map[string]int{}
 	for _, f := range r.Findings {
 		count[f.Severity]++
@@ -118,5 +133,78 @@ func TestDemoScoreReconciles(t *testing.T) {
 	}
 	if math.Abs(100-r.ScoreAttribution.Total-float64(r.FleetScore.Score)) > 0.5 && r.ScoreAttribution.Total < 100 {
 		t.Errorf("100 - ledger total %v is not score %d", r.ScoreAttribution.Total, r.FleetScore.Score)
+	}
+}
+
+// TestSeedDemo verifies the seed fills an empty store with the demo series, alerts, tags,
+// groups, and manual locations, and that seeding a store that holds scans changes nothing.
+func TestSeedDemo(t *testing.T) {
+	t.Parallel()
+	srv := newDemoServer(t)
+	st := srv.store
+	ctx := t.Context()
+	if err := SeedDemo(ctx, st, demoTestNow.Add(time.Hour)); err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+	scans, err := st.ListScans(ctx, 100)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
+	}
+	alerts, err := st.ListAlerts(ctx, store.AlertListOptions{})
+	if err != nil {
+		t.Fatalf("list alerts: %v", err)
+	}
+	groups, err := st.ListGroups(ctx)
+	if err != nil {
+		t.Fatalf("list groups: %v", err)
+	}
+	locations, err := st.ListLocations(ctx)
+	if err != nil {
+		t.Fatalf("list locations: %v", err)
+	}
+	tags, err := st.ListClusterTags(ctx)
+	if err != nil {
+		t.Fatalf("list tags: %v", err)
+	}
+	manual := 0
+	for _, c := range demoFleet() {
+		if c.Source == "manual" {
+			manual++
+		}
+	}
+	got := []int{len(scans), len(scans[0].Clusters), len(alerts), len(groups), len(locations), len(tags)}
+	want := []int{demoScans, len(demoFleet()), len(demoAlerts(demoTestNow)), 4, manual, len(demoFleet())}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("seeded counts mismatch (scans, clusters, alerts, groups, locations, tags) (-want +got):\n%s", diff)
+	}
+	if !scans[0].Timestamp.Equal(demoTestNow) {
+		t.Errorf("newest scan at %v, want %v: the second seed must not run", scans[0].Timestamp, demoTestNow)
+	}
+}
+
+// TestDemoScoreBand verifies the newest demo scan scores between 60 and 85 with three drivers
+// from three different terms, and the oldest scores higher, so history shows a decline.
+func TestDemoScoreBand(t *testing.T) {
+	t.Parallel()
+	r := demoTestReport()
+	if s := r.FleetScore.Score; s < 60 || s > 85 {
+		t.Errorf("demo score %d, want 60 to 85", s)
+	}
+	terms := map[string]bool{}
+	for _, d := range r.ScoreAttribution.Drivers() {
+		terms[d.Reason] = true
+	}
+	if len(r.FleetScore.Drivers) != 3 || len(terms) != 3 {
+		t.Errorf("drivers %+v, want three distinct", r.FleetScore.Drivers)
+	}
+	groups := map[string][]string{}
+	for _, g := range demoGroups() {
+		groups[g.Name] = g.Clusters
+	}
+	start := demoTestNow.Add(-time.Duration(demoScans-1) * demoStep)
+	oldest := report.Build(demoClusterNames(), demoResults(0, demoScans, start, demoTestNow),
+		report.BuildOptions{ClusterTags: demoTags(), Groups: groups, Timestamp: start})
+	if oldest.FleetScore.Score <= r.FleetScore.Score {
+		t.Errorf("oldest scan scores %d, newest %d: want a decline", oldest.FleetScore.Score, r.FleetScore.Score)
 	}
 }

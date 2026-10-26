@@ -131,12 +131,13 @@ func TestDistributionsMatchDetectors(t *testing.T) {
 	}
 }
 
-// TestDistributionValues pins the fleet distributions of the fixture to values
-// computed by hand.
+// TestDistributionValues pins the fleet distributions of the untagged fixture
+// to values computed by hand, then checks that tags measure a tagged cluster
+// against its cohort.
 func TestDistributionValues(t *testing.T) {
 	t.Parallel()
 	clusters, results, tags := distributionFleet()
-	r := Build(clusters, results, BuildOptions{ClusterTags: tags})
+	r := Build(clusters, results, BuildOptions{})
 
 	// enforced_count sorted: 20 22 23 24 24 24 25 26 26 28 30 80, median 24.5.
 	// Absolute deviations: 4.5 2.5 1.5 0.5 0.5 0.5 0.5 1.5 1.5 3.5 5.5 55.5,
@@ -209,6 +210,13 @@ func TestDistributionValues(t *testing.T) {
 	}
 	if got := r.DeviationMass["c00"]; math.Abs(got-math.Abs(z(20))) > 1e-9 {
 		t.Errorf("c00 deviation mass: want %v, got %v", math.Abs(z(20)), got)
+	}
+
+	// Tagged, c03's quota of 9 against its east cohort's 6 counts in full, though the fleet,
+	// with no spread on the field, gives it no z.
+	tagged := Build(clusters, results, BuildOptions{ClusterTags: tags})
+	if got := tagged.DeviationMass["c03"]; got < maxMassZ {
+		t.Errorf("tagged c03 deviation mass: want at least %v from its cohort's quota norm, got %v", maxMassZ, got)
 	}
 }
 

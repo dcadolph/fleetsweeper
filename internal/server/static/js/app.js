@@ -13,7 +13,6 @@ import { startTour } from './tour.js';
 import { toggleShortcuts } from './shortcuts.js';
 import { openHelpMenu } from './help.js';
 import { maybeShowWelcome } from './welcome.js';
-import { installDemoEnrichment } from './demo_enrich.js';
 import './palette.js';
 
 // installTooltip shows the data-tip of the element under the pointer or with
@@ -78,7 +77,7 @@ function startRouterRender() {
 applyTheme();
 installActions();
 installTooltip();
-await Promise.all([loadScannerCatalog(), installDemoEnrichment()]);
+await loadScannerCatalog();
 startRouter();
 startLive();
 maybeShowWelcome();

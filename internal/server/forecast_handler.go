@@ -30,9 +30,6 @@ func (s *Server) handleGetFleetScoreForecast(w http.ResponseWriter, r *http.Requ
 	}
 
 	history := s.fleetScoreHistory(r.Context(), limit)
-	if len(history) == 0 && s.demo {
-		history = demoFleetScoreHistory()
-	}
 
 	forecast := report.ForecastFleetScore(history, time.Time{})
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -52,13 +49,15 @@ func (s *Server) fleetScoreHistory(ctx context.Context, limit int) []report.Flee
 		return nil
 	}
 	out := make([]report.FleetScoreHistoryPoint, 0, len(scans))
+	opts := s.reportOptions(ctx, s.log)
 	for _, scan := range scans {
 		results, err := s.store.GetScanResults(ctx, scan.ID)
 		if err != nil {
 			s.log.Warn("forecast: get results", zap.String("scan_id", scan.ID), zap.Error(err))
 			continue
 		}
-		rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
+		opts.Timestamp = scan.Timestamp
+		rpt := s.reports.get(scan.ID, scan.Clusters, results, opts)
 		out = append(out, report.FleetScoreHistoryPoint{
 			ScanID:    scan.ID,
 			Timestamp: scan.Timestamp,
@@ -68,27 +67,6 @@ func (s *Server) fleetScoreHistory(ctx context.Context, limit int) []report.Flee
 	return out
 }
 
-// demoFleetScoreHistory returns a synthetic 10-scan history shaped like a
-// gentle degradation so the demo's forecast panel surfaces a meaningful
-// "projected to degrade" headline. Without this the demo's single scan would
-// produce an insufficient forecast.
-func demoFleetScoreHistory() []report.FleetScoreHistoryPoint {
-	rpt := demoReport()
-	currentScore := rpt.FleetScore.Score
-	now := demoTimestamp()
-	scores := []int{currentScore + 9, currentScore + 8, currentScore + 6,
-		currentScore + 5, currentScore + 4, currentScore + 3,
-		currentScore + 2, currentScore + 1, currentScore + 1, currentScore}
-	out := make([]report.FleetScoreHistoryPoint, len(scores))
-	for i, sc := range scores {
-		out[i] = report.FleetScoreHistoryPoint{
-			ScanID:    "demo-history-" + strconv.Itoa(i),
-			Timestamp: now.Add(-time.Duration(len(scores)-1-i) * 30 * time.Minute),
-			Score:     clampScore(sc),
-		}
-	}
-	return out
-}
 
 // clampScore keeps a score within the 0-100 range so the synthetic curve
 // never goes out of bounds even if the demo's base score shifts.
@@ -124,9 +102,6 @@ func (s *Server) handleGetClusterForecasts(w http.ResponseWriter, r *http.Reques
 	}
 
 	histories, currentByCluster := s.clusterScoreHistories(r.Context(), limit)
-	if len(histories) == 0 && s.demo {
-		histories, currentByCluster = demoClusterScoreHistories()
-	}
 
 	out := make([]clusterForecast, 0, len(histories))
 	for cluster, hist := range histories {
@@ -170,6 +145,7 @@ func (s *Server) clusterScoreHistories(ctx context.Context, limit int) (map[stri
 	}
 	histories := map[string][]report.FleetScoreHistoryPoint{}
 	current := map[string]int{}
+	opts := s.reportOptions(ctx, s.log)
 	for _, scan := range scans {
 		results, err := s.store.GetScanResults(ctx, scan.ID)
 		if err != nil {
@@ -177,7 +153,8 @@ func (s *Server) clusterScoreHistories(ctx context.Context, limit int) (map[stri
 				zap.String("scan_id", scan.ID), zap.Error(err))
 			continue
 		}
-		rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
+		opts.Timestamp = scan.Timestamp
+		rpt := s.reports.get(scan.ID, scan.Clusters, results, opts)
 		for _, cs := range report.ComputeClusterScores(rpt) {
 			histories[cs.Cluster] = append(histories[cs.Cluster],
 				report.FleetScoreHistoryPoint{
@@ -193,38 +170,3 @@ func (s *Server) clusterScoreHistories(ctx context.Context, limit int) (map[stri
 	return histories, current
 }
 
-// demoClusterScoreHistories synthesizes a per-cluster history for demo mode
-// so the forecast endpoint has data to return. Critical clusters get a clear
-// degradation trajectory; healthy clusters get a flat line.
-func demoClusterScoreHistories() (map[string][]report.FleetScoreHistoryPoint, map[string]int) {
-	rpt := demoReport()
-	scores := report.ComputeClusterScores(rpt)
-	now := demoTimestamp()
-	histories := map[string][]report.FleetScoreHistoryPoint{}
-	current := map[string]int{}
-	for _, cs := range scores {
-		current[cs.Cluster] = cs.Score
-		// Degrade by 1-2 points per scan for the past 10 scans depending on
-		// current state, with a small jitter so the regression has signal but
-		// not a perfect-fit straight line.
-		delta := 1
-		if cs.Score < 70 {
-			delta = 2
-		}
-		hist := make([]report.FleetScoreHistoryPoint, 10)
-		for i := range 10 {
-			offset := (9 - i) * delta
-			jitter := 0
-			if i%3 == 0 {
-				jitter = 1
-			}
-			hist[i] = report.FleetScoreHistoryPoint{
-				ScanID:    "demo-cluster-history-" + cs.Cluster + "-" + strconv.Itoa(i),
-				Timestamp: now.Add(-time.Duration(9-i) * 30 * time.Minute),
-				Score:     clampScore(cs.Score + offset + jitter),
-			}
-		}
-		histories[cs.Cluster] = hist
-	}
-	return histories, current
-}

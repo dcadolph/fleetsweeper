@@ -118,6 +118,9 @@ type OutlierResult struct {
 	Threshold float64 `json:"threshold"`
 	// Z is the signed modified z-score for a numeric field.
 	Z float64 `json:"z"`
+	// ExplainedBy names the operator-tagged cohort whose own norm holds this
+	// fleet outlier, empty otherwise. An explained outlier raises no finding.
+	ExplainedBy string `json:"explained_by,omitempty"`
 	// LimitedSample marks a norm drawn from a population too small for MAD.
 	LimitedSample bool `json:"limited_sample"`
 }

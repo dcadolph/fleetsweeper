@@ -243,8 +243,7 @@ type policyReportData struct {
 }
 
 // latestReportForMetrics returns the rebuilt report for the most recent scan,
-// or nil when no scan exists. Falls back to demoReport in demo mode so the
-// /metrics endpoint is non-empty without any real clusters.
+// or nil when no scan exists.
 func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
 	scans, err := s.store.ListScans(ctx, 1)
 	if err != nil {
@@ -252,9 +251,6 @@ func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
 		return nil
 	}
 	if len(scans) == 0 {
-		if s.demo {
-			return demoReport()
-		}
 		return nil
 	}
 
@@ -268,7 +264,7 @@ func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
 		s.log.Warn("metrics: get scan results", zap.Error(err))
 		return nil
 	}
-	r := report.Build(latest.Clusters, results, report.BuildOptions{Timestamp: latest.Timestamp})
+	r := s.buildReport(ctx, latest, results)
 	s.metricsCache.store(latest.ID, r)
 	return r
 }

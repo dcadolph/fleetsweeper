@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dcadolph/fleetsweeper/internal/cohort"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
@@ -34,7 +35,8 @@ type Fix struct {
 	// field: median for numeric, mode for string, consensus for set.
 	Kind string `json:"kind,omitempty"`
 	// Scope is "fleet" or a cohort name, the norm to fix toward. Empty means
-	// fleet.
+	// the cluster's tagged cohort when that cohort has a norm for the field,
+	// since that is the norm the cluster answers to, and the fleet otherwise.
 	Scope string `json:"scope,omitempty"`
 }
 
@@ -64,14 +66,29 @@ type Outcome struct {
 	ClearedOutliers []string `json:"cleared_outliers,omitempty"`
 }
 
+// defaultFixScope returns the tagged cohort of the fix's cluster when that
+// cohort has a distribution for the field holding the cluster, else the fleet.
+func defaultFixScope(r *Report, fix Fix) string {
+	for _, c := range r.Cohorts {
+		if c.Source != string(cohort.SourceTagged) || !slices.Contains(c.Clusters, fix.Cluster) {
+			continue
+		}
+		if d := distributionFor(r, c.Name, fix.Scanner, fix.Field); d != nil &&
+			slices.ContainsFunc(d.Values, func(v ClusterValue) bool { return v.Cluster == fix.Cluster }) {
+			return c.Name
+		}
+	}
+	return NormScopeFleet
+}
+
 // WhatIf builds the report for clusters and results, applies fix to a copy of
 // the results, rebuilds, and returns how the score and the field's norm move.
 // results is not modified.
 func WhatIf(clusters []string, results map[string]map[string]scanner.Result, opts BuildOptions, fix Fix) (Outcome, error) {
-	if fix.Scope == "" {
-		fix.Scope = NormScopeFleet
-	}
 	before := Build(clusters, results, opts)
+	if fix.Scope == "" {
+		fix.Scope = defaultFixScope(before, fix)
+	}
 	dist := distributionFor(before, fix.Scope, fix.Scanner, fix.Field)
 	if dist == nil {
 		return Outcome{}, fmt.Errorf("%w: no %s distribution for %s/%s", ErrWhatIf, fix.Scope, fix.Scanner, fix.Field)

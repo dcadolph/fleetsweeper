@@ -178,3 +178,44 @@ func TestWhatIfRefusals(t *testing.T) {
 		})
 	}
 }
+
+// TestWhatIfDefaultScope verifies an empty scope fixes toward the cluster's
+// tagged cohort when that cohort has a norm for the field, and toward the
+// fleet otherwise.
+func TestWhatIfDefaultScope(t *testing.T) {
+	t.Parallel()
+	values := []float64{38, 39, 40, 40, 41, 80, 41, 42, 39, 40, 9, 10, 10, 11, 10, 9, 11, 10, 10, 12}
+	tests := []struct {
+		Tags       map[string]string
+		WantScope  string
+		WantMedian float64
+	}{{ // Test 0: Tagged cohorts; c05 fixes toward the big cohort's median.
+		Tags:      map[string]string{},
+		WantScope: "big", WantMedian: 40,
+	}, { // Test 1: No tags; c05 fixes toward the fleet median.
+		WantScope: NormScopeFleet, WantMedian: 25,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := enforcedFleet(values...)
+			var tags map[string]string
+			if test.Tags != nil {
+				tags = map[string]string{}
+				for i, c := range clusters {
+					tags[c] = map[bool]string{true: "big", false: "small"}[i < 10]
+				}
+			}
+			out, err := WhatIf(clusters, results, BuildOptions{ClusterTags: tags}, Fix{Cluster: "c05", Scanner: "security", Field: "enforced_count"})
+			if err != nil {
+				t.Fatalf("what-if: %v", err)
+			}
+			if diff := cmp.Diff(test.WantScope, out.Fix.Scope); diff != "" {
+				t.Errorf("scope mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantMedian, out.Before.Median); diff != "" {
+				t.Errorf("median mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

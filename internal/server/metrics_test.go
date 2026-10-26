@@ -92,11 +92,14 @@ func TestWriteMetrics_LastScanDuration(t *testing.T) {
 	mustContain(t, out, "fleetsweeper_last_scan_duration_seconds 2.500")
 }
 
-// newDemoServer returns a Server wired in demo mode so writeMetrics has
-// synthetic data to emit. Avoids spinning up real scans in unit tests.
+// newDemoServer returns a Server in demo mode on a store seeded with the demo
+// fleet, its newest scan at demoTestNow.
 func newDemoServer(t *testing.T) *Server {
 	t.Helper()
-	srv, _ := testServer(t)
+	srv, st := testServer(t)
+	if err := SeedDemo(t.Context(), st, demoTestNow); err != nil {
+		t.Fatalf("seed demo: %v", err)
+	}
 	srv.demo = true
 	return srv
 }
