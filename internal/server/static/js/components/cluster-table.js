@@ -95,11 +95,11 @@ function bodyHTML() {
 }
 
 // renderClusterTable returns the table for rows, each {cluster, status, cost,
-// mass, critical, warning, cpu, memory, projected}, worst first.
+// mass, critical, warning, cpu, memory, projected}, worst first. The viewer's
+// sort and expansion carry over to the next render, so a live refresh keeps
+// them.
 export function renderClusterTable(rows) {
   state.rows = rows || [];
-  state.sort = null;
-  state.all = false;
   if (!state.rows.length) return '<div class="empty">No clusters in the latest scan.</div>';
   return `<div id="clusterTable" data-tour="cluster-table">${bodyHTML()}</div>`;
 }

@@ -1,10 +1,10 @@
-// Delegated event handling. Markup names an action with data-action (click),
-// data-change (input and change), or data-dblclick, and a module registers
+// Delegated event handling. Markup names an action with data-action (click)
+// or data-change (input and change), and a module registers
 // the handler by name. One listener per event type serves the whole page, so
 // no element carries an inline handler and re-rendered markup needs no
 // rewiring.
 
-const handlers = { click: new Map(), change: new Map(), dblclick: new Map() };
+const handlers = { click: new Map(), change: new Map() };
 
 // on registers fn(el, event) for elements with data-action="name".
 export function on(name, fn) {
@@ -15,11 +15,6 @@ export function on(name, fn) {
 // on both input and change events.
 export function onChange(name, fn) {
   handlers.change.set(name, fn);
-}
-
-// onDblClick registers fn(el, event) for elements with data-dblclick="name".
-export function onDblClick(name, fn) {
-  handlers.dblclick.set(name, fn);
 }
 
 // dispatch runs the handler named by attr on the closest element carrying it.
@@ -54,5 +49,4 @@ export function installActions() {
     if (ev.target.matches('input[type=search], input[type=text]')) return;
     dispatch('change', 'data-change', ev);
   });
-  document.addEventListener('dblclick', (ev) => dispatch('dblclick', 'data-dblclick', ev));
 }

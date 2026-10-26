@@ -1,25 +1,31 @@
 // The findings page: every finding of the latest scan grouped by cluster,
-// filterable by text, severity, and cluster, with CSV and Markdown export.
+// filterable by text, severity, cluster, and scanner, with CSV and Markdown
+// export. The filters live in the URL, as in #/findings?cluster=a&sev=critical,
+// so links from other pages land filtered and a reload keeps them.
 
-import { api } from '../api.js';
+import { api, scannerLabel } from '../api.js';
 import { esc, csvExport, download, clusterHref, byId } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { renderFinding, remediationFor } from '../components/finding.js';
-import { P } from '../router.js';
+import { P, nav, setQuery } from '../router.js';
 import { on, onChange } from '../actions.js';
 
 let findings = [];
 
+// findingsHref returns the link to the findings page with filters, each of
+// q, sev, cluster, and scanner optional.
+export function findingsHref(filters) {
+  const f = filters || {};
+  const q = new URLSearchParams();
+  ['cluster', 'q', 'scanner', 'sev'].forEach((k) => { if (f[k]) q.set(k, f[k]); });
+  const s = q.toString();
+  return '#/findings' + (s ? '?' + s : '');
+}
+
 // openFindingsFiltered moves to the findings page with the search box set to
 // q and, when given, the severity filter set to sev.
 export function openFindingsFiltered(q, sev) {
-  P.findingsQuery = q;
-  P.findingsSeverity = sev || '';
-  if (location.hash === '#/findings') {
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  } else {
-    location.hash = '#/findings';
-  }
+  nav('findings', { query: { q, sev } });
 }
 
 // renderFindings builds the findings page for the latest scan.
@@ -30,20 +36,23 @@ export async function renderFindings() {
   if (!scans || !scans.length) return '<div class="empty">No scans.</div>';
   const rpt = await api('/scans/' + encodeURIComponent(scans[0].id) + '/report');
   findings = rpt.findings || [];
+  const persistence = await persistenceMap();
   const count = (sev) => findings.filter((f) => f.severity === sev).length;
   let h = '<h2>Findings</h2>';
   h += `<p class="sub">${findings.length} findings: <span class="c-crit fw-600">${count('critical')} critical</span>, ` +
     `<span class="c-warn fw-600">${count('warning')} warning</span>, <span class="c-info">${count('info')} info</span></p>`;
+  const q = P.query || {};
   const clusters = [...new Set(findings.map((f) => f.cluster))].sort();
+  const scanners = [...new Set(findings.map((f) => f.scanner))].sort();
+  const options = (list, current) => list.map(([v, l]) => `<option value="${esc(v)}"${v && v === current ? ' selected' : ''}>${esc(l)}</option>`).join('');
   h += '<div class="controls">' +
-    `<input type="search" id="fSearch" class="input-w" placeholder="Filter findings..." data-change="filter-findings" aria-label="Filter findings" value="${esc(P.findingsQuery || '')}">` +
+    `<input type="search" id="fSearch" class="input-w" placeholder="Filter findings..." data-change="filter-findings" aria-label="Filter findings" value="${esc(q.q || '')}">` +
     '<select id="fSev" data-change="filter-findings" aria-label="Severity">' +
-    [['', 'All severities'], ['critical', 'Critical'], ['warning', 'Warning'], ['info', 'Info']]
-      .map(([v, l]) => `<option value="${v}"${v && v === P.findingsSeverity ? ' selected' : ''}>${l}</option>`).join('') + '</select>' +
-    '<select id="fCluster" data-change="filter-findings" aria-label="Cluster"><option value="">All clusters</option>' +
-    clusters.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('') + '</select></div>';
-  P.findingsQuery = '';
-  P.findingsSeverity = '';
+    options([['', 'All severities'], ['critical', 'Critical'], ['warning', 'Warning'], ['info', 'Info']], q.sev) + '</select>' +
+    '<select id="fCluster" data-change="filter-findings" aria-label="Cluster">' +
+    options([['', 'All clusters']].concat(clusters.map((c) => [c, c])), q.cluster) + '</select>' +
+    '<select id="fScanner" data-change="filter-findings" aria-label="Scanner">' +
+    options([['', 'All scanners']].concat(scanners.map((c) => [c, scannerLabel(c)])), q.scanner) + '</select></div>';
   if (!findings.length) return h + '<div class="empty">No findings. Fleet is healthy.</div>';
 
   const groups = {};
@@ -62,21 +71,36 @@ export async function renderFindings() {
     h += `<span class="fs-12 c-t2">${list.length} finding${list.length !== 1 ? 's' : ''}`;
     if (gc) h += ` &middot; <span class="c-crit">${gc} critical</span>`;
     if (gw) h += ` &middot; <span class="c-warn">${gw} warning</span>`;
-    h += '</span></div>' + list.map(renderFinding).join('') + '</div>';
+    h += '</span></div>' + list.map((f) => renderFinding(f, { persistence })).join('') + '</div>';
   });
   return { html: h, post: applyFilters };
 }
 
-// applyFilters shows the findings matching the search, severity, and cluster
-// controls, and hides groups left empty.
+// persistenceMap maps each finding's fingerprint to its persistence class
+// over recent scans, empty when the history is unavailable.
+async function persistenceMap() {
+  try {
+    const resp = await api('/findings/persistence');
+    return Object.fromEntries((resp.findings || []).map((p) => [p.fingerprint, p.class]));
+  } catch (_) {
+    return {};
+  }
+}
+
+// applyFilters shows the findings matching the search, severity, cluster,
+// and scanner controls, hides groups left empty, and writes the filters to
+// the URL.
 function applyFilters() {
-  const q = ((byId('fSearch') || {}).value || '').toLowerCase();
+  const raw = (byId('fSearch') || {}).value || '';
+  const q = raw.toLowerCase();
   const sev = (byId('fSev') || {}).value || '';
   const cl = (byId('fCluster') || {}).value || '';
-  document.querySelectorAll('.fi').forEach((el) => {
-    const show = (!sev || el.dataset.sev === sev) && (!cl || el.dataset.cluster === cl) && (!q || el.dataset.text.indexOf(q) >= 0);
+  const sc = (byId('fScanner') || {}).value || '';
+  document.querySelectorAll('#ct .fi').forEach((el) => {
+    const show = (!sev || el.dataset.sev === sev) && (!cl || el.dataset.cluster === cl) && (!sc || el.dataset.scanner === sc) && (!q || el.dataset.text.indexOf(q) >= 0);
     el.classList.toggle('hidden', !show);
   });
+  if (P.page === 'findings') setQuery({ q: raw, sev, cluster: cl, scanner: sc });
   document.querySelectorAll('.finding-group').forEach((g) => {
     g.classList.toggle('hidden', !g.querySelector('.fi:not(.hidden)'));
   });

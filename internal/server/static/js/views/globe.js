@@ -7,7 +7,7 @@ import { esc, byId, toneColor, statusTone } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { nav, onLeave } from '../router.js';
 import { on, onChange } from '../actions.js';
-import { openFindingsFiltered } from './findings.js';
+import { findingsHref } from './findings.js';
 
 const STATUSES = ['critical', 'degraded', 'busy', 'healthy'];
 const SOURCE_LABELS = { manual: 'manual override', configmap: 'in-cluster ConfigMap', annotation: 'in-cluster annotation', auto: 'auto-detected' };
@@ -203,7 +203,7 @@ function selectCluster(cluster) {
     (p.warning_findings ? `<div class="fs-12 c-warn mb-4">${p.warning_findings} warning findings</div>` : '') +
     '<div class="flex flex-wrap gap-6 mt-8">' +
     `<button class="btn btn-ac" data-action="globe-drill" data-cluster="${esc(p.cluster)}">Open cluster page</button>` +
-    `<button class="btn" data-action="globe-findings" data-cluster="${esc(p.cluster)}">Filter findings by this cluster</button>` +
+    `<a class="btn" href="${esc(findingsHref({ cluster: p.cluster }))}">Findings for this cluster</a>` +
     `<button class="btn" data-action="copy" data-copy="${esc('kubectl --context ' + p.cluster + ' get nodes')}">Copy kubectl</button></div>`;
   applyLayers();
   renderSide();
@@ -251,7 +251,6 @@ on('globe-filter', (btn) => {
 });
 on('globe-select', (btn) => selectCluster(btn.dataset.cluster));
 on('globe-drill', (btn) => nav('detail', { cluster: btn.dataset.cluster }));
-on('globe-findings', (btn) => openFindingsFiltered(btn.dataset.cluster));
 on('globe-rotate', (btn) => {
   state.autoRotate = !state.autoRotate;
   if (state.globe) state.globe.controls().autoRotate = state.autoRotate;

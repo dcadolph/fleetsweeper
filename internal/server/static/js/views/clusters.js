@@ -188,7 +188,7 @@ on('toggle-cards', () => {
 on('export-clusters', () => {
   if (!data) return;
   csvExport('fleetsweeper-clusters.csv',
-    ['Cluster', 'Status', 'Version', 'Nodes', 'Healthy', 'CPU%', 'Mem%', 'Warnings', 'Critical', 'Warnings', 'Groups', 'First Seen', 'Last Seen'],
+    ['Cluster', 'Status', 'Version', 'Nodes', 'Healthy', 'CPU%', 'Mem%', 'Warning events', 'Critical findings', 'Warning findings', 'Groups', 'First Seen', 'Last Seen'],
     data.clusters.map((c) => {
       const ch = data.healthMap[c.name] || {};
       const fc = ch.finding_counts || {};
