@@ -5,6 +5,8 @@ import { ROUTES } from './routes.js';
 import { api } from './api.js';
 import { esc } from './dom.js';
 import { paintLive } from './live.js';
+import { hasToken } from './auth.js';
+import { morph } from './morph.js';
 import { themeLabel } from './theme.js';
 
 // badges maps a route id to the count shown beside it, and badgeScan is the
@@ -76,8 +78,15 @@ export function renderBar(extra) {
     '<span class="sp"></span>' +
     '<button id="live-toggle" class="live-toggle" data-action="live-toggle"><span class="live-dot"></span><span>Live · paused</span></button>' +
     '<button class="tour-launcher" data-action="tour-start">Take a tour</button>' +
+    `<button class="btn" data-action="token" id="token-btn" data-tip="API token for acknowledging findings and starting scans">${hasToken() ? 'Token set' : 'Token'}</button>` +
     `<button class="btn" data-action="theme" id="theme-toggle">${esc(themeLabel())}</button>` +
     '<button class="btn" data-action="shortcuts" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>';
-  document.getElementById('bar').innerHTML = h;
+  morph(document.getElementById('bar'), h);
   paintLive();
+}
+
+// paintToken updates the token button after the token changes.
+export function paintToken(has) {
+  const btn = document.getElementById('token-btn');
+  if (btn) btn.textContent = has ? 'Token set' : 'Token';
 }

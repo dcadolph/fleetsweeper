@@ -2,11 +2,12 @@
 // blocks. Clicking a cell opens that field's strip with the cluster ringed.
 
 import { api } from '../api.js';
-import { byId } from '../dom.js';
+import { esc, byId } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { renderMatrix } from '../components/matrix.js';
 import { renderStrip } from '../components/strip.js';
 import { on } from '../actions.js';
+import { findingsHref } from './findings.js';
 
 let dists = [];
 
@@ -27,6 +28,8 @@ on('matrix-cell', (cell) => {
   const d = dists[Number(cell.dataset.col)];
   const box = byId('matrixStrip');
   if (!d || !box) return;
-  box.innerHTML = renderStrip(d, cell.dataset.cluster);
+  const c = cell.dataset.cluster;
+  box.innerHTML = renderStrip(d, c) +
+    `<a class="fs-12" href="${esc(findingsHref({ cluster: c, scanner: d.scanner }))}">Findings for ${esc(c)} from ${esc(d.scanner)} &rarr;</a>`;
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
