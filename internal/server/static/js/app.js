@@ -57,6 +57,7 @@ on('clear', (btn) => {
   if (target) target.innerHTML = '';
 });
 on('menu', () => document.body.classList.toggle('nav-open'));
+on('skip', () => byId('ct').focus());
 on('live-toggle', () => toggleLive());
 on('token', () => openTokenDrawer());
 onTokenChange(paintToken);

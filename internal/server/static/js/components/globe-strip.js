@@ -13,8 +13,8 @@ export const STRIP_HEIGHT = 280;
 
 // renderGlobeStrip returns the strip's markup.
 export function renderGlobeStrip() {
-  return '<div class="globe-strip" data-href="#/globe" role="link" tabindex="0" aria-label="Open the fleet globe">' +
-    '<div id="globeStrip" class="globe-strip-canvas"></div><span class="globe-strip-cta">Open the globe &rarr;</span></div>';
+  return '<a class="globe-strip" href="#/globe" aria-label="Open the fleet globe">' +
+    '<div id="globeStrip" class="globe-strip-canvas"></div><span class="globe-strip-cta" aria-hidden="true">Open the globe &rarr;</span></a>';
 }
 
 // stripMessage replaces the strip's canvas with a short note.

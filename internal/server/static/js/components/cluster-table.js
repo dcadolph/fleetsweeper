@@ -84,7 +84,7 @@ function bodyHTML() {
   const head = COLUMNS.map((c) => {
     const on = state.sort && state.sort.key === c.key;
     const aria = on ? (state.sort.desc ? 'descending' : 'ascending') : 'none';
-    return `<th aria-sort="${aria}"${c.tip ? ` data-tip="${esc(c.tip)}"` : ''}><button class="th-sort" data-action="ctable-sort" data-key="${c.key}">` +
+    return `<th scope="col" aria-sort="${aria}"${c.tip ? ` data-tip="${esc(c.tip)}"` : ''}><button class="th-sort" data-action="ctable-sort" data-key="${c.key}">` +
       `${esc(c.label)}${on ? (state.sort.desc ? ' &#9660;' : ' &#9650;') : ''}</button></th>`;
   }).join('');
   let h = `<div class="tw"><table class="ctable"><thead><tr>${head}</tr></thead><tbody>${shown.map(rowHTML).join('')}</tbody></table></div>`;

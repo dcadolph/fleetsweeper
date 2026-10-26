@@ -28,7 +28,7 @@ export async function renderTrends() {
   } else {
     if (data.findings && data.findings.length) h += '<h3>Trend findings</h3>' + data.findings.map(renderFinding).join('');
     if (data.fleet_trends && data.fleet_trends.length) {
-      h += '<h3>Fleet drift over time</h3><div class="tw"><table><thead><tr><th>Scanner</th><th>Field</th><th>Direction</th><th>Points</th><th>First value</th><th>Last value</th></tr></thead><tbody>';
+      h += '<h3>Fleet drift over time</h3><div class="tw"><table><thead><tr><th scope="col">Scanner</th><th scope="col">Field</th><th scope="col">Direction</th><th scope="col">Points</th><th scope="col">First value</th><th scope="col">Last value</th></tr></thead><tbody>';
       data.fleet_trends.forEach((t) => {
         const tone = t.direction === 'worsening' ? 'crit' : t.direction === 'improving' ? 'ok' : 't2';
         const pts = t.points || [];

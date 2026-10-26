@@ -65,7 +65,7 @@ export async function renderGlobe() {
     '<div class="split-side"><div id="globe-wrap" class="globe-wrap"></div>' +
     '<div class="globe-side"><div id="globe-summary" class="sect">Loading...</div><div id="globe-action" class="sect action hidden"></div>' +
     '<div class="sect eyebrow">Clusters furthest from the norm first</div><div id="globe-list" class="globe-list"></div></div></div>' +
-    '<div class="legend">' + STATUSES.slice().reverse().map((s) => `<span><span class="dot fill-${statusTone(s)}"></span> ${s}</span>`).join('') +
+    '<div class="legend">' + STATUSES.slice().reverse().map((s) => `<span><span aria-hidden="true" class="dot fill-${statusTone(s)}"></span> ${s}</span>`).join('') +
     '<span>size: deviation from the norm</span><span>rings: fields outside the norm</span>' +
     '<span class="ml-auto"><span id="globe-located-count">0</span> placed &middot; <span id="globe-unlocated-count">0</span> unplaced</span></div>' +
     '<div id="globe-unlocated" class="note mt-4"></div>';
@@ -206,7 +206,7 @@ function renderSide() {
     .sort((a, b) => ((b.deviation_mass || 0) - (a.deviation_mass || 0)) || (a.cluster || '').localeCompare(b.cluster || ''));
   const list = byId('globe-list');
   list.innerHTML = visible.length ? visible.map((p) => `<button class="globe-row${state.selected === p.cluster ? ' sel' : ''}" data-action="globe-select" data-cluster="${esc(p.cluster)}">` +
-    `<span class="dot fill-${statusTone(norm(p.status))}"></span><span class="grow"><span class="fs-12 fw-500 ellipsis">${esc(p.cluster)}</span>` +
+    `<span aria-hidden="true" class="dot fill-${statusTone(norm(p.status))}"></span><span class="grow"><span class="fs-12 fw-500 ellipsis">${esc(p.cluster)}</span>` +
     `<br><span class="fs-12 c-t3 ellipsis">${esc(p.site || p.city || p.region || '')}</span></span>` +
     (p.critical_findings ? `<span class="fs-12 c-crit fw-600">${p.critical_findings}</span>` : '') + '</button>').join('')
     : '<div class="empty">No clusters match your filters.</div>';
@@ -221,7 +221,7 @@ function selectCluster(cluster) {
   if (state.globe) state.globe.pointOfView({ lat: p.lat, lng: p.lng, altitude: 1.6 }, 900);
   const s = norm(p.status);
   act.classList.remove('hidden');
-  act.innerHTML = `<div class="flex items-center gap-8 mb-4"><span class="dot dot-lg fill-${statusTone(s)}"></span><span class="fw-600">${esc(p.cluster)}</span></div>` +
+  act.innerHTML = `<div class="flex items-center gap-8 mb-4"><span aria-hidden="true" class="dot dot-lg fill-${statusTone(s)}"></span><span class="fw-600">${esc(p.cluster)}</span></div>` +
     `<div class="fs-12 c-t2 mb-8">${esc(s)} &middot; ${esc(p.source || 'auto')}${p.region ? ' &middot; ' + esc(p.region) : ''}${p.site ? ' &middot; ' + esc(p.site) : p.city ? ' &middot; ' + esc(p.city) : ''}</div>` +
     (p.critical_findings ? `<div class="fs-12 c-crit">${p.critical_findings} critical findings</div>` : '') +
     (p.warning_findings ? `<div class="fs-12 c-warn mb-4">${p.warning_findings} warning findings</div>` : '') +

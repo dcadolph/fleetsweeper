@@ -76,7 +76,7 @@ export function renderBar(extra) {
   const h = '<button class="btn menu-btn" data-action="menu" aria-label="Open navigation">Menu</button>' +
     (extra || '') +
     '<span class="sp"></span>' +
-    '<button id="live-toggle" class="live-toggle" data-action="live-toggle"><span class="live-dot"></span><span>Live · paused</span></button>' +
+    '<button id="live-toggle" class="live-toggle" data-action="live-toggle"><span class="live-dot" aria-hidden="true"></span><span>Live · paused</span></button>' +
     '<button class="tour-launcher" data-action="tour-start">Take a tour</button>' +
     `<button class="btn" data-action="token" id="token-btn" data-tip="API token for acknowledging findings and starting scans">${hasToken() ? 'Token set' : 'Token'}</button>` +
     `<button class="btn" data-action="theme" id="theme-toggle">${esc(themeLabel())}</button>` +

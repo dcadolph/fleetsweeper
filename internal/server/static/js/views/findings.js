@@ -64,7 +64,7 @@ export async function renderFindings() {
     const gc = crits(cluster);
     const gw = list.filter((f) => f.severity === 'warning').length;
     const tone = gc ? 'crit' : gw ? 'warn' : 'ok';
-    h += `<div class="finding-group" data-gcluster="${esc(cluster)}"><div class="group-head"><span class="dot dot-lg fill-${tone}"></span>`;
+    h += `<div class="finding-group" data-gcluster="${esc(cluster)}"><div class="group-head"><span aria-hidden="true" class="dot dot-lg fill-${tone}"></span>`;
     h += cluster === 'fleet'
       ? '<span class="fs-14 fw-600">Fleet-wide</span>'
       : `<a class="fs-14 fw-600" href="${esc(clusterHref(cluster))}">${esc(cluster)}</a>`;
