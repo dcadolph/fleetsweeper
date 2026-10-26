@@ -44,6 +44,39 @@ jobs:
       - run: go build ./...
       - run: go test -race -short ./...
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.14.0
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Fuzz smoke
+        shell: bash
+        run: |
+          targets=$(grep -rE --include='*_test.go' -o '^func Fuzz[A-Za-z0-9_]*' . |
+            sed -E 's|^(\./)?(.*)/[^/]+:func (Fuzz[A-Za-z0-9_]*)$|\2 \3|' | sort)
+          if [ -z "$targets" ]; then
+            echo "no fuzz targets found"
+            exit 1
+          fi
+          while read -r dir target; do
+            echo "::group::$target in $dir"
+            go test -run='^$' -fuzz="^${target}\$" -fuzztime=10s "./$dir/" || exit 1
+            echo "::endgroup::"
+          done <<< "$targets"
+
   integration:
     runs-on: ubuntu-latest
     steps:

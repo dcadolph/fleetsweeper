@@ -1,8 +1,14 @@
 package seal
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // FuzzVerify asserts that Verify rejects every signature derived from a
@@ -63,5 +69,76 @@ func FuzzDecodeSignature(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, in string) {
 		_, _ = decodeSignature(in)
+	})
+}
+
+// FuzzReadBundle asserts that ReadBundle never panics, that every failure wraps ErrBundle, and
+// that any archive it accepts survives a WriteBundle and ReadBundle round trip with the same root
+// and files. The harness builds a two-entry archive from fuzzed names, types, and contents, so
+// the fuzzer reaches the path and layout rules instead of dying on a tar or gzip checksum.
+func FuzzReadBundle(f *testing.F) {
+	seeds := []struct {
+		Name1, Name2 string
+		Type1, Type2 byte
+	}{
+		{Name1: "root/report.json", Name2: "root/MANIFEST", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "root/a", Name2: "other/b", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "root/a", Name2: "root/b", Type1: tar.TypeSymlink, Type2: tar.TypeReg},
+		{Name1: "root/a", Name2: "root/a", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "root//a", Name2: "root/b", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "root/../a", Name2: "root/b", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "/root/a", Name2: "root/b", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "a", Name2: "root/b", Type1: tar.TypeReg, Type2: tar.TypeReg},
+		{Name1: "root/d", Name2: "root/b", Type1: tar.TypeDir, Type2: tar.TypeReg},
+	}
+	for _, s := range seeds {
+		f.Add(s.Name1, s.Name2, s.Type1, s.Type2, []byte("{}"))
+	}
+	f.Fuzz(func(t *testing.T, name1, name2 string, type1, type2 byte, data []byte) {
+		var in bytes.Buffer
+		zw := gzip.NewWriter(&in)
+		tw := tar.NewWriter(zw)
+		for _, e := range []struct {
+			Name string
+			Type byte
+		}{{Name: name1, Type: type1}, {Name: name2, Type: type2}} {
+			hdr := &tar.Header{Name: e.Name, Typeflag: e.Type, Mode: 0o644, Format: tar.FormatPAX}
+			if e.Type == tar.TypeReg {
+				hdr.Size = int64(len(data))
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				return
+			}
+			if e.Type == tar.TypeReg {
+				if _, err := tw.Write(data); err != nil {
+					return
+				}
+			}
+		}
+		if tw.Close() != nil || zw.Close() != nil {
+			return
+		}
+
+		root, got, err := ReadBundle(&in)
+		if err != nil {
+			if !errors.Is(err, ErrBundle) {
+				t.Fatalf("error does not wrap ErrBundle: %v", err)
+			}
+			return
+		}
+		var out bytes.Buffer
+		if err := WriteBundle(&out, root, got, time.Unix(0, 0)); err != nil {
+			t.Fatalf("rewrite accepted bundle: %v", err)
+		}
+		root2, again, err := ReadBundle(&out)
+		if err != nil {
+			t.Fatalf("reread accepted bundle: %v", err)
+		}
+		if root2 != root {
+			t.Errorf("root changed: %q to %q", root, root2)
+		}
+		if diff := cmp.Diff(got, again); diff != "" {
+			t.Errorf("files changed (-first +second):\n%s", diff)
+		}
 	})
 }
