@@ -28,7 +28,7 @@ Sleep 2s
 Type "clear" Enter
 Sleep 200ms
 
-Type "# 26-cluster synthetic fleet across four continents." Enter
+Type "# 26-cluster synthetic fleet with six days of scans." Enter
 Sleep 800ms
 Type "curl -s localhost:8080/api/geo | jq '.points | length'" Enter
 Sleep 1500ms

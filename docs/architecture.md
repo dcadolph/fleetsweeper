@@ -56,14 +56,20 @@ YAML CR your GitOps tool reconciles.
 
 ## Write boundary
 
-Fleetsweeper never writes to the clusters it scans. The only write paths
-are:
+Scanning is read-only: fleetsweeper lists and gets, and never changes a
+scanned cluster's workloads or configuration. Everything it writes is listed
+here:
 
-- The local SQLite or Postgres database.
-- Local YAML files (FleetDriftReport, PolicyReport).
-- The Slack webhook you configured.
-- OpenTelemetry exporters you pointed it at.
-- Pull requests against a GitOps repo you control, only when you explicitly run `fleetsweeper remediate --push`.
+- The SQLite or Postgres database.
+- Local YAML files (FleetDriftReport, PolicyReport) when emission is on.
+- In the cluster running the controller: the `.status` of ClusterScan
+  resources, Kubernetes Events on them, and a Lease for leader election.
+- Admission responses: in enforce mode the webhook denies pods that deviate
+  from the fleet baseline. In the default warn mode it only adds warnings.
+- Outbound calls you configured: the Slack webhook, outbound webhook
+  subscribers, and OpenTelemetry exporters.
+- Pull requests against a GitOps repo you control, only when you run
+  `fleetsweeper remediate --push`.
 
 ## Where to go next
 

@@ -39,8 +39,8 @@ stability contract and the GitHub release notes for the full feature list.
 
 Migration v5 adds two tables:
 
-- `api_keys` — stores hashed bearer tokens, role, and scope per key.
-- `audit_log` — records every mutating request.
+- `api_keys` stores hashed bearer tokens, role, and scope per key.
+- `audit_log` records every mutating request.
 
 Existing data is untouched. Operators upgrading do not need to do anything;
 the migration runs automatically on first startup.

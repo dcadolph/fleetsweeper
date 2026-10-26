@@ -11,7 +11,7 @@ auth path for humans.
 | Path | Description |
 | --- | --- |
 | `/oidc/login` | Initiates the authorization code dance. Sets a short-lived state cookie and redirects to the IdP authorize endpoint. |
-| `/oidc/callback` | Receives the authorisation code, exchanges it for an id_token, verifies the signature against the IdP's JWKS, derives the user's role, and sets a signed session cookie. |
+| `/oidc/callback` | Receives the authorization code, exchanges it for an id_token, verifies the signature against the IdP's JWKS, derives the user's role, and sets a signed session cookie. |
 | `/oidc/logout` | Clears the session cookie and redirects home. |
 
 ## Enable

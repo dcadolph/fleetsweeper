@@ -10,9 +10,14 @@ consumers can subscribe with one TCP connection per consumer.
 | Type | When it fires | Payload |
 | --- | --- | --- |
 | `stream.hello` | First event after the connection opens. | empty |
-| `scan.complete` | After a scan persists (scheduled, triggered, or controller-driven). | `{ scan_id, clusters, score, grade }` |
-| `scan.failed` | When a triggered scan errored out before persistence. | `{ reason }` |
+| `scan.complete` | After a scan persists (scheduled, triggered, webhook, or controller-driven). | `{ scan_id, source, clusters, score, grade }` |
+| `scan.failed` | When a scan errors out before it persists. | `{ scan_id, source, error }` |
+| `alert.received` | When an AlertManager or Falco alert is stored. | `{ fingerprint, cluster, status, alertname, severity }` |
 | `key.revoked` | When an admin revokes an API key. | `{ key_id, revoked_by }` |
+
+The dashboard's live mode subscribes to this stream: `scan.complete` refreshes
+the open page in place, `scan.failed` raises an error notice, and
+`alert.received` refreshes the alerts page.
 
 New types may be added in additive releases. Consumers should ignore types
 they do not recognize.
@@ -25,8 +30,8 @@ data: {"type":"scan.complete","at":"2026-05-17T12:00:00Z","payload":{"scan_id":"
 
 ```
 
-Standard SSE. Every event has a `type:` line and a single JSON-encoded
-`data:` line. A `:` keepalive comment fires every 30 seconds to keep
+Standard SSE. Every event has an `event:` line naming its type and a single
+JSON-encoded `data:` line that repeats the type in its `type` field. A `:` keepalive comment fires every 30 seconds to keep
 intermediate proxies from dropping the connection.
 
 ## Authentication

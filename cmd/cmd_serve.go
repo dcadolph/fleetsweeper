@@ -37,7 +37,7 @@ func init() {
 	serveCmd.Flags().String("auth-token", "", "Bearer token required for mutating endpoints (POST, DELETE).")
 	serveCmd.Flags().Bool("insecure", false, "Disable authentication entirely. Required if --auth-token is empty and you accept the risk.")
 	serveCmd.Flags().StringSlice("cors-origin", nil, "Allowed CORS origins. Repeat for multiple. Empty means cross-origin requests are refused.")
-	serveCmd.Flags().Bool("demo", false, "Serve a synthetic 26-cluster fleet from an in-memory store seeded with six days of scans. Previews the UI without any real clusters; does not take --db.")
+	serveCmd.Flags().Bool("demo", false, "Serve a synthetic 26-cluster fleet from an in-memory store seeded with six days of scans. Every page has data without any real clusters. Does not take --db.")
 	serveCmd.Flags().String("slack-webhook-url", "", "Slack incoming-webhook URL. When set, new critical findings are posted to this channel after each scan.")
 	serveCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs after every scan. One file per cluster. Empty disables.")
 	serveCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs after every scan. Empty disables.")
