@@ -51,7 +51,7 @@ func demoResults() map[string]map[string]scanner.Result {
 				"avg_cpu_percent": cpu, "avg_memory_percent": mem,
 				"max_cpu_percent": cpu + 7, "max_memory_percent": mem + 6,
 			},
-			"events":           {"warning_events": demoEventCount(st) + jitter(c+"ev", 5)},
+			"events":           {"warning_events": max(0, demoEventCount(st)+jitter(c+"ev", 5))},
 			"namespaces":       {"count": demoNSCount(c) + jitter(c+"ns", 3)},
 			"services":         {"count": roleBase(c, 60, 24, 14) + jitter(c+"svc", 8)},
 			"ingresses":        {"count": roleBase(c, 22, 9, 4) + jitter(c+"ing", 3)},
