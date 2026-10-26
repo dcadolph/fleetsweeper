@@ -13,7 +13,7 @@ own fleet, so you do not write policies up front.
 
 ## What it does
 
-- Scans every cluster across 22 dimensions (RBAC, images, versions, certs,
+- Scans every cluster across 24 dimensions (RBAC, images, versions, certs,
   network policies, security context, deprecated APIs, and more).
 - Computes a 0-100 Fleet Score with a letter grade.
 - Detects per-cluster outliers using median-absolute-deviation against the
@@ -37,7 +37,9 @@ Run both together.
 
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/dcadolph/fleetsweeper/main/deploy/crds/clusterscan.yaml
-helm install fleetsweeper deploy/helm/fleetsweeper --set controller.enabled=true
+helm install fleetsweeper deploy/helm/fleetsweeper \
+  --set auth.token="$(openssl rand -hex 32)" \
+  --set controller.enabled=true
 kubectl apply -f deploy/examples/clusterscan-prod.yaml
 ```
 
