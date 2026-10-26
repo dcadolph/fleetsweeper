@@ -5,21 +5,30 @@ import (
 	"os"
 
 	"k8s.io/client-go/dynamic"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// DynamicClient builds a dynamic.Interface suitable for the controller.
-// When kubeconfigPath is empty and an in-cluster service-account token exists,
-// the in-cluster configuration is preferred so the operator can run as a
-// Deployment without extra wiring.
-func DynamicClient(kubeconfigPath, contextName string) (dynamic.Interface, error) {
+// Clients builds the dynamic client the controller watches ClusterScans with and the core
+// client it records Events through. When kubeconfigPath is empty and an in-cluster
+// service-account token exists, the in-cluster configuration is preferred so the operator can
+// run as a Deployment without extra wiring.
+func Clients(kubeconfigPath, contextName string) (dynamic.Interface, typedcorev1.EventsGetter, error) {
 	cfg, err := loadConfig(kubeconfigPath, contextName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfg.UserAgent = "fleetsweeper-controller"
-	return dynamic.NewForConfig(cfg)
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dynamic client: %w", err)
+	}
+	core, err := typedcorev1.NewForConfig(cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("core client: %w", err)
+	}
+	return dyn, core, nil
 }
 
 // loadConfig is a minimal copy of internal/kube/client.go's loader so the

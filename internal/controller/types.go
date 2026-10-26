@@ -7,6 +7,7 @@ package controller
 import (
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -29,7 +30,7 @@ type ClusterScanSpec struct {
 	Interval string `json:"interval,omitempty"`
 	// Scanners restricts the scan to the named scanners. Empty runs all.
 	Scanners []string `json:"scanners,omitempty"`
-	// Emit selects which artefacts to emit after each scan.
+	// Emit selects which artifacts to emit after each scan.
 	Emit EmitOptions `json:"emit"`
 	// Paused, when true, makes the controller skip reconciliation.
 	Paused bool `json:"paused,omitempty"`
@@ -51,7 +52,7 @@ type ClusterScanStatus struct {
 	Phase string `json:"phase,omitempty"`
 	// LastScanID is the most recently completed scan identifier.
 	LastScanID string `json:"lastScanID,omitempty"`
-	// LastScanTime is when the most recent scan completed.
+	// LastScanTime is when the most recent successful scan completed.
 	LastScanTime *time.Time `json:"lastScanTime,omitempty"`
 	// NextScanTime is when the controller intends to run the next scan.
 	NextScanTime *time.Time `json:"nextScanTime,omitempty"`
@@ -65,24 +66,14 @@ type ClusterScanStatus struct {
 	ObservedWarning int `json:"observedWarning,omitempty"`
 	// ObservedClusters is the number of clusters that returned data.
 	ObservedClusters int `json:"observedClusters,omitempty"`
+	// ObservedGeneration is the resource generation this status was computed from.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// ConsecutiveFailures counts scans that failed since the last success. It sets the retry delay.
+	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
 	// Message is a human-readable summary of the last reconciliation.
 	Message string `json:"message,omitempty"`
-	// Conditions are standard Kubernetes status conditions.
-	Conditions []Condition `json:"conditions,omitempty"`
-}
-
-// Condition is a standard Kubernetes status condition.
-type Condition struct {
-	// Type names the condition (for example "Ready").
-	Type string `json:"type"`
-	// Status is "True", "False", or "Unknown".
-	Status string `json:"status"`
-	// Reason is a CamelCase reason for the transition.
-	Reason string `json:"reason,omitempty"`
-	// Message is human-readable detail.
-	Message string `json:"message,omitempty"`
-	// LastTransitionTime is when the condition last changed.
-	LastTransitionTime time.Time `json:"lastTransitionTime"`
+	// Conditions are the Ready, Scanning, and Failed status conditions.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // Reconciliation phases.

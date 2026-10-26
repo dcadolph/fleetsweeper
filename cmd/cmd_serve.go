@@ -188,13 +188,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			ctrlNS, _ := cmd.Flags().GetString("controller-namespace")
 			ctrlContext, _ := cmd.Flags().GetString("controller-context")
 			ctrlPoll, _ := cmd.Flags().GetDuration("controller-poll")
-			dyn, err := controller.DynamicClient(kubeconfigPath, ctrlContext)
+			dyn, events, err := controller.Clients(kubeconfigPath, ctrlContext)
 			if err != nil {
-				log.Warn("controller: dynamic client failed", logutil.ErrorField(err))
+				log.Warn("controller: client setup failed", logutil.ErrorField(err))
 				return
 			}
 			ctrl := controller.New(controller.Config{
 				Dynamic:      dyn,
+				Events:       events,
 				Namespace:    ctrlNS,
 				Runner:       srv,
 				Log:          log,
