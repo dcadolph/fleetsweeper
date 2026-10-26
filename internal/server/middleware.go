@@ -9,9 +9,10 @@ import (
 )
 
 // contentSecurityPolicy lets the dashboard load scripts, styles, images, and data only from its
-// own origin. Inline script and style stay allowed until the dashboard moves to ES modules; the
-// globe's WebGL textures and workers need data: and blob: URLs.
-const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'unsafe-inline'; " +
+// own origin. Scripts are files only, never inline. Inline style attributes stay allowed for the
+// few computed widths and the globe's labels; the globe's WebGL textures and workers need data: and
+// blob: URLs.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; " +
 	"worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; " +
 	"frame-ancestors 'none'"
