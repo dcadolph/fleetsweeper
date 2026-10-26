@@ -235,10 +235,22 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		alerts = demoAlerts()
 	}
 
+	acked := s.ackedFingerprints(r.Context())
+	views := make([]alertView, len(alerts))
+	for i, al := range alerts {
+		views[i] = alertView{AlertRecord: al, Acked: acked[al.Fingerprint]}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"alerts": alerts,
-		"count":  len(alerts),
+		"alerts": views,
+		"count":  len(views),
 	})
+}
+
+// alertView is one alert as GET /api/alerts serves it, with its ack state.
+type alertView struct {
+	store.AlertRecord
+	// Acked reports whether an active acknowledgement covers the alert.
+	Acked bool `json:"acked"`
 }
 
 // filterAlertsByActor drops alerts whose cluster the actor lacks scope

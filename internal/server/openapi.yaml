@@ -566,6 +566,9 @@ components:
           type: object
           additionalProperties: {type: string}
         generator_url: {type: string, format: uri}
+        acked:
+          type: boolean
+          description: Whether an active acknowledgement covers the alert. Set on GET /api/alerts.
 
     Error:
       type: object
