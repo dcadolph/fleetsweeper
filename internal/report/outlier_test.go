@@ -177,6 +177,7 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 		WantResults: []OutlierResult{{
 			Cluster: "c07", Field: "f", Value: "40", FleetNorm: "11.5",
 			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
+			Kind: NormKindNumeric, Median: 11.5, MAD: 1.0, SampleSize: 8, Threshold: 3.5, Z: 19.22,
 		}},
 	}, { // Test 1: Modified z exactly at the threshold is not flagged.
 		Name:      "z equal to threshold",
@@ -189,6 +190,7 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 		WantResults: []OutlierResult{{
 			Cluster: "c07", Field: "f", Value: "40", FleetNorm: "11.5",
 			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
+			Kind: NormKindNumeric, Median: 11.5, MAD: 1.0, SampleSize: 8, Threshold: boundary - 0.01, Z: 19.22,
 		}},
 	}, { // Test 3: Median 100, MAD 10, value 151.5 gives z 3.47, not flagged.
 		Name:      "z 3.47 below 3.5",
@@ -201,6 +203,7 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 		WantResults: []OutlierResult{{
 			Cluster: "c08", Field: "f", Value: "152.0", FleetNorm: "100",
 			Deviation: 3.51, Scanner: "metrics", Severity: SeverityInfo,
+			Kind: NormKindNumeric, Median: 100, MAD: 10, SampleSize: 9, Threshold: 3.5, Z: 3.51,
 		}},
 	}, { // Test 5: Seven values are below the sample floor.
 		Name:      "n equals 7",
@@ -213,6 +216,7 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 		WantResults: []OutlierResult{{
 			Cluster: "c07", Field: "f", Value: "40", FleetNorm: "11.5",
 			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
+			Kind: NormKindNumeric, Median: 11.5, MAD: 1.0, SampleSize: 8, Threshold: 3.5, Z: 19.22,
 		}},
 	}, { // Test 7: 49 identical and 1 different has MAD 0, so nothing emits.
 		Name:      "zero MAD guard",
@@ -225,6 +229,7 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 		WantResults: []OutlierResult{{
 			Cluster: "c07", Field: "f", Value: "20", FleetNorm: "5.5",
 			Deviation: 0.6745 * 14.5 / 1.0, Scanner: "metrics", Severity: SeverityInfo,
+			Kind: NormKindNumeric, Median: 5.5, MAD: 1.0, SampleSize: 8, Threshold: 3.5, Z: 0.6745 * 14.5 / 1.0,
 		}},
 	}}
 
@@ -339,23 +344,29 @@ func TestDetectSetOutliersGolden(t *testing.T) {
 		Values: join(repeat(with, 8), repeat(without, 2)),
 		WantResults: []OutlierResult{{
 			Cluster: "c08", Field: "f", Value: "missing 1: [x]",
-			FleetNorm: "1 consensus items", Scanner: "pods", Severity: SeverityInfo,
+			FleetNorm: "1 consensus items", Scanner: "pods", Severity: SeverityInfo, Kind: NormKindSet,
+			Consensus: []string{"x"}, Missing: []string{"x"}, SampleSize: 10, Threshold: 0.6,
 		}, {
 			Cluster: "c09", Field: "f", Value: "missing 1: [x]",
-			FleetNorm: "1 consensus items", Scanner: "pods", Severity: SeverityInfo,
+			FleetNorm: "1 consensus items", Scanner: "pods", Severity: SeverityInfo, Kind: NormKindSet,
+			Consensus: []string{"x"}, Missing: []string{"x"}, SampleSize: 10, Threshold: 0.6,
 		}},
 	}, { // Test 1: 6 of 10 meets the 60% consensus, so the other 4 are flagged.
 		Name:   "6 of 10 is consensus",
 		Values: join(repeat(with, 6), repeat(without, 4)),
 		WantResults: []OutlierResult{
 			{Cluster: "c06", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
-				Scanner: "pods", Severity: SeverityInfo},
+				Scanner: "pods", Severity: SeverityInfo, Kind: NormKindSet,
+				Consensus: []string{"x"}, Missing: []string{"x"}, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c07", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
-				Scanner: "pods", Severity: SeverityInfo},
+				Scanner: "pods", Severity: SeverityInfo, Kind: NormKindSet,
+				Consensus: []string{"x"}, Missing: []string{"x"}, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c08", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
-				Scanner: "pods", Severity: SeverityInfo},
+				Scanner: "pods", Severity: SeverityInfo, Kind: NormKindSet,
+				Consensus: []string{"x"}, Missing: []string{"x"}, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c09", Field: "f", Value: "missing 1: [x]", FleetNorm: "1 consensus items",
-				Scanner: "pods", Severity: SeverityInfo},
+				Scanner: "pods", Severity: SeverityInfo, Kind: NormKindSet,
+				Consensus: []string{"x"}, Missing: []string{"x"}, SampleSize: 10, Threshold: 0.6},
 		},
 	}, { // Test 2: 5 of 10 is below consensus, so nothing is flagged.
 		Name:   "5 of 10 is not consensus",

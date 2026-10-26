@@ -44,6 +44,41 @@ the resources the field counts on that cluster:
 kubectl --context edge-nyc-42 get namespaces -L pod-security.kubernetes.io/enforce
 ```
 
+## Norm provenance
+
+Every fleet-relative finding (fleet outlier, cohort outlier, set outlier)
+carries a `norm` object stating what it was measured against, so a reader can
+check the claim without rerunning the statistics. Absolute-rule findings such
+as `node-health/not-ready` carry no `norm`. That is how the two classes are
+told apart.
+
+| Field            | Meaning                                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `scope`          | `fleet`, or the name of the cohort the norm was computed over.                                 |
+| `kind`           | `numeric`, `string`, or `set`.                                                                 |
+| `median`, `mad`  | Population median and median absolute deviation of a numeric field.                            |
+| `z`              | This cluster's signed modified z-score, `0.6745 * (value - median) / mad`.                     |
+| `mode`           | Most common value of a string field, held by `mode_share` of the population.                   |
+| `consensus`      | Set members present in at least `threshold` of the population.                                 |
+| `missing`        | The consensus members this cluster lacks.                                                      |
+| `sample_size`    | Number of clusters in the population.                                                          |
+| `threshold`      | Cutoff applied: modified z-score (numeric), minimum mode share (string), presence share (set). |
+| `value`          | This cluster's value for the field.                                                            |
+| `limited_sample` | True when the population was too small for MAD.                                                |
+
+```json
+"norm": {
+  "scope": "fleet", "kind": "numeric", "median": 12, "mad": 1.5,
+  "sample_size": 26, "threshold": 3.5, "value": "30", "z": 8.09,
+  "limited_sample": false
+}
+```
+
+Outliers served by `GET /api/outliers` carry the same fields inline. The
+brief quotes the norm behind the most severe fleet-relative finding, e.g.
+"Largest deviation: edge-nyc-42 enforced_count is 30 vs a fleet median of 12
+across 26 clusters."
+
 ## Severity calibration
 
 Severity is conservative on purpose. The goal is for a critical finding to

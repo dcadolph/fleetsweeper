@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -24,6 +25,60 @@ const minStringModeMass = 0.6
 // capped, finite, JSON-safe deviation rather than an infinity.
 const maxReportedDeviation = 1e6
 
+// minSetConsensusShare is the share of the population an item must appear in
+// before a set field treats it as part of the consensus.
+const minSetConsensusShare = 0.6
+
+// madScale converts a MAD into a standard-deviation-equivalent scale, so the
+// modified z-score of a normal population matches its ordinary z-score.
+const madScale = 0.6745
+
+// Norm kinds name the detector that measured a fleet-relative field.
+const (
+	NormKindNumeric = "numeric"
+	NormKindString  = "string"
+	NormKindSet     = "set"
+)
+
+// NormScopeFleet is the scope of a norm computed over the whole fleet. A
+// cohort norm carries the cohort name instead.
+const NormScopeFleet = "fleet"
+
+// NormBasis states the norm a fleet-relative finding was measured against, so
+// a reader can check the claim without rerunning the statistics. Which fields
+// apply depends on Kind. Absolute-rule findings carry no NormBasis.
+type NormBasis struct {
+	// Scope is "fleet" or the name of the cohort the norm was computed over.
+	Scope string `json:"scope"`
+	// Kind is "numeric", "string", or "set".
+	Kind string `json:"kind"`
+	// Median is the population median of a numeric field.
+	Median float64 `json:"median"`
+	// MAD is the median absolute deviation of a numeric field from Median.
+	MAD float64 `json:"mad"`
+	// Mode is the most common value of a string field.
+	Mode string `json:"mode,omitempty"`
+	// ModeShare is the fraction of the population holding Mode.
+	ModeShare float64 `json:"mode_share,omitempty"`
+	// Consensus lists the members of a set field present in at least
+	// Threshold of the population, sorted.
+	Consensus []string `json:"consensus,omitempty"`
+	// Missing lists the consensus members this cluster lacks, sorted.
+	Missing []string `json:"missing,omitempty"`
+	// SampleSize is the number of clusters in the population.
+	SampleSize int `json:"sample_size"`
+	// Threshold is the cutoff the detector applied: the modified z-score for
+	// numeric, the minimum mode share for string, and the minimum presence
+	// share for set membership.
+	Threshold float64 `json:"threshold"`
+	// Value is this cluster's value for the field.
+	Value string `json:"value"`
+	// Z is this cluster's signed modified z-score for a numeric field.
+	Z float64 `json:"z"`
+	// LimitedSample marks a norm drawn from a population too small for MAD.
+	LimitedSample bool `json:"limited_sample"`
+}
+
 // OutlierResult describes a cluster that deviates from the fleet norm.
 type OutlierResult struct {
 	// Cluster is the cluster that deviates.
@@ -40,6 +95,50 @@ type OutlierResult struct {
 	Scanner string `json:"scanner"`
 	// Severity is critical, warning, or info.
 	Severity string `json:"severity"`
+	// Scope is "fleet" or the name of the cohort the norm was computed over.
+	Scope string `json:"scope"`
+	// Kind is "numeric", "string", or "set".
+	Kind string `json:"kind"`
+	// Median is the population median of a numeric field.
+	Median float64 `json:"median"`
+	// MAD is the median absolute deviation of a numeric field from Median.
+	MAD float64 `json:"mad"`
+	// Mode is the most common value of a string field.
+	Mode string `json:"mode,omitempty"`
+	// ModeShare is the fraction of the population holding Mode.
+	ModeShare float64 `json:"mode_share,omitempty"`
+	// Consensus lists the consensus members of a set field, sorted.
+	Consensus []string `json:"consensus,omitempty"`
+	// Missing lists the consensus members this cluster lacks, sorted.
+	Missing []string `json:"missing,omitempty"`
+	// SampleSize is the number of clusters in the population.
+	SampleSize int `json:"sample_size"`
+	// Threshold is the cutoff the detector applied (see NormBasis.Threshold).
+	Threshold float64 `json:"threshold"`
+	// Z is the signed modified z-score for a numeric field.
+	Z float64 `json:"z"`
+	// LimitedSample marks a norm drawn from a population too small for MAD.
+	LimitedSample bool `json:"limited_sample"`
+}
+
+// Basis returns the norm this outlier was measured against. A finding built
+// from an outlier takes its NormBasis from here, so the two never disagree.
+func (o OutlierResult) Basis() *NormBasis {
+	return &NormBasis{
+		Scope:         o.Scope,
+		Kind:          o.Kind,
+		Median:        o.Median,
+		MAD:           o.MAD,
+		Mode:          o.Mode,
+		ModeShare:     o.ModeShare,
+		Consensus:     slices.Clone(o.Consensus),
+		Missing:       slices.Clone(o.Missing),
+		SampleSize:    o.SampleSize,
+		Threshold:     o.Threshold,
+		Value:         o.Value,
+		Z:             o.Z,
+		LimitedSample: o.LimitedSample,
+	}
 }
 
 // DetectOutliers analyzes a report and returns clusters that deviate from fleet
@@ -47,6 +146,12 @@ type OutlierResult struct {
 // flag more outliers. The function only emits findings when the sample is
 // large enough to be statistically meaningful (see minMADSample).
 func DetectOutliers(r *Report, threshold float64) []OutlierResult {
+	return detectOutliers(r, threshold, NormScopeFleet)
+}
+
+// detectOutliers runs DetectOutliers over r and stamps every result with the
+// scope its norm was computed over.
+func detectOutliers(r *Report, threshold float64, scope string) []OutlierResult {
 	var outliers []OutlierResult
 
 	for scannerName, sec := range r.Sections {
@@ -70,6 +175,10 @@ func DetectOutliers(r *Report, threshold float64) []OutlierResult {
 				outliers = append(outliers, detectStringOutliers(r.Clusters, flat, field, scannerName)...)
 			}
 		}
+	}
+
+	for i := range outliers {
+		outliers[i].Scope = scope
 	}
 
 	sevOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
@@ -121,7 +230,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 
 	var outliers []OutlierResult
 	for c, v := range clusterVals {
-		zScore := 0.6745 * (v - median) / mad
+		zScore := madScale * (v - median) / mad
 		absZ := math.Abs(zScore)
 		if absZ > threshold {
 			// A near-zero MAD can drive the score to infinity for a far value.
@@ -129,15 +238,22 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 			// to keep the finding finite and JSON-safe.
 			if math.IsInf(absZ, 0) {
 				absZ = maxReportedDeviation
+				zScore = math.Copysign(maxReportedDeviation, zScore)
 			}
 			outliers = append(outliers, OutlierResult{
-				Cluster:   c,
-				Field:     field,
-				Value:     formatNum(v),
-				FleetNorm: formatNum(median),
-				Deviation: absZ,
-				Scanner:   scannerName,
-				Severity:  classifySeverity(scannerName, field),
+				Cluster:    c,
+				Field:      field,
+				Value:      formatNum(v),
+				FleetNorm:  formatNum(median),
+				Deviation:  absZ,
+				Scanner:    scannerName,
+				Severity:   classifySeverity(scannerName, field),
+				Kind:       NormKindNumeric,
+				Median:     median,
+				MAD:        mad,
+				SampleSize: len(vals),
+				Threshold:  threshold,
+				Z:          zScore,
 			})
 		}
 	}
@@ -170,7 +286,8 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 	if mode == "" {
 		return nil
 	}
-	if float64(counts[mode])/float64(len(clusterVals)) < minStringModeMass {
+	share := float64(counts[mode]) / float64(len(clusterVals))
+	if share < minStringModeMass {
 		return nil
 	}
 
@@ -178,12 +295,17 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 	for c, v := range clusterVals {
 		if v != mode {
 			outliers = append(outliers, OutlierResult{
-				Cluster:   c,
-				Field:     field,
-				Value:     v,
-				FleetNorm: mode,
-				Scanner:   scannerName,
-				Severity:  classifySeverity(scannerName, field),
+				Cluster:    c,
+				Field:      field,
+				Value:      v,
+				FleetNorm:  mode,
+				Scanner:    scannerName,
+				Severity:   classifySeverity(scannerName, field),
+				Kind:       NormKindString,
+				Mode:       mode,
+				ModeShare:  share,
+				SampleSize: len(clusterVals),
+				Threshold:  minStringModeMass,
 			})
 		}
 	}
@@ -205,8 +327,9 @@ func dominantString(counts map[string]int) string {
 }
 
 // detectSetOutliers flags clusters missing items present in the consensus set.
-// Consensus requires an item to appear in at least 60% of clusters, eliminating
-// the discontinuity the previous integer-divide threshold produced at small N.
+// Consensus requires an item to appear in at least minSetConsensusShare of
+// clusters, eliminating the discontinuity the previous integer-divide
+// threshold produced at small N.
 func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) []OutlierResult {
 	itemCounts := make(map[string]int)
 	clusterSets := make(map[string]map[string]struct{}, len(clusters))
@@ -231,31 +354,36 @@ func detectSetOutliers(clusters []string, flat map[string]map[string]any, field,
 		return nil
 	}
 
-	threshold := int(math.Ceil(float64(len(clusterSets)) * 0.6))
-	consensus := make(map[string]struct{})
+	threshold := int(math.Ceil(float64(len(clusterSets)) * minSetConsensusShare))
+	var consensus []string
 	for item, count := range itemCounts {
 		if count >= threshold {
-			consensus[item] = struct{}{}
+			consensus = append(consensus, item)
 		}
 	}
+	sort.Strings(consensus)
 
 	var outliers []OutlierResult
 	for c, set := range clusterSets {
 		var missing []string
-		for item := range consensus {
+		for _, item := range consensus {
 			if _, ok := set[item]; !ok {
 				missing = append(missing, item)
 			}
 		}
 		if len(missing) > 0 {
-			sort.Strings(missing)
 			outliers = append(outliers, OutlierResult{
-				Cluster:   c,
-				Field:     field,
-				Value:     fmt.Sprintf("missing %d: %v", len(missing), missing),
-				FleetNorm: fmt.Sprintf("%d consensus items", len(consensus)),
-				Scanner:   scannerName,
-				Severity:  classifySeverity(scannerName, field),
+				Cluster:    c,
+				Field:      field,
+				Value:      fmt.Sprintf("missing %d: %v", len(missing), missing),
+				FleetNorm:  fmt.Sprintf("%d consensus items", len(consensus)),
+				Scanner:    scannerName,
+				Severity:   classifySeverity(scannerName, field),
+				Kind:       NormKindSet,
+				Consensus:  slices.Clone(consensus),
+				Missing:    missing,
+				SampleSize: len(clusterSets),
+				Threshold:  minSetConsensusShare,
 			})
 		}
 	}

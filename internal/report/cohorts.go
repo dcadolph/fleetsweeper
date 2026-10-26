@@ -54,7 +54,7 @@ func buildCohorts(r *Report, tags map[string]string, threshold float64) []Cohort
 			Clusters: g.Clusters,
 		}
 		if len(g.Clusters) >= minMADSample {
-			summary.Outliers = detectCohortOutliers(r, g.Clusters, threshold)
+			summary.Outliers = detectCohortOutliers(r, g.Name, g.Clusters, threshold)
 		}
 		out = append(out, summary)
 	}
@@ -64,11 +64,12 @@ func buildCohorts(r *Report, tags map[string]string, threshold float64) []Cohort
 // detectCohortOutliers runs the same MAD-based numeric/string/set detection
 // the fleet view uses, but scoped to the given cluster subset. The returned
 // outliers compare each cluster against the cohort's own median or mode,
-// which is what surfaces drift that is invisible at fleet scale.
-func detectCohortOutliers(r *Report, members []string, threshold float64) []OutlierResult {
+// which is what surfaces drift that is invisible at fleet scale. Each result's
+// Scope is the cohort name.
+func detectCohortOutliers(r *Report, name string, members []string, threshold float64) []OutlierResult {
 	subReport := &Report{
 		Clusters: members,
 		Sections: r.Sections,
 	}
-	return DetectOutliers(subReport, threshold)
+	return detectOutliers(subReport, threshold, name)
 }
