@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // TestRecommendNodeCount verifies a recommendation names a node count only
@@ -48,5 +50,61 @@ func TestRecommendNodeCount(t *testing.T) {
 				t.Errorf("recommendation %q reports a missing memory reading as zero", got)
 			}
 		})
+	}
+}
+
+// TestGroupComparison verifies a cluster is compared to the median of the
+// peers the metrics scanner read: a blind peer neither drags the median down
+// nor gets compared, and one hot peer does not make the rest look deviant.
+func TestGroupComparison(t *testing.T) {
+	t.Parallel()
+	read := func(cpu, mem float64) clusterSignals { return clusterSignals{hasMetrics: true, cpuPct: cpu, memPct: mem} }
+	peers := []string{"a", "b", "c", "d", "e"}
+	tests := []struct {
+		Signals   map[string]clusterSignals
+		Cluster   string
+		WantText  string
+		WantEmpty bool
+	}{{ // Test 0: Two blind peers are left out, so the others are within range.
+		Signals: map[string]clusterSignals{"a": read(50, 55), "b": read(52, 56), "c": read(51, 54), "d": {}, "e": {}},
+		Cluster: "a", WantText: "Within normal range",
+	}, { // Test 1: A blind cluster itself is not compared.
+		Signals: map[string]clusterSignals{"a": read(50, 55), "b": read(52, 56), "c": read(51, 54), "d": {}, "e": {}},
+		Cluster: "d", WantEmpty: true,
+	}, { // Test 2: One hot peer does not move the median enough to flag a quiet cluster.
+		Signals: map[string]clusterSignals{"a": read(50, 55), "b": read(52, 56), "c": read(51, 54), "d": read(95, 92), "e": read(53, 55)},
+		Cluster: "a", WantText: "Within normal range",
+	}, { // Test 3: The hot cluster is flagged against the median of the rest.
+		Signals: map[string]clusterSignals{"a": read(50, 55), "b": read(52, 56), "c": read(51, 54), "d": read(95, 92), "e": read(53, 55)},
+		Cluster: "d", WantText: "than the group \"g\" median",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := groupComparison(test.Cluster, "g", peers, test.Signals)
+			if test.WantEmpty {
+				if got != "" {
+					t.Errorf("want no comparison, got %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, test.WantText) {
+				t.Errorf("comparison %q does not contain %q", got, test.WantText)
+			}
+		})
+	}
+}
+
+// TestCapacityHealthyRaisesNoFinding verifies a healthy cluster's capacity
+// produces no finding, so being healthy costs no score.
+func TestCapacityHealthyRaisesNoFinding(t *testing.T) {
+	t.Parallel()
+	r := &Report{Capacity: []CapacityAnalysis{{Cluster: "a", Status: "healthy"}, {Cluster: "b", Status: "busy"}}}
+	var rules []string
+	for _, f := range capacityFindings(r) {
+		rules = append(rules, f.Cluster+" "+f.Rule)
+	}
+	if diff := cmp.Diff([]string{"b metrics/capacity-busy"}, rules); diff != "" {
+		t.Errorf("findings mismatch (-want +got):\n%s", diff)
 	}
 }

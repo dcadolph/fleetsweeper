@@ -44,17 +44,31 @@ type CapacityAnalysis struct {
 
 // clusterSignals holds extracted signals for capacity analysis.
 type clusterSignals struct {
-	cpuPct       float64
-	memPct       float64
-	maxMemPct    float64
-	nodeCount    int
+	// hasMetrics is true when the metrics scanner read the cluster, so the
+	// utilization fields are measurements rather than zero for unknown.
+	hasMetrics bool
+	// cpuPct is the average CPU utilization percent.
+	cpuPct float64
+	// memPct is the average memory utilization percent.
+	memPct float64
+	// maxMemPct is the highest node memory utilization percent.
+	maxMemPct float64
+	// nodeCount is the number of nodes.
+	nodeCount int
+	// healthyNodes is the number of Ready nodes without pressure.
 	healthyNodes int
-	memPressure  int
+	// memPressure is the number of nodes reporting MemoryPressure.
+	memPressure int
+	// diskPressure is the number of nodes reporting DiskPressure.
 	diskPressure int
-	notReady     int
-	oomEvents    bool
-	schedFail    bool
-	warnEvents   int
+	// notReady is the number of NotReady nodes.
+	notReady int
+	// oomEvents is true when recent warnings include OOM kills.
+	oomEvents bool
+	// schedFail is true when recent warnings include FailedScheduling.
+	schedFail bool
+	// warnEvents is the warning event count.
+	warnEvents int
 }
 
 // AnalyzeCapacity runs smart capacity analysis across all clusters in a report.
@@ -259,15 +273,21 @@ func nodesNeeded(sig clusterSignals, targetPct float64) int {
 	return additional
 }
 
-// groupComparison compares a cluster to its group peers and describes the deviation.
+// groupComparison compares a cluster to the median of its group peers the metrics scanner read
+// and describes the deviation. A cluster without a metrics reading is not compared, and a peer
+// without one is left out, so an unknown never counts as zero utilization.
 func groupComparison(cluster, groupName string, peers []string, signals map[string]clusterSignals) string {
+	sig := signals[cluster]
+	if !sig.hasMetrics {
+		return ""
+	}
 	var peerMem []float64
 	var peerCPU []float64
 	for _, p := range peers {
 		if p == cluster {
 			continue
 		}
-		if s, ok := signals[p]; ok {
+		if s, ok := signals[p]; ok && s.hasMetrics {
 			peerMem = append(peerMem, s.memPct)
 			peerCPU = append(peerCPU, s.cpuPct)
 		}
@@ -276,16 +296,15 @@ func groupComparison(cluster, groupName string, peers []string, signals map[stri
 		return ""
 	}
 
-	sig := signals[cluster]
-	avgPeerMem := avg(peerMem)
-	avgPeerCPU := avg(peerCPU)
+	peerMem50 := computeMedian(peerMem)
+	peerCPU50 := computeMedian(peerCPU)
 
-	memDiff := sig.memPct - avgPeerMem
-	cpuDiff := sig.cpuPct - avgPeerCPU
+	memDiff := sig.memPct - peerMem50
+	cpuDiff := sig.cpuPct - peerCPU50
 
 	// Only report if the deviation is significant (>10 percentage points).
 	if math.Abs(memDiff) < 10 && math.Abs(cpuDiff) < 10 {
-		return fmt.Sprintf("Within normal range for group %q (peers avg: CPU %.0f%%, memory %.0f%%).", groupName, avgPeerCPU, avgPeerMem)
+		return fmt.Sprintf("Within normal range for group %q (peer median: CPU %.0f%%, memory %.0f%%).", groupName, peerCPU50, peerMem50)
 	}
 
 	parts := ""
@@ -294,14 +313,14 @@ func groupComparison(cluster, groupName string, peers []string, signals map[stri
 		if memDiff < 0 {
 			dir = "lower"
 		}
-		parts += fmt.Sprintf("Memory is %.0f%% points %s than group %q average (%.0f%% vs %.0f%%). ", math.Abs(memDiff), dir, groupName, sig.memPct, avgPeerMem)
+		parts += fmt.Sprintf("Memory is %.0f%% points %s than the group %q median (%.0f%% vs %.0f%%). ", math.Abs(memDiff), dir, groupName, sig.memPct, peerMem50)
 	}
 	if math.Abs(cpuDiff) >= 10 {
 		dir := "higher"
 		if cpuDiff < 0 {
 			dir = "lower"
 		}
-		parts += fmt.Sprintf("CPU is %.0f%% points %s than group %q average (%.0f%% vs %.0f%%).", math.Abs(cpuDiff), dir, groupName, sig.cpuPct, avgPeerCPU)
+		parts += fmt.Sprintf("CPU is %.0f%% points %s than the group %q median (%.0f%% vs %.0f%%).", math.Abs(cpuDiff), dir, groupName, sig.cpuPct, peerCPU50)
 	}
 	return parts
 }
@@ -311,6 +330,9 @@ func extractAllSignals(r *Report) map[string]clusterSignals {
 	out := make(map[string]clusterSignals, len(r.Clusters))
 	for _, cluster := range r.Clusters {
 		var sig clusterSignals
+		if sec := r.Sections["metrics"]; sec != nil {
+			_, sig.hasMetrics = sec.PerCluster[cluster]
+		}
 		sig.cpuPct = getFloatField(r, "metrics", cluster, "avg_cpu_percent")
 		sig.memPct = getFloatField(r, "metrics", cluster, "avg_memory_percent")
 		sig.maxMemPct = getFloatField(r, "metrics", cluster, "max_memory_percent")
@@ -357,16 +379,4 @@ func hasEventReason(r *Report, cluster, reason string) bool {
 		}
 	}
 	return false
-}
-
-// avg computes the average of a float64 slice.
-func avg(vals []float64) float64 {
-	if len(vals) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range vals {
-		sum += v
-	}
-	return sum / float64(len(vals))
 }

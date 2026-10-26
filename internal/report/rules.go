@@ -30,7 +30,6 @@ var ruleTitles = map[string]string{
 	"metrics/capacity-critical":          "Cluster capacity is critical",
 	"metrics/capacity-degraded":          "Cluster capacity is degraded",
 	"metrics/capacity-busy":              "Cluster is busy but healthy",
-	"metrics/capacity-healthy":           "Cluster capacity is healthy",
 	"metrics/group-deviation":            "Utilization deviates from group peers",
 	"security/psa-unenforced":            "Namespaces without Pod Security enforcement",
 	"network-policies/no-policy":         "Namespaces with no network policies",

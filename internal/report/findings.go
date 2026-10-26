@@ -506,15 +506,6 @@ func capacityFindings(r *Report) []Finding {
 				Cluster:     ca.Cluster,
 				Scanner:     "metrics",
 			})
-		default:
-			findings = append(findings, Finding{
-				Rule:        "metrics/capacity-healthy",
-				Title:       fmt.Sprintf("%s is healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
-				Description: ca.Recommendation,
-				Severity:    SeverityInfo,
-				Cluster:     ca.Cluster,
-				Scanner:     "metrics",
-			})
 		}
 
 		if ca.GroupDeviation != "" && !strings.HasPrefix(ca.GroupDeviation, "Within normal range") {
