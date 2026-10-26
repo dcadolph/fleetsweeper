@@ -2,17 +2,22 @@ package networkpolicy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // ns builds a Namespace object.
@@ -117,6 +122,67 @@ func TestNewScanner(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantFirstEgress, first.EgressRuleCount); diff != "" {
 				t.Errorf("first policy egress count mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestScanListErrors verifies a failed list is classified instead of read as an empty cluster.
+func TestScanListErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Err       error
+		Want      error
+		WantState scanner.State
+	}{{ // Test 0: Forbidden lists error the scan.
+		Err:  apierrors.NewForbidden(schema.GroupResource{Resource: "x"}, "", errors.New("rbac denied")),
+		Want: scanner.ErrScan, WantState: scanner.StateErrored,
+	}, { // Test 1: A resource type the server does not serve is unavailable.
+		Err:       apierrors.NewNotFound(schema.GroupResource{Resource: "x"}, ""),
+		WantState: scanner.StateUnavailable,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cs := fakeclientset.NewSimpleClientset()
+			cs.PrependReactor("list", "*", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, test.Err
+			})
+			result, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs))
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state = %q, want %q", result.State, test.WantState)
+			}
+		})
+	}
+}
+
+// TestScanRequiredReadFails verifies that one failed required list errors the scan with no data,
+// even when the other lists succeed, so the derived counts never read as a clean cluster.
+func TestScanRequiredReadFails(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Resource string
+	}{{ // Test 0: Policies denied, so every namespace would read as uncovered.
+		Resource: "networkpolicies",
+	}, { // Test 1: Namespaces denied, so the uncovered count is unknown.
+		Resource: "namespaces",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cs := fakeclientset.NewSimpleClientset()
+			cs.PrependReactor("list", test.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: test.Resource}, "", errors.New("rbac denied"))
+			})
+			result, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs))
+			if !errors.Is(err, scanner.ErrScan) {
+				t.Fatalf("err = %v, want %v", err, scanner.ErrScan)
+			}
+			if result.State != scanner.StateErrored || result.Data != nil {
+				t.Errorf("result = %q with data %v, want errored with no data", result.State, result.Data)
 			}
 		})
 	}

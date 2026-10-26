@@ -2,8 +2,10 @@ package networkpolicy
 
 import (
 	"context"
-	"fmt"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -41,19 +43,23 @@ type Data struct {
 // NewScanner returns a scanner that collects NetworkPolicy data from a cluster.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		npList, err := client.Clientset().NetworkingV1().NetworkPolicies("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		cs := client.Clientset()
+		npList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), cs.NetworkingV1().NetworkPolicies("").List,
+			func(l *networkingv1.NetworkPolicyList) []networkingv1.NetworkPolicy { return l.Items })
+		if !cov.Require("network policies", err) {
+			npList = nil
 		}
 
-		nsList, err := client.Clientset().CoreV1().Namespaces().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: namespaces: %w", scanner.ErrScan, Name, err)
+		nsList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), cs.CoreV1().Namespaces().List,
+			func(l *corev1.NamespaceList) []corev1.Namespace { return l.Items })
+		if !cov.Require("namespaces", err) {
+			nsList = nil
 		}
 
 		namespacesWithPolicy := make(map[string]struct{})
-		policies := make([]PolicyInfo, 0, len(npList.Items))
-		for _, np := range npList.Items {
+		policies := make([]PolicyInfo, 0, len(npList))
+		for _, np := range npList {
 			namespacesWithPolicy[np.Namespace] = struct{}{}
 			policyTypes := make([]string, 0, len(np.Spec.PolicyTypes))
 			for _, pt := range np.Spec.PolicyTypes {
@@ -74,14 +80,11 @@ func NewScanner() scanner.Scanner {
 			return policies[i].Name < policies[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data: Data{
-				Count:                     len(policies),
-				NamespacesWithPolicies:    len(namespacesWithPolicy),
-				NamespacesWithoutPolicies: len(nsList.Items) - len(namespacesWithPolicy),
-				Policies:                  policies,
-			},
-		}, nil
+		return cov.Finish(Name, Data{
+			Count:                     len(policies),
+			NamespacesWithPolicies:    len(namespacesWithPolicy),
+			NamespacesWithoutPolicies: len(nsList) - len(namespacesWithPolicy),
+			Policies:                  policies,
+		})
 	})
 }

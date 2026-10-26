@@ -62,8 +62,9 @@ func TestCoverageFinish(t *testing.T) {
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "", errors.New("denied"))
 	notServed := apierrors.NewNotFound(schema.GroupResource{Resource: "certificates"}, "")
 	type read struct {
-		What string
-		Err  error
+		What     string
+		Err      error
+		Required bool
 	}
 	tests := []struct {
 		Reads      []read
@@ -74,29 +75,41 @@ func TestCoverageFinish(t *testing.T) {
 	}{{ // Test 0: No reads is OK.
 		WantState: StateOK, WantData: true,
 	}, { // Test 1: Every read succeeded.
-		Reads: []read{{"a", nil}, {"b", nil}}, WantState: StateOK, WantData: true,
+		Reads: []read{{"a", nil, false}, {"b", nil, false}}, WantState: StateOK, WantData: true,
 	}, { // Test 2: An unserved type beside a good read is not degradation.
-		Reads: []read{{"a", nil}, {"certificates", notServed}}, WantState: StateOK, WantData: true,
+		Reads: []read{{"a", nil, false}, {"certificates", notServed, false}}, WantState: StateOK, WantData: true,
 	}, { // Test 3: Every read unserved is unavailable, with data.
-		Reads: []read{{"certificates", notServed}}, WantState: StateUnavailable, WantData: true,
+		Reads: []read{{"certificates", notServed, false}}, WantState: StateUnavailable, WantData: true,
 		WantReason: "certificates: not served: " + notServed.Error(),
 	}, { // Test 4: One denied read beside a good read is degraded, with data.
-		Reads: []read{{"a", nil}, {"secrets", forbidden}}, WantState: StateDegraded, WantData: true,
+		Reads: []read{{"a", nil, false}, {"secrets", forbidden, false}}, WantState: StateDegraded, WantData: true,
 		WantReason: "secrets: forbidden: " + forbidden.Error(),
 	}, { // Test 5: Every read denied is errored, with no data and an error.
-		Reads: []read{{"secrets", forbidden}, {"b", forbidden}}, WantState: StateErrored, WantErr: true,
+		Reads: []read{{"secrets", forbidden, false}, {"b", forbidden, false}}, WantState: StateErrored, WantErr: true,
 		WantReason: "secrets: forbidden: " + forbidden.Error() + "; b: forbidden: " + forbidden.Error(),
 	}, { // Test 6: Denied plus unserved with nothing read is errored.
-		Reads: []read{{"secrets", forbidden}, {"certificates", notServed}}, WantState: StateErrored, WantErr: true,
+		Reads: []read{{"secrets", forbidden, false}, {"certificates", notServed, false}}, WantState: StateErrored, WantErr: true,
 		WantReason: "secrets: forbidden: " + forbidden.Error() + "; certificates: not served: " + notServed.Error(),
+	}, { // Test 7: A denied required read beside a good read is errored, not degraded.
+		Reads: []read{{"a", nil, false}, {"roles", forbidden, true}}, WantState: StateErrored, WantErr: true,
+		WantReason: "roles: forbidden: " + forbidden.Error(),
+	}, { // Test 8: An unserved required read beside a good read is not degradation.
+		Reads: []read{{"a", nil, false}, {"certificates", notServed, true}}, WantState: StateOK, WantData: true,
+	}, { // Test 9: A required read that succeeded leaves an optional denial degraded.
+		Reads: []read{{"roles", nil, true}, {"secrets", forbidden, false}}, WantState: StateDegraded, WantData: true,
+		WantReason: "secrets: forbidden: " + forbidden.Error(),
 	}}
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			var cov Coverage
 			for _, r := range test.Reads {
-				if got := cov.Observe(r.What, r.Err); got != (r.Err == nil) {
-					t.Errorf("Observe(%s) = %v, want %v", r.What, got, r.Err == nil)
+				observe := cov.Observe
+				if r.Required {
+					observe = cov.Require
+				}
+				if got := observe(r.What, r.Err); got != (r.Err == nil) {
+					t.Errorf("read %s = %v, want %v", r.What, got, r.Err == nil)
 				}
 			}
 			res, err := cov.Finish("x", "payload")

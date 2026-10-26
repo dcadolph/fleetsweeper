@@ -2,9 +2,12 @@ package policyreportingest
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -126,26 +129,10 @@ func TestFinalizeSourceTallies_OrderedByFail(t *testing.T) {
 	}
 }
 
-// TestCRDAvailable_NoMatchTreatedMissing verifies the helper recognizes
-// the dynamic-client's "no matches" error pattern.
-func TestCRDAvailable_NoMatchTreatedMissing(t *testing.T) {
-	t.Parallel()
-	if crdAvailable(stringErr("could not find the requested resource")) {
-		t.Error("should be treated as missing")
-	}
-	if !crdAvailable(stringErr("RBAC denied")) {
-		t.Error("RBAC errors should NOT be treated as missing")
-	}
-	if !crdAvailable(nil) {
-		t.Error("nil should be available")
-	}
+// absentErr builds the NotFound error the apiserver returns for a list of a CRD that is not installed.
+func absentErr(resource string) error {
+	return apierrors.NewNotFound(schema.GroupResource{Group: "wgpolicyk8s.io", Resource: resource}, "")
 }
-
-// stringErr is a tiny error helper for the CRDAvailable test.
-type stringErr string
-
-// Error implements the error interface.
-func (s stringErr) Error() string { return string(s) }
 
 // policyDynamic returns a dynamic fake serving the PolicyReport and
 // ClusterPolicyReport list kinds. Any resource named in listErrs fails its list
@@ -170,7 +157,7 @@ func policyDynamic(listErrs map[string]error) *dynamicfake.FakeDynamicClient {
 func TestScanBothCRDsAbsentUnavailable(t *testing.T) {
 	t.Parallel()
 
-	absent := stringErr("could not find the requested resource")
+	absent := absentErr(policyReportGVR.Resource)
 	dyn := policyDynamic(map[string]error{
 		policyReportGVR.Resource:        absent,
 		clusterPolicyReportGVR.Resource: absent,
@@ -184,8 +171,8 @@ func TestScanBothCRDsAbsentUnavailable(t *testing.T) {
 	if result.State != scanner.StateUnavailable {
 		t.Errorf("state: want %q, got %q", scanner.StateUnavailable, result.State)
 	}
-	if result.Reason != "wgpolicyk8s.io PolicyReport CRDs not installed" {
-		t.Errorf("reason: got %q", result.Reason)
+	if !strings.Contains(result.Reason, "not served") {
+		t.Errorf("reason should say the types are not served, got %q", result.Reason)
 	}
 	data, ok := result.Data.(Data)
 	if !ok {
@@ -202,7 +189,7 @@ func TestScanOneAbsentOneReadableOK(t *testing.T) {
 	t.Parallel()
 
 	dyn := policyDynamic(map[string]error{
-		clusterPolicyReportGVR.Resource: stringErr("could not find the requested resource"),
+		clusterPolicyReportGVR.Resource: absentErr(clusterPolicyReportGVR.Resource),
 	})
 	client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
 
@@ -226,7 +213,8 @@ func TestScanReadableAndErroredDegrades(t *testing.T) {
 	t.Parallel()
 
 	dyn := policyDynamic(map[string]error{
-		clusterPolicyReportGVR.Resource: stringErr("forbidden: access denied"),
+		clusterPolicyReportGVR.Resource: apierrors.NewForbidden(
+			schema.GroupResource{Resource: clusterPolicyReportGVR.Resource}, "", errors.New("access denied")),
 	})
 	client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
 
@@ -243,5 +231,38 @@ func TestScanReadableAndErroredDegrades(t *testing.T) {
 	data := result.Data.(Data)
 	if !data.Available {
 		t.Error("Available should be true when one report type is readable")
+	}
+}
+
+// TestScanListErrors verifies a failed list is classified instead of read as an empty cluster.
+func TestScanListErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Err       error
+		Want      error
+		WantState scanner.State
+	}{{ // Test 0: Forbidden lists error the scan.
+		Err:  apierrors.NewForbidden(schema.GroupResource{Resource: "x"}, "", errors.New("rbac denied")),
+		Want: scanner.ErrScan, WantState: scanner.StateErrored,
+	}, { // Test 1: A resource type the server does not serve is unavailable.
+		Err:       apierrors.NewNotFound(schema.GroupResource{Resource: "x"}, ""),
+		WantState: scanner.StateUnavailable,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{policyReportGVR: "PolicyReportList", clusterPolicyReportGVR: "ClusterPolicyReportList"})
+			dyn.PrependReactor("list", "*", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, test.Err
+			})
+			client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
+			result, err := NewScanner().Scan(context.Background(), client)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state = %q, want %q", result.State, test.WantState)
+			}
+		})
 	}
 }

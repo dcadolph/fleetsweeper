@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
@@ -51,13 +52,15 @@ func NewScanner() scanner.Scanner {
 			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: dynamic client unavailable", scanner.ErrScan, Name)
 		}
 
-		list, err := dyn.Resource(crdGVR).List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		list, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), dyn.Resource(crdGVR).List,
+			func(l *unstructured.UnstructuredList) []unstructured.Unstructured { return l.Items })
+		if !cov.Observe("custom resource definitions", err) {
+			list = nil
 		}
 
-		crds := make([]CRDInfo, 0, len(list.Items))
-		for _, item := range list.Items {
+		crds := make([]CRDInfo, 0, len(list))
+		for _, item := range list {
 			info := extractCRDInfo(item.Object)
 			crds = append(crds, info)
 		}
@@ -65,13 +68,10 @@ func NewScanner() scanner.Scanner {
 			return crds[i].Name < crds[j].Name
 		})
 
-		return scanner.Result{
-			Scanner: Name,
-			Data: Data{
-				Count: len(crds),
-				CRDs:  crds,
-			},
-		}, nil
+		return cov.Finish(Name, Data{
+			Count: len(crds),
+			CRDs:  crds,
+		})
 	})
 }
 

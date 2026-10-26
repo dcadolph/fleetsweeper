@@ -8,7 +8,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -96,63 +95,6 @@ func TestParseReportMissingSummary(t *testing.T) {
 	}
 }
 
-// TestIsNotFoundDetection covers the strings the dynamic client returns
-// when a CRD is missing.
-func TestIsNotFoundDetection(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		Name string
-		Msg  string
-		Want bool
-	}{{
-		Name: "Test 0: Apiserver phrasing.",
-		Msg:  "the server could not find the requested resource",
-		Want: true,
-	}, {
-		Name: "Test 1: Discovery phrasing.",
-		Msg:  "no matches for kind VulnerabilityReport in version aquasecurity.github.io/v1alpha1",
-		Want: true,
-	}, {
-		Name: "Test 2: Unrelated network error.",
-		Msg:  "connection refused",
-		Want: false,
-	}}
-	for i, test := range tests {
-		t.Run(test.Name, func(t *testing.T) {
-			t.Parallel()
-			err := stubError(test.Msg)
-			if got := isNotFound(err); got != test.Want {
-				t.Errorf("test %d: want %v, got %v", i, test.Want, got)
-			}
-		})
-	}
-}
-
-// stubError wraps a string into a minimal error implementation.
-type stubError string
-
-// Error satisfies the error interface.
-func (s stubError) Error() string { return string(s) }
-
-// TestScannerHandlesMissingCRD verifies the scanner returns Available=false
-// (and no error) when the Trivy CRD isn't installed. We exercise this via
-// the public package surface by constructing a scanner whose dynamic
-// client backing has no registered resource. Since we cannot easily build
-// a kube.Client in a unit test, the integration assertion lives in the
-// dynamic-fake-backed test below.
-func TestScannerHandlesMissingCRD(t *testing.T) {
-	t.Parallel()
-	// Confirmed via TestIsNotFoundDetection that the discovery error
-	// produces Available=false in the package's main path; this test
-	// stays here to assert the contract for documentation purposes.
-	if !isNotFound(stubError("no matches for kind ConfigMap")) {
-		t.Error("expected no-matches phrasing to be recognized")
-	}
-	_ = unstructured.Unstructured{}
-	_ = metav1.ListOptions{}
-	_ = context.Background()
-}
-
 // newReportsDynamic returns a dynamic fake that serves the Trivy
 // VulnerabilityReport list kind so the scanner's list call can be intercepted.
 func newReportsDynamic() *dynamicfake.FakeDynamicClient {
@@ -185,20 +127,24 @@ func TestScanErrorClassification(t *testing.T) {
 	}{{ // Test 0: A NoMatch error means the Trivy CRD is absent, not a failure.
 		Client:    denyingClient(&meta.NoResourceMatchError{PartialResource: reportsGVR}),
 		WantState: scanner.StateUnavailable,
-	}, { // Test 1: The apiserver's missing-resource phrasing is treated as absent.
-		Client:    denyingClient(stubError("the server could not find the requested resource")),
+	}, { // Test 1: The apiserver's NotFound on the resource type is treated as absent.
+		Client: denyingClient(apierrors.NewNotFound(
+			schema.GroupResource{Group: reportsGVR.Group, Resource: reportsGVR.Resource}, "")),
 		WantState: scanner.StateUnavailable,
-	}, { // Test 2: The discovery no-matches phrasing is treated as absent.
-		Client:    denyingClient(stubError("no matches for kind VulnerabilityReport in version v1alpha1")),
+	}, { // Test 2: A NoKindMatch error is treated as absent.
+		Client: denyingClient(&meta.NoKindMatchError{
+			GroupKind:        schema.GroupKind{Group: reportsGVR.Group, Kind: "VulnerabilityReport"},
+			SearchedVersions: []string{reportsGVR.Version},
+		}),
 		WantState: scanner.StateUnavailable,
 	}, { // Test 3: A forbidden read is a blind read and propagates as an error.
 		Client: denyingClient(apierrors.NewForbidden(
 			schema.GroupResource{Group: reportsGVR.Group, Resource: reportsGVR.Resource}, "",
 			errors.New("rbac denied"))),
-		Want: scanner.ErrScan,
+		Want: scanner.ErrScan, WantState: scanner.StateErrored,
 	}, { // Test 4: A generic error propagates as a wrapped ErrScan.
 		Client: denyingClient(errors.New("boom")),
-		Want:   scanner.ErrScan,
+		Want:   scanner.ErrScan, WantState: scanner.StateErrored,
 	}}
 
 	for testNum, test := range tests {
@@ -210,6 +156,39 @@ func TestScanErrorClassification(t *testing.T) {
 			}
 			if result.State != test.WantState {
 				t.Errorf("state mismatch: want %q, got %q", test.WantState, result.State)
+			}
+		})
+	}
+}
+
+// TestScanListErrors verifies a failed list is classified instead of read as an empty cluster.
+func TestScanListErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Err       error
+		Want      error
+		WantState scanner.State
+	}{{ // Test 0: Forbidden lists error the scan.
+		Err:  apierrors.NewForbidden(schema.GroupResource{Resource: "x"}, "", errors.New("rbac denied")),
+		Want: scanner.ErrScan, WantState: scanner.StateErrored,
+	}, { // Test 1: A resource type the server does not serve is unavailable.
+		Err:       apierrors.NewNotFound(schema.GroupResource{Resource: "x"}, ""),
+		WantState: scanner.StateUnavailable,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{reportsGVR: "VulnerabilityReportList"})
+			dyn.PrependReactor("list", "*", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, test.Err
+			})
+			client := kube.NewTestClientWithDynamic("test", fakeclientset.NewSimpleClientset(), dyn)
+			result, err := NewScanner().Scan(context.Background(), client)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("err = %v, want %v", err, test.Want)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state = %q, want %q", result.State, test.WantState)
 			}
 		})
 	}

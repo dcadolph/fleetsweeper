@@ -63,6 +63,8 @@ type readFailure struct {
 	reason string
 	// err is the read's error.
 	err error
+	// required marks a read the result cannot be reported without.
+	required bool
 }
 
 // Observe records the outcome of one read, named by what (for example "secrets"), and reports
@@ -77,33 +79,49 @@ func (c *Coverage) Observe(what string, err error) bool {
 	return false
 }
 
+// Require records the outcome of one read the scanner cannot report without, named by what, and
+// reports whether it succeeded. Use it for a read whose absence would make the result's other
+// fields read as clean, such as a role list that every binding count depends on.
+func (c *Coverage) Require(what string, err error) bool {
+	if c.Observe(what, err) {
+		return true
+	}
+	c.failures[len(c.failures)-1].required = true
+	return false
+}
+
 // Finish builds the scanner's result from data and the observed reads:
 //
 // Every read succeeded, or the only failures are types the server does not serve while some
 // read succeeded: StateOK, since an absent type is nothing missing. Every read failed and every
 // failure is an unserved type: StateUnavailable with data. Some read succeeded and another
 // failed for any other reason: StateDegraded with data, which is real but partial. No read
-// succeeded: StateErrored with no data, plus an error wrapping ErrScan and every read's error
-// so the failure is logged and the data never counts as a measurement.
+// succeeded, or a required read failed for any reason other than an unserved type: StateErrored
+// with no data, plus an error wrapping ErrScan and every read's error so the failure is logged
+// and the data never counts as a measurement.
 func (c *Coverage) Finish(name string, data any) (Result, error) {
 	var reasons []string
 	var errs []error
 	allUnavailable := true
+	blind := false
 	for _, f := range c.failures {
 		reasons = append(reasons, f.reason)
 		errs = append(errs, f.err)
 		if f.state != StateUnavailable {
 			allUnavailable = false
+			blind = blind || f.required
 		}
 	}
 	reason := strings.Join(reasons, "; ")
-	switch {
-	case len(c.failures) == 0 || (allUnavailable && c.ok > 0):
-		return Result{Scanner: name, Data: data}, nil
-	case allUnavailable:
-		return Result{Scanner: name, State: StateUnavailable, Reason: reason, Data: data}, nil
-	case c.ok > 0:
-		return Result{Scanner: name, State: StateDegraded, Reason: reason, Data: data}, nil
+	if !blind {
+		switch {
+		case len(c.failures) == 0 || (allUnavailable && c.ok > 0):
+			return Result{Scanner: name, Data: data}, nil
+		case allUnavailable:
+			return Result{Scanner: name, State: StateUnavailable, Reason: reason, Data: data}, nil
+		case c.ok > 0:
+			return Result{Scanner: name, State: StateDegraded, Reason: reason, Data: data}, nil
+		}
 	}
 	return Result{Scanner: name, State: StateErrored, Reason: reason},
 		&coverageError{msg: fmt.Sprintf("%s: %s: %s", ErrScan, name, reason), errs: append([]error{ErrScan}, errs...)}

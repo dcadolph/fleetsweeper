@@ -10,7 +10,6 @@ package geo
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,28 +103,30 @@ type Data struct {
 // the operator which configuration is currently active.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		nodes, err := client.Clientset().CoreV1().Nodes().List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		nodes, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
+			func(l *corev1.NodeList) []corev1.Node { return l.Items })
+		if !cov.Observe("nodes", err) {
+			return cov.Finish(Name, Data{})
 		}
 
 		regionCount := map[string]int{}
 		zoneSet := map[string]struct{}{}
-		data := Data{NodeCount: len(nodes.Items)}
+		data := Data{NodeCount: len(nodes)}
 
 		if applied := applyConfigMap(ctx, client, &data); applied {
-			collectRegionsZones(nodes.Items, regionCount, zoneSet)
+			collectRegionsZones(nodes, regionCount, zoneSet)
 			data.Regions, data.Zones = sortedKeys(regionCount), sortedKeys(zoneSet)
-			return scanner.Result{Scanner: Name, Data: data}, nil
+			return cov.Finish(Name, data)
 		}
 		if applied := applyNamespaceAnnotations(ctx, client, &data); applied {
-			collectRegionsZones(nodes.Items, regionCount, zoneSet)
+			collectRegionsZones(nodes, regionCount, zoneSet)
 			data.Regions, data.Zones = sortedKeys(regionCount), sortedKeys(zoneSet)
-			return scanner.Result{Scanner: Name, Data: data}, nil
+			return cov.Finish(Name, data)
 		}
 
-		for i := range nodes.Items {
-			labels := nodes.Items[i].Labels
+		for i := range nodes {
+			labels := nodes[i].Labels
 			if labels == nil {
 				continue
 			}
@@ -173,7 +174,7 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
 }
 

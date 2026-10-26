@@ -5,11 +5,10 @@ package events
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -83,13 +82,13 @@ type Data struct {
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		cutoff := time.Now().Add(-warningWindow)
-		eventList, err := client.Clientset().CoreV1().Events("").List(ctx, metav1.ListOptions{
-			FieldSelector:        "type=Warning",
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		opts := scanner.CacheReadOptions()
+		opts.FieldSelector = "type=Warning"
+		eventList, err := scanner.ListAll(ctx, opts, client.Clientset().CoreV1().Events("").List,
+			func(l *corev1.EventList) []corev1.Event { return l.Items })
+		if !cov.Observe("events", err) {
+			eventList = nil
 		}
 
 		data := Data{WindowSeconds: int(warningWindow.Seconds())}
@@ -97,7 +96,7 @@ func NewScanner() scanner.Scanner {
 		reasonEventCounts := make(map[string]int)
 
 		var warnings []EventInfo
-		for _, ev := range eventList.Items {
+		for _, ev := range eventList {
 			lastSeen := ev.LastTimestamp.Time
 			if lastSeen.IsZero() {
 				lastSeen = ev.CreationTimestamp.Time
@@ -156,10 +155,7 @@ func NewScanner() scanner.Scanner {
 			data.TopWarningReasons = data.TopWarningReasons[:10]
 		}
 
-		return scanner.Result{
-			Scanner: Name,
-			Data:    data,
-		}, nil
+		return cov.Finish(Name, data)
 	})
 }
 

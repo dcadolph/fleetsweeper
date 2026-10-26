@@ -7,7 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -64,19 +65,18 @@ func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		rbacClient := client.Clientset().RbacV1()
 		data := Data{}
+		var cov scanner.Coverage
 
-		crList, err := rbacClient.ClusterRoles().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: cluster roles: %w", scanner.ErrScan, Name, err)
+		crList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.ClusterRoles().List,
+			func(l *rbacv1.ClusterRoleList) []rbacv1.ClusterRole { return l.Items })
+		if !cov.Require("cluster roles", err) {
+			crList = nil
 		}
 
 		systemRoles := make(map[string]bool)
 		wildcardRoles := make(map[string]bool)
-		for i := range crList.Items {
-			cr := &crList.Items[i]
+		for i := range crList {
+			cr := &crList[i]
 			if _, ok := cr.Labels[systemRoleLabel]; ok {
 				systemRoles[cr.Name] = true
 			}
@@ -88,16 +88,14 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		crbList, err := rbacClient.ClusterRoleBindings().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: cluster role bindings: %w", scanner.ErrScan, Name, err)
+		crbList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.ClusterRoleBindings().List,
+			func(l *rbacv1.ClusterRoleBindingList) []rbacv1.ClusterRoleBinding { return l.Items })
+		if !cov.Require("cluster role bindings", err) {
+			crbList = nil
 		}
 
-		for i := range crbList.Items {
-			crb := &crbList.Items[i]
+		for i := range crbList {
+			crb := &crbList[i]
 			isSystem := isSystemBinding(crb.Name, crb.RoleRef.Name, systemRoles)
 
 			subjectNames := make([]string, 0, len(crb.Subjects))
@@ -133,18 +131,12 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		var degraded []string
-
-		rbList, rbErr := rbacClient.RoleBindings("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if rbErr != nil {
-			degraded = append(degraded, fmt.Sprintf("role bindings: %v", rbErr))
-		} else {
-			data.RoleBindingsAudited = len(rbList.Items)
-			for i := range rbList.Items {
-				rb := &rbList.Items[i]
+		rbList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), rbacClient.RoleBindings("").List,
+			func(l *rbacv1.RoleBindingList) []rbacv1.RoleBinding { return l.Items })
+		if cov.Observe("role bindings", err) {
+			data.RoleBindingsAudited = len(rbList)
+			for i := range rbList {
+				rb := &rbList[i]
 				isSystem := isSystemBinding(rb.Name, rb.RoleRef.Name, systemRoles)
 
 				subjectNames := make([]string, 0, len(rb.Subjects))
@@ -182,14 +174,10 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		podList, podErr := client.Clientset().CoreV1().Pods("").List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if podErr != nil {
-			degraded = append(degraded, fmt.Sprintf("pods: %v", podErr))
-		} else {
-			for _, pod := range podList.Items {
+		podList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Pods("").List,
+			func(l *corev1.PodList) []corev1.Pod { return l.Items })
+		if cov.Observe("pods", err) {
+			for _, pod := range podList {
 				automount := true
 				if pod.Spec.AutomountServiceAccountToken != nil && !*pod.Spec.AutomountServiceAccountToken {
 					automount = false
@@ -207,12 +195,7 @@ func NewScanner() scanner.Scanner {
 			data.RiskBindings = data.RiskBindings[:30]
 		}
 
-		result := scanner.Result{Scanner: Name, Data: data}
-		if len(degraded) > 0 {
-			result.State = scanner.StateDegraded
-			result.Reason = "partial data: " + strings.Join(degraded, "; ")
-		}
-		return result, nil
+		return cov.Finish(Name, data)
 	})
 }
 

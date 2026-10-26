@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -72,25 +71,29 @@ func NewScanner() scanner.Scanner {
 		data := Data{}
 		now := time.Now()
 
-		mwh, mutatingErr := client.Clientset().AdmissionregistrationV1().MutatingWebhookConfigurations().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if mutatingErr == nil {
-			for i := range mwh.Items {
-				cfg := &mwh.Items[i]
+		var cov scanner.Coverage
+		cs := client.Clientset()
+		mwh, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			cs.AdmissionregistrationV1().MutatingWebhookConfigurations().List,
+			func(l *admissionregv1.MutatingWebhookConfigurationList) []admissionregv1.MutatingWebhookConfiguration {
+				return l.Items
+			})
+		if cov.Observe("mutating webhook list", err) {
+			for i := range mwh {
+				cfg := &mwh[i]
 				for _, wh := range cfg.Webhooks {
 					data.Webhooks = append(data.Webhooks, buildWebhook(ctx, client, cfg.Name, "Mutating", wh.Name, wh.ClientConfig, wh.FailurePolicy, now))
 				}
 			}
 		}
-		vwh, validatingErr := client.Clientset().AdmissionregistrationV1().ValidatingWebhookConfigurations().List(ctx, metav1.ListOptions{
-			ResourceVersion:      "0",
-			ResourceVersionMatch: metav1.ResourceVersionMatchNotOlderThan,
-		})
-		if validatingErr == nil {
-			for i := range vwh.Items {
-				cfg := &vwh.Items[i]
+		vwh, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
+			cs.AdmissionregistrationV1().ValidatingWebhookConfigurations().List,
+			func(l *admissionregv1.ValidatingWebhookConfigurationList) []admissionregv1.ValidatingWebhookConfiguration {
+				return l.Items
+			})
+		if cov.Observe("validating webhook list", err) {
+			for i := range vwh {
+				cfg := &vwh[i]
 				for _, wh := range cfg.Webhooks {
 					data.Webhooks = append(data.Webhooks, buildValidatingWebhook(ctx, client, cfg.Name, wh, now))
 				}
@@ -117,27 +120,8 @@ func NewScanner() scanner.Scanner {
 			data.Webhooks = data.Webhooks[:100]
 		}
 
-		result := scanner.Result{Scanner: Name, Data: data}
-		if mutatingErr != nil || validatingErr != nil {
-			result.State = scanner.StateDegraded
-			result.Reason = degradedReason(mutatingErr, validatingErr)
-		}
-		return result, nil
+		return cov.Finish(Name, data)
 	})
-}
-
-// degradedReason names which webhook list calls failed so a degraded result
-// carries a short explanation. At least one of mutatingErr or validatingErr
-// must be non-nil.
-func degradedReason(mutatingErr, validatingErr error) string {
-	var parts []string
-	if mutatingErr != nil {
-		parts = append(parts, fmt.Sprintf("mutating webhook list failed: %v", mutatingErr))
-	}
-	if validatingErr != nil {
-		parts = append(parts, fmt.Sprintf("validating webhook list failed: %v", validatingErr))
-	}
-	return strings.Join(parts, "; ")
 }
 
 // buildWebhook resolves a mutating webhook into the audit-friendly Webhook

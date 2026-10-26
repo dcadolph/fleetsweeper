@@ -5,7 +5,6 @@ package imageaudit
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -86,16 +85,18 @@ type Data struct {
 // NewScanner returns a scanner that audits container image references.
 func NewScanner() scanner.Scanner {
 	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
-		podList, err := client.Clientset().CoreV1().Pods("").List(ctx, scanner.CacheReadOptions())
-		if err != nil {
-			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
+		var cov scanner.Coverage
+		podList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Pods("").List,
+			func(l *corev1.PodList) []corev1.Pod { return l.Items })
+		if !cov.Observe("pods", err) {
+			return cov.Finish(Name, Data{})
 		}
 
 		data := Data{}
 		images := make(map[string]struct{})
 		byImage := make(map[string]podRef)
 
-		for _, pod := range podList.Items {
+		for _, pod := range podList {
 			for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 				data.TotalContainers++
 				img := c.Image
@@ -144,7 +145,7 @@ func NewScanner() scanner.Scanner {
 			fillProbeMetrics(ctx, client, byImage, &data)
 		}
 
-		return scanner.Result{Scanner: Name, Data: data}, nil
+		return cov.Finish(Name, data)
 	})
 }
 
