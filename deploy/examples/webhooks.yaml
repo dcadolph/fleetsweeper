@@ -1,0 +1,25 @@
+# Outbound webhook subscribers for `fleetsweeper serve --webhook-config`.
+#
+# After every scan, each finding at or above a subscriber's min_severity that
+# passes its regex filters is POSTed to its url, one request per finding. A
+# finding already sent to a subscriber in the last six hours is not sent again.
+# Header values and rendered bodies expand $VARS from the server's environment,
+# so secrets stay out of this file.
+webhooks:
+  # Critical findings from production clusters, as the default JSON envelope:
+  # severity, cluster, scanner, title, description, affected, remediation.
+  - name: oncall
+    url: https://hooks.example.internal/fleetsweeper
+    min_severity: critical
+    cluster_regex: "^prod-"
+    headers:
+      Authorization: "Bearer $ONCALL_HOOK_TOKEN"
+
+  # Certificate and admission warnings to a chat room, with a custom body.
+  - name: platform-chat
+    url: https://chat.example.internal/hooks/platform
+    min_severity: warning
+    scanner_regex: "^(certs|admission)$"
+    content_type: application/json
+    body_template: |
+      {"text": "{{ .Severity }} on {{ .Cluster }}: {{ .Title }}"}
