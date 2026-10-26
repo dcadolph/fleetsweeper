@@ -161,11 +161,23 @@ func recommend(sig clusterSignals, status string) string {
 	switch status {
 	case "critical":
 		needed := nodesNeeded(sig, 70.0)
+		if sig.oomEvents && sig.memPressure > 0 && needed == 0 {
+			return fmt.Sprintf(
+				"Cluster is actively OOM-killing pods with %d node(s) under memory pressure%s. "+
+					"The load is uneven: set memory limits and rebalance the workloads on those nodes.",
+				sig.memPressure, memClause(sig))
+		}
 		if sig.oomEvents && sig.memPressure > 0 {
 			return fmt.Sprintf(
 				"Cluster is actively OOM-killing pods with %d node(s) under memory pressure. "+
 					"Add %d node(s) to bring memory below 70%% or increase per-node memory.",
 				sig.memPressure, needed)
+		}
+		if sig.memPressure > 0 && needed == 0 {
+			return fmt.Sprintf(
+				"%d of %d nodes report MemoryPressure%s. "+
+					"The load is uneven: rebalance or evict low-priority workloads on those nodes.",
+				sig.memPressure, sig.nodeCount, memClause(sig))
 		}
 		if sig.memPressure > 0 {
 			return fmt.Sprintf(
@@ -177,10 +189,19 @@ func recommend(sig clusterSignals, status string) string {
 				"%d node(s) are not Ready. Investigate node conditions before scaling. Remaining nodes are overloaded at %.0f%% memory.",
 				sig.notReady, sig.memPct)
 		}
+		if needed == 0 {
+			return "Resource exhaustion detected. Check node conditions and events before scaling."
+		}
 		return fmt.Sprintf("Resource exhaustion detected. Add %d node(s) to bring utilization below 70%%.", needed)
 
 	case "strained":
 		needed := nodesNeeded(sig, 70.0)
+		if sig.schedFail && needed == 0 {
+			return fmt.Sprintf(
+				"FailedScheduling events show pods that do not fit%s. "+
+					"Check pod requests, node selectors, taints, and affinity before adding nodes.",
+				memClause(sig))
+		}
 		if sig.schedFail {
 			return fmt.Sprintf(
 				"FailedScheduling events indicate insufficient capacity. Add %d node(s) or reduce workload resource requests.",
@@ -190,6 +211,9 @@ func recommend(sig clusterSignals, status string) string {
 			return fmt.Sprintf(
 				"Memory at %.0f%% with no pressure yet, but little headroom remains. Consider adding %d node(s) proactively.",
 				sig.memPct, needed)
+		}
+		if needed == 0 {
+			return fmt.Sprintf("Utilization is elevated (CPU %.0f%%, memory %.0f%%). Monitor closely.", sig.cpuPct, sig.memPct)
 		}
 		return fmt.Sprintf(
 			"Utilization is elevated (CPU %.0f%%, memory %.0f%%). Monitor closely. %d additional node(s) would bring usage below 70%%.",
@@ -207,6 +231,16 @@ func recommend(sig clusterSignals, status string) string {
 			"Cluster is healthy with %.0f%% CPU and %.0f%% memory headroom.",
 			100-sig.cpuPct, 100-sig.memPct)
 	}
+}
+
+// memClause returns ", while average memory is N%" for a cluster with a
+// memory reading, or nothing when metrics were unavailable and the reading
+// is zero.
+func memClause(sig clusterSignals) string {
+	if sig.memPct <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" while average memory is %.0f%%", sig.memPct)
 }
 
 // nodesNeeded calculates how many additional nodes are required to bring
