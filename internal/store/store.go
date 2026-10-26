@@ -59,8 +59,8 @@ type GroupRecord struct {
 }
 
 // LocationRecord is a user-supplied geographic override for a cluster. This
-// is how operators map clusters to physical sites (retail stores, factories,
-// edge devices) that have no cloud-region label to auto-detect.
+// is how operators map clusters to physical sites (on-premises
+// sites and edge devices) that have no cloud-region label to auto-detect.
 type LocationRecord struct {
 	// Cluster is the cluster context name.
 	Cluster string `json:"cluster"`
@@ -68,7 +68,7 @@ type LocationRecord struct {
 	Lat float64 `json:"lat"`
 	// Lng is longitude in degrees east (positive) or west (negative).
 	Lng float64 `json:"lng"`
-	// Site is a human-readable label (for example "Store #42, Manhattan").
+	// Site is a human-readable label (for example "Edge site 42, Manhattan").
 	Site string `json:"site,omitempty"`
 	// Notes is free-form text the operator can use.
 	Notes string `json:"notes,omitempty"`

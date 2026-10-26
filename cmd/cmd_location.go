@@ -14,7 +14,7 @@ import (
 var locationCmd = &cobra.Command{
 	Use:   "location",
 	Short: "Manage manual geographic location overrides for clusters",
-	Long:  "Set, list, and delete manual lat/lng overrides for clusters that do not report a cloud region (retail stores, factories, edge devices).",
+	Long:  "Set, list, and delete manual lat/lng overrides for clusters that do not report a cloud region (on-premises sites and edge devices).",
 }
 
 // locationSetCmd creates or updates a single override.
@@ -43,7 +43,7 @@ var locationDeleteCmd = &cobra.Command{
 func init() {
 	locationSetCmd.Flags().Float64("lat", 0, "Latitude in degrees north (-90 to 90).")
 	locationSetCmd.Flags().Float64("lng", 0, "Longitude in degrees east (-180 to 180).")
-	locationSetCmd.Flags().String("site", "", "Human-readable site label, for example \"Store #42, Manhattan\".")
+	locationSetCmd.Flags().String("site", "", "Human-readable site label, for example \"Edge site 42, Manhattan\".")
 	locationSetCmd.Flags().String("notes", "", "Free-form notes.")
 	_ = locationSetCmd.MarkFlagRequired("lat")
 	_ = locationSetCmd.MarkFlagRequired("lng")

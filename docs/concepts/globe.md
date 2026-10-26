@@ -18,12 +18,12 @@ Cluster locations are resolved in this order, highest priority first.
 ## CLI override
 
 ```
-fleetsweeper location set store-nyc-42 \
+fleetsweeper location set edge-nyc-42 \
   --lat 40.7589 --lng -73.9851 \
-  --site "Store #42, Times Square" \
+  --site "NYC edge 42" \
   --db fleet.db
 fleetsweeper location list --db fleet.db
-fleetsweeper location delete store-nyc-42 --db fleet.db
+fleetsweeper location delete edge-nyc-42 --db fleet.db
 ```
 
 ## In-cluster override via ConfigMap
@@ -37,8 +37,8 @@ metadata:
 data:
   lat: "40.7589"
   lng: "-73.9851"
-  site: "Store #42, Times Square"
-  notes: "Flagship retail location."
+  site: "NYC edge 42"
+  notes: "Edge site."
 ```
 
 Apply with `kubectl --context <cluster> apply -f deploy/examples/location-configmap.yaml`.
@@ -51,7 +51,7 @@ scan.
 kubectl --context <cluster> annotate namespace kube-system \
   fleetsweeper.io/lat=40.7589 \
   fleetsweeper.io/lng=-73.9851 \
-  fleetsweeper.io/site="Store #42, Times Square" \
+  fleetsweeper.io/site="NYC edge 42" \
   --overwrite
 ```
 

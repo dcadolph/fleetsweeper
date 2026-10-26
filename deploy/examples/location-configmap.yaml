@@ -1,8 +1,8 @@
 # In-cluster location override for fleetsweeper.
 #
 # Apply this ConfigMap to any cluster you want fleetsweeper to place at a
-# specific lat/lng on the globe — for example a retail store, factory floor,
-# or on-prem cluster that doesn't carry a cloud-region label on its nodes.
+# specific lat/lng on the globe — for example an on-premises site, an edge
+# device, or any cluster that doesn't carry a cloud-region label on its nodes.
 #
 # Fleetsweeper checks for this ConfigMap on every scan; whatever it finds
 # overrides auto-detection from node region labels. Both lat and lng are
@@ -22,8 +22,8 @@ metadata:
 data:
   lat: "40.7589"
   lng: "-73.9851"
-  site: "Store #42, Times Square"
-  notes: "Flagship retail location, opened 2024-09."
+  site: "NYC edge 42"
+  notes: "Edge site, opened 2024-09."
   # Optional: override the cloud-region label fleetsweeper would otherwise
   # auto-detect. Useful when you want the globe to show a more precise
   # placement than a generic region centroid (e.g. AZ-level placement).
