@@ -236,7 +236,10 @@ func outlierKey(cluster, field, scanner string) string {
 	return cluster + "\x00" + field + "\x00" + scanner
 }
 
-// GenerateClusterHealth builds per-cluster health summaries.
+// GenerateClusterHealth builds per-cluster health summaries. A cluster's
+// status and counts come from its own findings only: a fleet-scoped finding
+// such as version skew is the fleet's, scored once through its own term, and
+// does not mark every cluster degraded.
 func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 	healths := make([]ClusterHealth, 0, len(r.Clusters))
 	degradedByCluster := r.DegradedByCluster()
@@ -247,7 +250,7 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 			FindingCounts: map[string]int{SeverityCritical: 0, SeverityWarning: 0, SeverityInfo: 0},
 		}
 		for _, f := range findings {
-			if f.Cluster == cluster || f.Cluster == "fleet" {
+			if f.Cluster == cluster {
 				h.FindingCounts[f.Severity]++
 			}
 		}
