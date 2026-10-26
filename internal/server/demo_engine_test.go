@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +94,29 @@ func TestBuildDeterministic(t *testing.T) {
 		if got := render(); !bytes.Equal(want, got) {
 			t.Fatalf("run %d produced different bytes", run+1)
 		}
+	}
+}
+
+// TestDemoScoreReconciles verifies the demo report's score ledger counts the
+// same findings the report lists, after the curated findings are layered on.
+func TestDemoScoreReconciles(t *testing.T) {
+	t.Parallel()
+	r := demoReport()
+	count := map[string]int{}
+	for _, f := range r.Findings {
+		count[f.Severity]++
+	}
+	terms := map[string]string{
+		"critical-findings": report.SeverityCritical,
+		"warning-findings":  report.SeverityWarning,
+		"info-findings":     report.SeverityInfo,
+	}
+	for _, term := range r.ScoreAttribution.Terms {
+		if sev, ok := terms[term.Term]; ok && term.Count != count[sev] {
+			t.Errorf("%s counts %d, report lists %d", term.Term, term.Count, count[sev])
+		}
+	}
+	if math.Abs(100-r.ScoreAttribution.Total-float64(r.FleetScore.Score)) > 0.5 && r.ScoreAttribution.Total < 100 {
+		t.Errorf("100 - ledger total %v is not score %d", r.ScoreAttribution.Total, r.FleetScore.Score)
 	}
 }

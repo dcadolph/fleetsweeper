@@ -116,7 +116,7 @@ func demoReport() *report.Report {
 	}
 	sortBySeverity(r.Findings)
 	r.ClusterHealths = report.GenerateClusterHealth(r, r.Findings)
-	r.FleetScore = report.ComputeFleetScore(r)
+	report.Rescore(r)
 	r.Summary.CriticalCount = countSeverity(r.Findings, report.SeverityCritical)
 	r.Summary.WarningCount = countSeverity(r.Findings, report.SeverityWarning)
 

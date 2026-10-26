@@ -245,9 +245,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
 	r.Incidents = FuseIncidents(r.Findings)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
-	var attribution ScoreAttribution
-	r.FleetScore, attribution = scoreWithAttribution(r)
-	r.ScoreAttribution = &attribution
+	Rescore(r)
 	r.Brief = GenerateBrief(r)
 
 	return r

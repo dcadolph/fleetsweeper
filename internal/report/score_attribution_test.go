@@ -132,3 +132,75 @@ func TestScoreAttributionMatchesScore(t *testing.T) {
 		}
 	}
 }
+
+// TestRescore verifies Rescore brings the score and its ledger back in line
+// with findings added after Build, and that a nil report is a no-op.
+func TestRescore(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Report       func() *Report
+		WantCritical int
+	}{{ // Test 0: Nil report.
+		Report: func() *Report { return nil },
+	}, { // Test 1: Findings unchanged since Build.
+		Report: func() *Report {
+			clusters, results, tags := distributionFleet()
+			return Build(clusters, results, BuildOptions{ClusterTags: tags})
+		},
+	}, { // Test 2: Three critical findings added after Build.
+		Report: func() *Report {
+			clusters, results, tags := distributionFleet()
+			r := Build(clusters, results, BuildOptions{ClusterTags: tags})
+			for i := range 3 {
+				r.Findings = append(r.Findings, Finding{
+					Severity: SeverityCritical, Cluster: clusters[i], Scanner: "security",
+					Title: "Added after build", Fingerprint: fmt.Sprintf("added-%d", i),
+				})
+			}
+			return r
+		},
+		WantCritical: 3,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := test.Report()
+			var before int
+			if r != nil {
+				before = countTerm(r.ScoreAttribution, "critical-findings")
+			}
+			Rescore(r)
+			if r == nil {
+				return
+			}
+			crit := 0
+			for _, f := range r.Findings {
+				if f.Severity == SeverityCritical {
+					crit++
+				}
+			}
+			if diff := cmp.Diff(crit, countTerm(r.ScoreAttribution, "critical-findings")); diff != "" {
+				t.Errorf("critical term count mismatch (-findings +ledger):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantCritical, crit-before); diff != "" {
+				t.Errorf("added critical mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(r.ScoreAttribution.Drivers(), r.FleetScore.Drivers, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("drivers mismatch (-ledger +score):\n%s", diff)
+			}
+		})
+	}
+}
+
+// countTerm returns the count of the named term in a, zero when absent.
+func countTerm(a *ScoreAttribution, term string) int {
+	if a == nil {
+		return 0
+	}
+	for _, t := range a.Terms {
+		if t.Term == term {
+			return t.Count
+		}
+	}
+	return 0
+}
