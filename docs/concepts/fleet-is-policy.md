@@ -37,17 +37,61 @@ the outliers.
 
 ## How it computes the baseline
 
-For metrics like "number of CRDs", "fraction of pods using digest pins",
-or "PSA mode", fleetsweeper computes the fleet median and the median
-absolute deviation (MAD). Clusters more than `threshold * MAD` from the
-median are flagged as outliers. The default threshold is 3.5, which
-corresponds roughly to a 99.7% confidence band under a normal-ish
-distribution. The threshold is configurable per request.
+For numeric fields like "number of CRDs" or "namespaces without a network
+policy", fleetsweeper computes the median and the median absolute deviation
+(MAD) over the clusters that report the field, and flags a cluster when its
+modified z-score is over the threshold:
 
-For categorical metrics (PSA mode, ingress class, CSI driver), fleetsweeper
-computes the mode and flags clusters that disagree with the plurality.
+```
+|0.6745 * (x - median) / MAD| > 3.5
+```
 
-For trends across time it fits an ordinary least squares line through the
-recent score history and only surfaces a "regressing" or "improving"
-verdict when the t-statistic exceeds 2.0. So a noisy two-scan window does
-not produce false alarms.
+The threshold is configurable per request. For string fields (PSA mode,
+ingress class, Kubernetes version) the norm is the most common value, and a
+field is a norm only when that value holds at least 60% of the clusters. For
+list fields (CRDs, services) the norm is the set of members at least 60% of
+clusters have.
+
+These detectors need a population of 8 or more. A population of 3 to 7 runs a
+leave-one-out majority diff that flags one cluster only when every other
+cluster agrees, and its results carry `limited_sample`. One or two clusters
+get no outliers, and the report says why. [Outliers](outliers.md) has the
+details, and [Distributions](distributions.md) shows how the band is drawn.
+
+For trends across time it fits a least squares line through recent scans and
+calls a metric worsening or improving only with at least 5 scans, an R² of
+0.25 or more, a slope t-statistic of 2 or more, and a slope of at least 5%
+per scan, so a noisy window does not raise false alarms.
+
+## Cohorts: the fleet is several populations
+
+A fleet is rarely one population. Production clusters are larger than edge
+clusters, and that is a design, not drift. Tag clusters with a `cohort` tag
+and each cohort gets its own norm. A cluster in a tagged cohort answers to
+that cohort's norm:
+
+- A fleet outlier whose value sits inside its cohort's norm is held by the
+  cohort. It stays visible on the fleet strip as a hollow dot, marked "held
+  by their cohort", and raises no finding.
+- A cluster outside its cohort's norm is flagged against the cohort, whether
+  or not the fleet would flag it.
+- Deviation mass, the measure the dashboard ranks clusters by, takes a tagged
+  cluster's z from its cohort.
+
+Untagged clusters are grouped automatically, and auto cohorts do not hold
+fleet outliers: only a cohort an operator declared does.
+
+Location is identity, not configuration. The geo scanner's fields are neither
+divergences nor norms.
+
+## What if a cluster matched the norm
+
+Any finding the norm raised has a What if button in the dashboard, backed by
+`POST /api/whatif`. It rebuilds the report with that cluster's value set to
+the norm (the median, the most common value, or the consensus members, or
+with the cluster removed) and returns the score before and after, how the
+median and MAD move, the field's distribution before and after, and which
+clusters would clear or newly flag. Moving one cluster moves the norm, so a
+fix can expose a neighbor the old band hid. Nothing is written: the
+projection reads the stored scan. With no scope given, the fix aims at the
+cluster's tagged cohort when it has one, and the fleet otherwise.

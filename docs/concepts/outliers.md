@@ -84,3 +84,19 @@ outlier. The report has no outliers and carries a line in `notes` instead:
 Cohorts follow the same table. A cohort of 8 or more runs the full
 detectors, a cohort of 3 to 7 runs the majority diff, and a smaller cohort
 lists its members without outliers.
+
+## Tagged cohorts hold their members
+
+When an operator tags clusters with a `cohort`, a fleet outlier whose value
+sits inside its own cohort's norm is held by the cohort: within the band of
+a numeric field (or equal to the median when the cohort's MAD is zero), on
+the mode of a string field, or holding every consensus member of a set field.
+A held outlier stays in the report with `explained_by` set to the cohort and
+in the fleet distribution with `explained`, and raises no finding. The
+detector's own flag is not used for this test, since a small cohort flags at
+most one cluster per field. Auto-derived cohorts never hold an outlier.
+
+## Location is identity
+
+The geo scanner reports where a cluster is. Its fields differ by design, so
+they are neither divergences nor norms.

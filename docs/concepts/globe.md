@@ -1,10 +1,17 @@
 # Globe View
 
-The dashboard ships a 3D fleet globe at `#/globe`. Each cluster is
-rendered as a point colored by health status (healthy, busy, degraded,
-critical). Critical clusters pulse red and the camera focuses on them
-after load so a status TV draws the eye to trouble first. Click a point
-to drill into the cluster detail page.
+The dashboard ships a 3D fleet globe at `#/globe`, and a smaller one on the
+dashboard. Each cluster is a point:
+
+- **Color** is its status (healthy, busy, degraded, critical).
+- **Size** grows with its deviation mass, how far it sits from its norm
+  across every field. See [Distributions](distributions.md).
+- **Rings** pulse from clusters that some field flags, in the cluster's
+  status color, spaced closer the more fields flag it.
+
+The camera turns to the worst cluster after load, the side panel lists
+clusters furthest from the norm first, and clicking a point opens its
+detail.
 
 ## Location resolution
 
@@ -62,7 +69,7 @@ override, or a database override.
 ## API endpoints
 
 ```
-GET    /api/geo                       Cluster placements + health for the latest scan
+GET    /api/geo                       Placements, status, deviation mass, and flagged fields for the latest scan
 GET    /api/locations                 List all manual overrides
 PUT    /api/locations/{cluster}       Upsert a manual override (auth required)
 DELETE /api/locations/{cluster}       Delete a manual override (auth required)
