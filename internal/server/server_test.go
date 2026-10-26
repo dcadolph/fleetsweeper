@@ -9,11 +9,13 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -282,5 +284,286 @@ func TestRunScanners(t *testing.T) {
 				t.Errorf("states mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// schedulerProbe records the scheduled scans a test scheduler runs.
+type schedulerProbe struct {
+	// mu guards every field below.
+	mu sync.Mutex
+	// calls lists the first context of each scheduled scan, in order.
+	calls []string
+	// active is the number of scheduled scans running right now.
+	active int
+	// maxActive is the highest value active has reached.
+	maxActive int
+}
+
+// scan is a scheduledScan replacement that records the call and holds it briefly so overlapping
+// schedulers would be visible in maxActive.
+func (p *schedulerProbe) scan(_ context.Context, contexts []string) {
+	p.mu.Lock()
+	p.calls = append(p.calls, contexts[0])
+	p.active++
+	p.maxActive = max(p.maxActive, p.active)
+	p.mu.Unlock()
+	time.Sleep(time.Millisecond)
+	p.mu.Lock()
+	p.active--
+	p.mu.Unlock()
+}
+
+// count returns how many scheduled scans named context.
+func (p *schedulerProbe) count(context string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, c := range p.calls {
+		if c == context {
+			n++
+		}
+	}
+	return n
+}
+
+// waitFor polls cond until it holds or two seconds pass.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// startScheduler runs StartScheduler in a goroutine and returns a channel closed when it returns.
+func startScheduler(ctx context.Context, srv *Server, contexts ...string) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.StartScheduler(ctx, 5*time.Millisecond, contexts)
+	}()
+	return done
+}
+
+// TestSchedulerStopsWhenContextCanceled verifies canceling the scheduler's context, which is
+// how a lost leadership term ends, stops it and no scheduled scan starts afterward.
+func TestSchedulerStopsWhenContextCanceled(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	probe := &schedulerProbe{}
+	srv.scheduledScan = probe.scan
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := startScheduler(ctx, srv, "east")
+	waitFor(t, "two scheduled scans", func() bool { return probe.count("east") >= 2 })
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduler kept running after its context was canceled")
+	}
+	before := probe.count("east")
+	time.Sleep(50 * time.Millisecond)
+	if after := probe.count("east"); after != before {
+		t.Errorf("scheduled scans after cancel: %d started, want 0", after-before)
+	}
+}
+
+// TestSchedulerStopsOnServerClose verifies the scheduler also stops when the server shuts down,
+// even though its own context is still live.
+func TestSchedulerStopsOnServerClose(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	probe := &schedulerProbe{}
+	srv.scheduledScan = probe.scan
+
+	done := startScheduler(context.Background(), srv, "east")
+	waitFor(t, "a scheduled scan", func() bool { return probe.count("east") >= 1 })
+	srv.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduler kept running after the server closed")
+	}
+}
+
+// TestSchedulerSingleInstance verifies a second scheduler, as started by a replica that regains
+// leadership before the previous term's scheduler has noticed it lost, waits for the first to
+// stop instead of running alongside it.
+func TestSchedulerSingleInstance(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	probe := &schedulerProbe{}
+	srv.scheduledScan = probe.scan
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	firstDone := startScheduler(firstCtx, srv, "first")
+	waitFor(t, "the first term's scan", func() bool { return probe.count("first") >= 1 })
+
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	defer cancelSecond()
+	secondDone := startScheduler(secondCtx, srv, "second")
+	waitFor(t, "more first-term scans", func() bool { return probe.count("first") >= 5 })
+	if n := probe.count("second"); n != 0 {
+		t.Fatalf("second scheduler ran %d scans while the first was still running", n)
+	}
+
+	cancelFirst()
+	<-firstDone
+	waitFor(t, "the second term's scan", func() bool { return probe.count("second") >= 1 })
+	cancelSecond()
+	<-secondDone
+
+	probe.mu.Lock()
+	defer probe.mu.Unlock()
+	if probe.maxActive != 1 {
+		t.Errorf("max concurrent scheduled scans = %d, want 1", probe.maxActive)
+	}
+}
+
+// TestSchedulerCanceledWhileWaiting verifies a scheduler whose term ends while it waits for the
+// slot returns without scanning.
+func TestSchedulerCanceledWhileWaiting(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	probe := &schedulerProbe{}
+	srv.scheduledScan = probe.scan
+
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	startScheduler(firstCtx, srv, "first")
+	waitFor(t, "the first term's scan", func() bool { return probe.count("first") >= 1 })
+
+	waitingCtx, cancelWaiting := context.WithCancel(context.Background())
+	waitingDone := startScheduler(waitingCtx, srv, "waiting")
+	cancelWaiting()
+	select {
+	case <-waitingDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiting scheduler did not return after its context was canceled")
+	}
+	if n := probe.count("waiting"); n != 0 {
+		t.Errorf("canceled waiting scheduler ran %d scans, want 0", n)
+	}
+}
+
+// TestSchedulerNoopInputs verifies a zero interval or an empty context list returns at once.
+func TestSchedulerNoopInputs(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	probe := &schedulerProbe{}
+	srv.scheduledScan = probe.scan
+	srv.StartScheduler(context.Background(), 0, []string{"east"})
+	srv.StartScheduler(context.Background(), time.Second, nil)
+	if n := len(probe.calls); n != 0 {
+		t.Errorf("no-op scheduler ran %d scans, want 0", n)
+	}
+}
+
+// TestScheduledScanCanceledWhileWaitingForLock verifies a scan whose context ends while another
+// scan holds the lock fails without scanning or saving anything.
+func TestScheduledScanCanceledWhileWaitingForLock(t *testing.T) {
+	t.Parallel()
+	srv, st := newScanTestServer(t, "east")
+	core, logs := observer.New(zap.InfoLevel)
+	srv.log = zap.New(core)
+
+	srv.scanMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, _, err := srv.executeScan(ctx, scanRequest{
+			Source: scanSourceScheduled, Contexts: []string{"east"}, Scanners: map[string]scanner.Scanner{
+				"node-health": pressureScanner,
+			}, Emit: emitAll,
+		})
+		errCh <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	srv.scanMu.Unlock()
+
+	if err := <-errCh; !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	scans, err := st.ListScans(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("list scans: %v", err)
+	}
+	if len(scans) != 0 {
+		t.Errorf("want no saved scans, got %d", len(scans))
+	}
+	if n := logs.FilterMessage("scan starting").Len(); n != 0 {
+		t.Errorf("scan started %d times after its context was canceled, want 0", n)
+	}
+}
+
+// TestShutdownRacesListen verifies Shutdown and ListenAndServe can run in either order from
+// different goroutines: both servers exist from New, so the race detector sees no unsynchronized
+// field access and ListenAndServe returns nil after a graceful shutdown.
+func TestShutdownRacesListen(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		ShutdownFirst bool
+	}{{ // Test 0: Shutdown before ListenAndServe starts.
+		ShutdownFirst: true,
+	}, { // Test 1: Shutdown while ListenAndServe is starting.
+		ShutdownFirst: false,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			st, err := store.NewSQLite(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			defer st.Close()
+			srv := New(Config{
+				Addr: "127.0.0.1:0", AdminAddr: "127.0.0.1:0",
+				Store: st, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Insecure: true,
+			})
+			if test.ShutdownFirst {
+				if err := srv.Shutdown(context.Background()); err != nil {
+					t.Fatalf("shutdown: %v", err)
+				}
+			}
+			errCh := make(chan error, 2)
+			go func() { errCh <- srv.ListenAndServe() }()
+			go func() { errCh <- srv.ListenAndServeAdmin() }()
+			if !test.ShutdownFirst {
+				if err := srv.Shutdown(context.Background()); err != nil {
+					t.Fatalf("shutdown: %v", err)
+				}
+			}
+			for range 2 {
+				select {
+				case err := <-errCh:
+					if err != nil {
+						t.Errorf("listen after shutdown: want nil, got %v", err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("listener did not return after shutdown")
+				}
+			}
+		})
+	}
+}
+
+// TestAdminServerOptional verifies the admin server exists only when an admin address is set
+// and that ListenAndServeAdmin is a no-op without one.
+func TestAdminServerOptional(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	if srv.adminServer != nil {
+		t.Fatal("admin server built without an admin address")
+	}
+	if err := srv.ListenAndServeAdmin(); err != nil {
+		t.Errorf("ListenAndServeAdmin without an address: %v", err)
+	}
+	if srv.httpServer.Addr != ":8080" {
+		t.Errorf("default addr = %q, want :8080", srv.httpServer.Addr)
 	}
 }

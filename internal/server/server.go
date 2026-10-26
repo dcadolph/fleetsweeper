@@ -48,9 +48,9 @@ type Server struct {
 	// a real fleet.
 	demo bool
 
-	// httpServer is the underlying http.Server used by ListenAndServe and Shutdown.
+	// httpServer is the public http.Server. New builds it so Shutdown never races its creation.
 	httpServer *http.Server
-	// adminServer is an optional second http.Server bound to a separate admin address.
+	// adminServer is the pprof and metrics http.Server. Nil when no admin address is configured.
 	adminServer *http.Server
 
 	// ctx is the server-scoped context used by goroutines that outlive a single request.
@@ -60,6 +60,10 @@ type Server struct {
 
 	// scanMu serializes scan execution; only one scan may run at a time.
 	scanMu sync.Mutex
+	// schedulerSlot holds a token while a scheduler runs, so at most one runs per process.
+	schedulerSlot chan struct{}
+	// scheduledScan runs one scheduled scan. Tests replace it to observe the scheduler.
+	scheduledScan func(ctx context.Context, contexts []string)
 	// dispatchSem bounds concurrent Slack and webhook deliveries to dispatchWorkers.
 	dispatchSem chan struct{}
 	// scanBusy is set while a scan is in flight; used to short-circuit trigger
@@ -134,6 +138,10 @@ type Server struct {
 
 // Config holds server configuration.
 type Config struct {
+	// Addr is the listen address for the public API and UI. Empty means ":8080".
+	Addr string
+	// AdminAddr is the listen address for pprof and metrics. Empty disables the admin server.
+	AdminAddr string
 	// Store is the database backend.
 	Store store.Store
 	// Registry is the scanner registry.
@@ -239,7 +247,9 @@ func New(cfg Config) *Server {
 		trustedProxyHeader:    cfg.TrustedProxyHeader,
 		keyTouches:            map[string]time.Time{},
 		dispatchSem:           make(chan struct{}, dispatchWorkers),
+		schedulerSlot:         make(chan struct{}, 1),
 	}
+	s.scheduledScan = s.runScheduledScan
 
 	s.setupWebhooks(cfg.WebhookConfigPath)
 	s.webhookSecret = cfg.WebhookSecret
@@ -257,8 +267,47 @@ func New(cfg Config) *Server {
 	}
 
 	s.routes()
+	s.httpServer = s.newHTTPServer(cfg.Addr)
+	s.adminServer = s.newAdminServer(cfg.AdminAddr)
 	s.initOTelMetricsOrLog()
 	return s
+}
+
+// newHTTPServer builds the public http.Server on addr with full timeouts.
+func (s *Server) newHTTPServer(addr string) *http.Server {
+	if addr == "" {
+		addr = ":8080"
+	}
+	return &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+}
+
+// newAdminServer builds the pprof and metrics http.Server on addr, or returns nil when addr is
+// empty.
+func (s *Server) newAdminServer(addr string) *http.Server {
+	if addr == "" {
+		return nil
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("/metrics", s.handleMetrics)
+	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/readyz", s.handleReadyz)
+	return &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 }
 
 // Handler returns the root HTTP handler with request logging applied, exactly as
@@ -365,54 +414,32 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// ListenAndServe starts the HTTP server on the given address with full timeouts.
-func (s *Server) ListenAndServe(addr string) error {
-	s.httpServer = &http.Server{
-		Addr:              addr,
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	s.log.Info("starting server", zap.String("addr", addr))
+// ListenAndServe serves the public API and UI on Config.Addr until Shutdown. It returns nil
+// after a graceful shutdown, including one that happens before it is called.
+func (s *Server) ListenAndServe() error {
+	s.log.Info("starting server", zap.String("addr", s.httpServer.Addr))
 	if s.authToken == "" && !s.insecure {
 		s.log.Warn("auth disabled: mutating endpoints will return 403; pass --auth-token to enable, or --insecure to disable auth entirely")
 	}
 	if s.insecure {
 		s.log.Warn("INSECURE MODE: HTTP API is open and can scan your kubeconfig contexts")
 	}
-	err := s.httpServer.ListenAndServe()
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
+	return ignoreServerClosed(s.httpServer.ListenAndServe())
 }
 
-// ListenAndServeAdmin starts a separate HTTP server with pprof and a basic
-// metrics endpoint, intended for an internal address that is not exposed to
-// untrusted networks. When addr is empty this is a no-op.
-func (s *Server) ListenAndServeAdmin(addr string) error {
-	if addr == "" {
+// ListenAndServeAdmin serves pprof and metrics on Config.AdminAddr, intended for an internal
+// address that is not exposed to untrusted networks. It is a no-op when no admin address is
+// configured.
+func (s *Server) ListenAndServeAdmin() error {
+	if s.adminServer == nil {
 		return nil
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	mux.HandleFunc("/metrics", s.handleMetrics)
-	mux.HandleFunc("/healthz", s.handleHealthz)
-	mux.HandleFunc("/readyz", s.handleReadyz)
+	s.log.Info("starting admin server", zap.String("addr", s.adminServer.Addr))
+	return ignoreServerClosed(s.adminServer.ListenAndServe())
+}
 
-	s.adminServer = &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	s.log.Info("starting admin server", zap.String("addr", addr))
-	err := s.adminServer.ListenAndServe()
+// ignoreServerClosed maps http.ErrServerClosed, the result of a graceful shutdown, to nil.
+func ignoreServerClosed(err error) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -423,12 +450,7 @@ func (s *Server) ListenAndServeAdmin(addr string) error {
 // and waits for fire-and-forget background goroutines to drain.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.cancel()
-	var firstErr error
-	if s.httpServer != nil {
-		if err := s.httpServer.Shutdown(ctx); err != nil {
-			firstErr = err
-		}
-	}
+	firstErr := s.httpServer.Shutdown(ctx)
 	if s.adminServer != nil {
 		if err := s.adminServer.Shutdown(ctx); err != nil && firstErr == nil {
 			firstErr = err
@@ -445,14 +467,26 @@ func (s *Server) Close() {
 	s.bg.Wait()
 }
 
-// StartScheduler begins periodic scanning at the given interval. It runs until
-// the server context is canceled. The supplied ctx is used only for the
-// initial scan; subsequent ticks use the server context so a canceled parent
-// does not silently kill the scheduler.
-func (s *Server) StartScheduler(_ context.Context, interval time.Duration, contexts []string) {
+// StartScheduler scans contexts every interval, starting immediately, and blocks until ctx or
+// the server context is canceled. Under leader election ctx is the leadership term, so losing
+// the lease stops the scheduler. At most one scheduler runs per process: a call made while an
+// earlier one is still winding down waits for it to return, so a replica that loses and
+// regains leadership never runs two.
+func (s *Server) StartScheduler(ctx context.Context, interval time.Duration, contexts []string) {
 	if interval <= 0 || len(contexts) == 0 {
 		return
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(s.ctx, cancel)
+	defer stop()
+
+	select {
+	case s.schedulerSlot <- struct{}{}:
+	case <-ctx.Done():
+		return
+	}
+	defer func() { <-s.schedulerSlot }()
 
 	s.log.Info("scheduler started",
 		zap.Duration("interval", interval),
@@ -462,16 +496,14 @@ func (s *Server) StartScheduler(_ context.Context, interval time.Duration, conte
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	s.runScheduledScan(s.ctx, contexts)
-	for {
+	for ctx.Err() == nil {
+		s.scheduledScan(ctx, contexts)
 		select {
-		case <-s.ctx.Done():
-			s.log.Info("scheduler stopped")
-			return
+		case <-ctx.Done():
 		case <-ticker.C:
-			s.runScheduledScan(s.ctx, contexts)
 		}
 	}
+	s.log.Info("scheduler stopped")
 }
 
 // runScheduledScan executes one scheduled scan of every registered scanner.
