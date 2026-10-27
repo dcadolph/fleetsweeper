@@ -29,6 +29,8 @@ const (
 	settleTimeout = 15 * time.Second
 	// toastTimeout bounds how long the scan.complete toast may take after a trigger.
 	toastTimeout = 10 * time.Second
+	// chromeStartTimeout bounds how long Chrome may take to report its DevTools address.
+	chromeStartTimeout = 60 * time.Second
 )
 
 // settledJS reports whether #ct has replaced its loading placeholder with a view.
@@ -174,6 +176,8 @@ func newBrowser(t *testing.T) context.Context {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.WindowSize(1440, 900),
 		chromedp.Flag("enable-unsafe-swiftshader", true),
+		// A cold Chrome start on a shared runner can pass chromedp's 20 second default.
+		chromedp.WSURLReadTimeout(chromeStartTimeout),
 	)
 	if os.Getenv("CI") != "" {
 		// Ubuntu runners block the unprivileged user namespaces Chrome's sandbox needs. The
