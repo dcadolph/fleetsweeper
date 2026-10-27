@@ -62,12 +62,12 @@ func TestDemoLiveScan(t *testing.T) {
 	}
 }
 
-// TestDemoTriggerScanLive verifies a scan triggered in demo mode scans the synthetic fleet,
-// publishes scan.complete, and that the drift it lands shows as a finding on the next report and
-// clears on the scan after.
+// TestDemoTriggerScanLive verifies a scan triggered in demo mode with no token scans the
+// synthetic fleet, publishes scan.complete, and that the drift it lands shows as a finding on
+// the next report and clears on the scan after.
 func TestDemoTriggerScanLive(t *testing.T) {
 	t.Parallel()
-	srv := newDemoServer(t)
+	srv := newSealedDemoServer(t)
 	events, unsub := srv.events.subscribe(8)
 	defer unsub()
 

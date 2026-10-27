@@ -66,6 +66,11 @@ genuinely page-worthy conditions.
   values).
 - Integration tests that need a real cluster live under
   `internal/integration/` with the `//go:build integration` tag.
+- The dashboard smoke test lives in `internal/browser/` with the
+  `//go:build browser` tag. It starts the demo server in-process, loads every
+  route in headless Chrome, fails on any console error or uncaught rejection,
+  and runs the scan trigger to its completion toast. It needs Chrome installed
+  and takes about 20 seconds: `go test -tags=browser ./internal/browser/`.
 
 ### Commit messages
 
