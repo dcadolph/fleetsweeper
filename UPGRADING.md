@@ -14,6 +14,19 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.11.0
+
+No schema migration and no flag changes.
+
+- **Demo mode turns auth off.** `serve --demo` serves a sealed synthetic fleet,
+  so the scan trigger, acks, tags, and groups work without a token. An
+  `--auth-token` passed with `--demo` is logged as ignored. Outside demo mode
+  nothing changed.
+- **Cluster score follows cluster status.** A cluster's score now charges its
+  own findings and the fleet findings that mark it, at the mark's severity. A
+  fleet finding that marks no cluster costs no cluster anything. Scores of
+  clusters that were paying for unmarked fleet findings go up.
+
 ## Unreleased
 
 ### Added
