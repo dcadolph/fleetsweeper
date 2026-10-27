@@ -15,7 +15,10 @@ fleetsweeper serve --demo --addr :8080
 
 Open <http://localhost:8080>. The `--demo` fleet renders the globe, findings,
 drift, and outliers with no cluster access. It runs on its own in-memory
-store, seeded with six days of scans, and does not take `--db`.
+store, seeded with six days of scans, and does not take `--db`. Auth is off
+in demo mode, because nothing in the demo reaches a real cluster, so the scan
+trigger, acks, tags, and groups all work without a token. Serving real data
+turns auth back on: pass `--auth-token` with `--db`.
 
 Swap the synthetic fleet for your own: run a scan into a database, then serve
 that database. `--insecure` disables auth for local viewing.

@@ -5,8 +5,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"go.uber.org/zap"
+
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 // TestE2E_DemoMode_AllEndpoints exercises every API endpoint against a
@@ -127,20 +135,131 @@ func TestE2E_DemoMode_MetricsEndpoint(t *testing.T) {
 	}
 }
 
-// TestE2E_DemoMode_MutatingEndpointsRejectedWithoutAuth confirms that the
-// default Insecure mode still requires explicit opt-in for mutations; demo
-// mode is read-only.
-func TestE2E_DemoMode_MutatingEndpointsAuth(t *testing.T) {
+// newSealedDemoServer builds a demo server through New with --insecure off and a bootstrap
+// token set, the way an operator would start one, so the demo's own auth resolution is what
+// opens it and not a test override.
+func newSealedDemoServer(t *testing.T) *Server {
+	t.Helper()
+	st, err := store.NewSQLite(filepath.Join(t.TempDir(), "demo.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := SeedDemo(t.Context(), st, demoTestNow); err != nil {
+		t.Fatalf("seed demo: %v", err)
+	}
+	srv := New(Config{
+		Store:     st,
+		Registry:  scanner.NewRegistry(),
+		Log:       zap.NewNop(),
+		Workers:   2,
+		AuthToken: "ignored-in-demo",
+		Demo:      true,
+	})
+	t.Cleanup(func() {
+		srv.Close()
+		st.Close()
+	})
+	return srv
+}
+
+// mutationCase is one write a demo visitor makes without a token.
+type mutationCase struct {
+	// Name labels the case in failures.
+	Name string
+	// Method is the HTTP method.
+	Method string
+	// Path is the request path under the server root.
+	Path string
+	// Body is the JSON request body.
+	Body string
+	// WantDemo is the status the demo returns with no token.
+	WantDemo int
+}
+
+// demoMutations are the three writes every demo flow depends on: a triggered scan, an ack,
+// and a tag write.
+var demoMutations = []mutationCase{ //nolint:gochecknoglobals // Not modified, simplifies testing.
+	{Name: "trigger", Method: http.MethodPost, Path: "/api/scans",
+		Body: `{"all_contexts":true}`, WantDemo: http.StatusAccepted},
+	{Name: "ack", Method: http.MethodPost, Path: "/api/findings/abc123/ack",
+		Body: `{"cluster":"fleet","reason":"demo"}`, WantDemo: http.StatusCreated},
+	{Name: "tag", Method: http.MethodPut, Path: "/api/clusters/prod-us-east-1/tags/cohort",
+		Body: `{"value":"edge"}`, WantDemo: http.StatusOK},
+}
+
+// TestE2E_DemoMode_MutationsOpen asserts demo mode turns auth off: a trigger, an ack, and a
+// tag write succeed with no token even though --insecure is off and a token is configured.
+// It inverts the earlier assertion that demo mutations without a token are rejected.
+func TestE2E_DemoMode_MutationsOpen(t *testing.T) {
 	t.Parallel()
-	srv := newDemoServer(t)
-	// testServer set Insecure=true; mutations should succeed. Just confirm
-	// the route is reachable (POST returns 400 for missing body but the
-	// route is wired).
-	req := httptest.NewRequest(http.MethodPost, "/api/scans", strings.NewReader(""))
+	srv := newSealedDemoServer(t)
+	for _, tc := range demoMutations {
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, httptest.NewRequest(tc.Method, tc.Path, strings.NewReader(tc.Body)))
+		if w.Code != tc.WantDemo {
+			t.Errorf("%s: want %d without a token in demo, got %d body=%s", tc.Name, tc.WantDemo, w.Code,
+				w.Body.String())
+		}
+	}
+	srv.bg.Wait()
+}
+
+// TestE2E_NonDemo_MutationsNeedToken asserts the same three writes still return 401 without
+// a token outside demo mode, so opening the demo did not open the real server.
+func TestE2E_NonDemo_MutationsNeedToken(t *testing.T) {
+	t.Parallel()
+	st, err := store.NewSQLite(filepath.Join(t.TempDir(), "real.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv := New(Config{
+		Store:     st,
+		Registry:  scanner.NewRegistry(),
+		Log:       zap.NewNop(),
+		Workers:   2,
+		AuthToken: "real-token",
+	})
+	t.Cleanup(func() {
+		srv.Close()
+		st.Close()
+	})
+	for _, tc := range demoMutations {
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, httptest.NewRequest(tc.Method, tc.Path, strings.NewReader(tc.Body)))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s: want 401 without a token outside demo, got %d", tc.Name, w.Code)
+		}
+	}
+}
+
+// TestE2E_DemoMode_AuthLabels asserts the system status and the integrations list name demo
+// mode instead of labeling the demo insecure.
+func TestE2E_DemoMode_AuthLabels(t *testing.T) {
+	t.Parallel()
+	srv := newSealedDemoServer(t)
+
 	w := httptest.NewRecorder()
-	srv.mux.ServeHTTP(w, req)
-	if w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
-		t.Errorf("POST /api/scans not routed: code=%d", w.Code)
+	srv.handleAdminSystem(w, httptest.NewRequest(http.MethodGet, "/admin/system", nil))
+	var sys systemResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &sys); err != nil {
+		t.Fatalf("decode system: %v", err)
+	}
+	if diff := cmp.Diff(systemFeatures{Demo: true}, sys.Features); diff != "" {
+		t.Errorf("system features mismatch (-want +got):\n%s", diff)
+	}
+
+	w = httptest.NewRecorder()
+	srv.handleGetIntegrations(w, httptest.NewRequest(http.MethodGet, "/api/integrations", nil))
+	var integ integrationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &integ); err != nil {
+		t.Fatalf("decode integrations: %v", err)
+	}
+	i := slices.IndexFunc(integ.Items, func(it integrationStatus) bool { return it.Name == "Bearer auth" })
+	if i < 0 {
+		t.Fatal("no Bearer auth row")
+	}
+	if diff := cmp.Diff("off (demo)", integ.Items[i].Status); diff != "" {
+		t.Errorf("bearer status mismatch (-want +got):\n%s", diff)
 	}
 }
 
