@@ -79,8 +79,9 @@ Open `http://localhost:8080`. A synthetic 26-cluster fleet with six days of
 scan history renders with a 3D globe, findings, drift, outliers, capacity,
 and a guided tour. No kubeconfig required. The demo is real scan data run
 through the real engine, so every number on screen is one the engine
-computed. The pulsing red dot is the cinematic part. The outlier detection
-under it is the real part.
+computed. Auth is off in the demo, so the scan trigger, acks, and tags all
+work. Real data needs `--auth-token`. The pulsing red dot is the cinematic
+part. The outlier detection under it is the real part.
 
 ## Install for real
 

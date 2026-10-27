@@ -49,6 +49,11 @@ kubeconfig the process holds. Two ways to allow mutations:
 1. **Recommended**: set `--auth-token` to a long random string. Clients must send `Authorization: Bearer <token>` on mutating requests. Comparison is constant-time.
 2. **Explicit opt-out**: pass `--insecure` to disable authentication entirely. A loud warning is logged at startup.
 
+`--demo` turns authentication off on its own. The demo serves a synthetic fleet from an
+in-memory store, refuses `--db`, and never reaches the kubeconfig, so every flow works
+without a token. An `--auth-token` passed with `--demo` is logged as ignored. The system
+status and the integrations list report this as demo mode, auth off.
+
 CORS is refused by default. Pass `--cors-origin https://your-ui`
 (repeatable) to allow explicit origins. Wildcard origins are intentionally
 not supported.
