@@ -1,9 +1,9 @@
-# One control-plane node with no kube-proxy and no CoreDNS. The fleet tests
-# only talk to the API server, so the addons cost memory and add nothing.
+# One control-plane node with no CoreDNS. The fleet tests only talk to the
+# API server, so the DNS addon costs memory and adds nothing. kube-proxy
+# stays: kind's "none" proxy mode leaves it crash-looping, which the
+# scanners rightly report as a bad deploy on every cluster.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-networking:
-  kubeProxyMode: none
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
