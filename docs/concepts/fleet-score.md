@@ -35,6 +35,17 @@ with every rule and cluster it charged and what each cap forgave, is
 The exact weights live in `internal/report/score.go` and are documented
 inline.
 
+## Cluster score
+
+Each cluster also gets a 0-100 score on the same scale. It charges the
+cluster for its own findings at their severity, and for each fleet-scoped
+finding that marks it, at the mark's severity. A fleet finding such as
+version skew marks only the clusters off the majority, so only those pay.
+A fleet finding that marks no cluster costs no cluster anything and counts
+once in the Fleet Score. This is the same rule that sets cluster status, so
+a cluster that reads healthy never loses points to a critical or warning
+finding.
+
 ## Provenance
 
 A score never travels alone. Every surface that reports it (the report

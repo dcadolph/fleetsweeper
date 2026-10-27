@@ -37,7 +37,7 @@ func init() {
 	serveCmd.Flags().String("auth-token", "", "Bearer token required for mutating endpoints (POST, DELETE).")
 	serveCmd.Flags().Bool("insecure", false, "Disable authentication entirely. Required if --auth-token is empty and you accept the risk.")
 	serveCmd.Flags().StringSlice("cors-origin", nil, "Allowed CORS origins. Repeat for multiple. Empty means cross-origin requests are refused.")
-	serveCmd.Flags().Bool("demo", false, "Serve a synthetic 26-cluster fleet from an in-memory store seeded with six days of scans. Every page has data without any real clusters. Does not take --db.")
+	serveCmd.Flags().Bool("demo", false, "Serve a synthetic 26-cluster fleet from an in-memory store seeded with six days of scans. Every page has data without any real clusters. Does not take --db. Auth is off in demo mode.")
 	serveCmd.Flags().String("slack-webhook-url", "", "Slack incoming-webhook URL. When set, new critical findings are posted to this channel after each scan.")
 	serveCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs after every scan. One file per cluster. Empty disables.")
 	serveCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs after every scan. Empty disables.")
@@ -119,7 +119,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	webhookSecret, _ := cmd.Flags().GetString("webhook-secret")
 	sealKey, _ := cmd.Flags().GetString("seal-key")
 
-	if authToken == "" && !insecure {
+	switch {
+	case demo && authToken != "":
+		log.Info("--auth-token ignored in demo mode")
+	case !demo && authToken == "" && !insecure:
 		fmt.Fprintln(cmd.ErrOrStderr(), "warning: --auth-token not set; mutating endpoints will return 403. Pass --insecure to allow without a token.")
 	}
 

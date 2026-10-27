@@ -44,7 +44,8 @@ type Server struct {
 
 	// authToken is the bearer token required for mutating endpoints.
 	authToken string
-	// insecure disables auth entirely when true.
+	// insecure disables auth entirely when true. It is the one place auth is decided off,
+	// and it is set for demo mode too, because the demo world is sealed and synthetic.
 	insecure bool
 	// corsOrigins is the allowlist of origins permitted to make cross-origin requests.
 	corsOrigins []string
@@ -164,15 +165,15 @@ type Config struct {
 	// AuthToken is the bearer token required for mutating endpoints. When
 	// empty and Insecure is false, mutating endpoints return 403.
 	AuthToken string
-	// Insecure disables authentication entirely when true.
+	// Insecure disables authentication entirely when true. Demo implies it.
 	Insecure bool
 	// CORSOrigins is the explicit allowlist of permitted cross-origin Origins.
 	// Wildcard is intentionally not supported.
 	CORSOrigins []string
 	// Demo, when true, causes /api/geo to return synthetic fleet data so the
 	// globe can be previewed without any real clusters or scans, and a
-	// triggered scan scans the synthetic fleet instead of the kubeconfig. Other
-	// endpoints behave normally.
+	// triggered scan scans the synthetic fleet instead of the kubeconfig. Demo
+	// turns authentication off, since nothing in the demo reaches a real cluster.
 	Demo bool
 	// SlackWebhookURL, when non-empty, is the incoming-webhook URL that
 	// receives new critical findings.
@@ -246,7 +247,7 @@ func New(cfg Config) *Server {
 		kubeconfigPath:        cfg.KubeconfigPath,
 		workers:               cfg.Workers,
 		authToken:             cfg.AuthToken,
-		insecure:              cfg.Insecure,
+		insecure:              cfg.Insecure || cfg.Demo,
 		corsOrigins:           cfg.CORSOrigins,
 		demo:                  cfg.Demo,
 		ctx:                   ctx,
@@ -478,11 +479,13 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // after a graceful shutdown, including one that happens before it is called.
 func (s *Server) ListenAndServe() error {
 	s.log.Info("starting server", zap.String("addr", s.httpServer.Addr))
-	if s.authToken == "" && !s.insecure {
-		s.log.Warn("auth disabled: mutating endpoints will return 403; pass --auth-token to enable, or --insecure to disable auth entirely")
-	}
-	if s.insecure {
+	switch {
+	case s.demo:
+		s.log.Info("demo mode, auth off: the synthetic fleet is open to every visitor")
+	case s.insecure:
 		s.log.Warn("INSECURE MODE: HTTP API is open and can scan your kubeconfig contexts")
+	case s.authToken == "":
+		s.log.Warn("auth disabled: mutating endpoints will return 403; pass --auth-token to enable, or --insecure to disable auth entirely")
 	}
 	return ignoreServerClosed(s.httpServer.ListenAndServe())
 }

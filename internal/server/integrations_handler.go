@@ -12,7 +12,8 @@ import (
 type integrationStatus struct {
 	// Name is the human-readable label.
 	Name string `json:"name"`
-	// Status is one of "configured", "off", or "demo".
+	// Status is one of "configured", "off", or "demo", and an off status may
+	// carry its reason in parentheses, e.g. "off (demo)".
 	Status string `json:"status"`
 	// Hint is a short string the UI shows under the integration row.
 	Hint string `json:"hint,omitempty"`
@@ -53,8 +54,7 @@ func (s *Server) handleGetIntegrations(w http.ResponseWriter, _ *http.Request) {
 			s.costCSVPath != ""),
 			Hint: "Pass --cost-csv <path> to enable"},
 		{Name: "Demo mode", Status: configuredOr("demo", "off", s.demo)},
-		{Name: "Bearer auth", Status: configuredOr("configured", "off (insecure)",
-			s.authToken != "")},
+		s.bearerAuthStatus(),
 	}
 	writeJSON(w, http.StatusOK, integrationsResponse{Items: items})
 }
@@ -65,4 +65,24 @@ func configuredOr(on, off string, b bool) string {
 		return on
 	}
 	return off
+}
+
+// bearerAuthStatus reports why bearer auth is on or off, naming demo mode
+// separately so the demo is not labeled insecure.
+func (s *Server) bearerAuthStatus() integrationStatus {
+	st := integrationStatus{Name: "Bearer auth"}
+	switch {
+	case s.demo:
+		st.Status = "off (demo)"
+		st.Hint = "Run without --demo and pass --auth-token for real data"
+	case s.insecure:
+		st.Status = "off (insecure)"
+		st.Hint = "Drop --insecure and pass --auth-token to enable"
+	case s.authToken != "":
+		st.Status = "configured"
+	default:
+		st.Status = "off"
+		st.Hint = "Pass --auth-token to enable writes"
+	}
+	return st
 }

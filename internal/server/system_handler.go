@@ -37,9 +37,9 @@ type systemResponse struct {
 
 // systemFeatures enumerates optional features that can be toggled on/off.
 type systemFeatures struct {
-	// Insecure indicates --insecure auth bypass is in effect.
+	// Insecure indicates --insecure auth bypass is in effect outside demo mode.
 	Insecure bool `json:"insecure"`
-	// Demo indicates the synthetic fleet is being served.
+	// Demo indicates the synthetic fleet is being served with auth off.
 	Demo bool `json:"demo"`
 	// SlackEnabled is true when a Slack webhook URL is configured.
 	SlackEnabled bool `json:"slack_enabled"`
@@ -90,7 +90,7 @@ func (s *Server) handleAdminSystem(w http.ResponseWriter, r *http.Request) {
 		Uptime:    time.Since(processStartTime).Round(time.Second).String(),
 		StartedAt: processStartTime,
 		Features: systemFeatures{
-			Insecure:         s.insecure,
+			Insecure:         s.insecure && !s.demo,
 			Demo:             s.demo,
 			SlackEnabled:     s.slackWebhookURL != "",
 			FleetDriftEmit:   s.fleetDriftOutputDir != "",
