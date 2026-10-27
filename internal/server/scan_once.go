@@ -109,7 +109,7 @@ func (s *Server) scanAndSave(ctx context.Context, log *zap.Logger, scanID string
 	if len(req.Contexts) == 0 {
 		return nil, 0, errors.New("no contexts to scan")
 	}
-	if len(scanners) == 0 {
+	if len(scanners) == 0 && !s.demo {
 		return nil, 0, errors.New("no scanners selected")
 	}
 
@@ -120,17 +120,24 @@ func (s *Server) scanAndSave(ctx context.Context, log *zap.Logger, scanID string
 	}
 
 	log.Info("scan starting", zap.Int("contexts", len(req.Contexts)))
-	clients := kube.ConnectAll(ctx, s.kubeconfigPath, req.Contexts, s.workers)
-	if len(clients) == 0 {
+	now := time.Now().UTC()
+	var clusterNames []string
+	var results map[string]map[string]scanner.Result
+	if s.demo {
+		clusterNames, results = demoLiveScan(int(s.demoLiveScans.Add(1)-1), req.Contexts, now)
+	} else {
+		clients := kube.ConnectAll(ctx, s.kubeconfigPath, req.Contexts, s.workers)
+		results = RunScanners(ctx, clients, scanners, s.workers, scanner.DefaultScanTimeout, s.log)
+		clusterNames = make([]string, len(clients))
+		for i, c := range clients {
+			clusterNames[i] = c.Context
+		}
+	}
+	if len(clusterNames) == 0 {
 		return nil, 0, errNoClusters
 	}
-	results := RunScanners(ctx, clients, scanners, s.workers, scanner.DefaultScanTimeout, s.log)
-	clusterNames := make([]string, len(clients))
-	for i, c := range clients {
-		clusterNames[i] = c.Context
-	}
 
-	rec := store.ScanRecord{ID: scanID, Timestamp: time.Now().UTC(), Clusters: clusterNames}
+	rec := store.ScanRecord{ID: scanID, Timestamp: now, Clusters: clusterNames}
 	if _, err := s.store.SaveScanRecord(ctx, rec, results); err != nil {
 		return nil, 0, fmt.Errorf("save scan: %w", err)
 	}

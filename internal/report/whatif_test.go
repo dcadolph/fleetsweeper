@@ -3,6 +3,7 @@ package report
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -176,6 +177,70 @@ func TestWhatIfRefusals(t *testing.T) {
 				t.Errorf("want ErrWhatIf, got %v", err)
 			}
 		})
+	}
+}
+
+// TestWhatIfRefusalReason verifies only set fields whose objects cannot be
+// rebuilt from a member carry a refusal.
+func TestWhatIfRefusalReason(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner    string
+		Field      string
+		WantRefuse bool
+	}{{ // Test 0: Ingress classes would invent an ingress.
+		Scanner: "ingresses", Field: "ingress_classes", WantRefuse: true,
+	}, { // Test 1: CRD names rebuild a CRD object from the name.
+		Scanner: "crds", Field: "crd_names",
+	}, { // Test 2: Service names rebuild a service from namespace and name.
+		Scanner: "services", Field: "service_names",
+	}, { // Test 3: A numeric field on a projected scanner.
+		Scanner: "ingresses", Field: "count",
+	}, { // Test 4: A scanner with no projection.
+		Scanner: "security", Field: "enforced_count",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := WhatIfRefusal(test.Scanner, test.Field)
+			if diff := cmp.Diff(test.WantRefuse, got != ""); diff != "" {
+				t.Errorf("refusal mismatch for %q (-want +got):\n%s", got, diff)
+			}
+		})
+	}
+}
+
+// TestNoWhatIfOnFindings verifies a built report marks the ingress-class
+// finding as having no what-if, and that the refusal WhatIf returns names the
+// same reason the finding shows.
+func TestNoWhatIfOnFindings(t *testing.T) {
+	t.Parallel()
+	clusters := make([]string, 0, 10)
+	results := map[string]map[string]scanner.Result{}
+	for i := range 10 {
+		c := fmt.Sprintf("i%02d", i)
+		classes := []any{map[string]any{"namespace": "web", "name": "a", "ingress_class_name": "nginx"}}
+		if i == 9 {
+			classes = []any{map[string]any{"namespace": "web", "name": "a", "ingress_class_name": "traefik"}}
+		}
+		clusters = append(clusters, c)
+		results[c] = map[string]scanner.Result{"ingresses": {Scanner: "ingresses", Data: map[string]any{
+			"count": 1, "ingresses": classes,
+		}}}
+	}
+	r := Build(clusters, results)
+	var reason string
+	for _, f := range r.Findings {
+		if f.Cluster == "i09" && f.Norm != nil && f.Scanner == "ingresses" {
+			reason = f.Norm.NoWhatIf
+		}
+	}
+	if reason == "" {
+		t.Fatalf("no ingress finding on i09 carries a what-if refusal: %+v", r.Findings)
+	}
+	_, err := WhatIf(clusters, results, BuildOptions{}, Fix{Cluster: "i09", Scanner: "ingresses", Field: "ingress_classes"})
+	if !errors.Is(err, ErrWhatIf) || !strings.Contains(err.Error(), reason) {
+		t.Errorf("want ErrWhatIf naming %q, got %v", reason, err)
 	}
 }
 
