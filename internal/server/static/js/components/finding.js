@@ -59,7 +59,7 @@ function normAttrs(f) {
 
 // whatIfControl renders the What if button for a finding the norm raised.
 function whatIfControl(f) {
-  if (!f.norm || !f.affected || !f.affected.length || f.cluster === 'fleet') return '';
+  if (!f.norm || !f.affected || !f.affected.length || f.cluster === 'fleet' || f.norm.no_what_if) return '';
   return '<button class="btn btn-sm" data-action="whatif" data-tip="Project the fleet with this value fixed to the norm. Nothing is changed.">What if</button>';
 }
 
@@ -85,6 +85,7 @@ export function renderFinding(f, opts) {
     `<span class="fi-title">${esc(f.title)}</span>${whatIfControl(f)}<span class="fi-ack">${ackControl(f)}</span></div>`;
   h += metaLine(f, o.persistence);
   if (f.description) h += `<div class="fi-desc">${esc(f.description)}</div>`;
+  if (f.norm && f.norm.no_what_if) h += `<div class="fi-desc c-t3">No what-if: ${esc(f.norm.no_what_if)}</div>`;
   if (f.affected && f.affected.length) {
     h += '<div class="fi-affected"><span class="eyebrow">Affected:</span> ' +
       f.affected.slice(0, 8).map((a) => `<code>${esc(a)}</code>`).join(' ');

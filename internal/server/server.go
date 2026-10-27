@@ -49,8 +49,11 @@ type Server struct {
 	// corsOrigins is the allowlist of origins permitted to make cross-origin requests.
 	corsOrigins []string
 	// demo, when true, serves synthetic geo data so the globe works without
-	// a real fleet.
+	// a real fleet, and runs scans against the synthetic fleet.
 	demo bool
+	// demoLiveScans counts the demo scans run since startup, which picks the
+	// scripted change each one carries.
+	demoLiveScans atomic.Int64
 
 	// httpServer is the public http.Server. New builds it so Shutdown never races its creation.
 	httpServer *http.Server
@@ -167,8 +170,9 @@ type Config struct {
 	// Wildcard is intentionally not supported.
 	CORSOrigins []string
 	// Demo, when true, causes /api/geo to return synthetic fleet data so the
-	// globe can be previewed without any real clusters or scans. Other
-	// endpoints behave normally; demo mode is read-only and additive.
+	// globe can be previewed without any real clusters or scans, and a
+	// triggered scan scans the synthetic fleet instead of the kubeconfig. Other
+	// endpoints behave normally.
 	Demo bool
 	// SlackWebhookURL, when non-empty, is the incoming-webhook URL that
 	// receives new critical findings.
