@@ -81,6 +81,17 @@ jobs:
             echo "::endgroup::"
           done <<< "$targets"
 
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # The runner image ships Chrome, so the job needs no install step.
+      - run: go test -tags=browser -count=1 ./internal/browser/
+
   integration:
     runs-on: ubuntu-latest
     steps:
