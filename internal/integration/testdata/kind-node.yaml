@@ -1,0 +1,13 @@
+# One control-plane node with no kube-proxy and no CoreDNS. The fleet tests
+# only talk to the API server, so the addons cost memory and add nothing.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  kubeProxyMode: none
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        skipPhases:
+          - addon/coredns
