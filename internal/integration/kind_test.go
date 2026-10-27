@@ -3,12 +3,9 @@
 package integration
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,8 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/report"
@@ -356,69 +351,5 @@ func seedClusterBeta(t *testing.T, ctx context.Context, kubeconfigPath string) {
 	}, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("create service: %v", err)
-	}
-}
-
-// clientsetForContext creates a Kubernetes clientset for a specific kubeconfig context.
-func clientsetForContext(t *testing.T, kubeconfigPath, contextName string) kubernetes.Interface {
-	t.Helper()
-	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
-		&clientcmd.ConfigOverrides{CurrentContext: contextName},
-	).ClientConfig()
-	if err != nil {
-		t.Fatalf("build config for %s: %v", contextName, err)
-	}
-	cs, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		t.Fatalf("create clientset for %s: %v", contextName, err)
-	}
-	return cs
-}
-
-// kindContext returns the kubeconfig context name for a kind cluster.
-func kindContext(clusterName string) string {
-	return fmt.Sprintf("kind-%s", clusterName)
-}
-
-// createCluster creates a kind cluster and merges its kubeconfig into the given path.
-func createCluster(t *testing.T, name, kubeconfigPath string) {
-	t.Helper()
-	cmd := exec.Command("kind", "create", "cluster",
-		"--name", name,
-		"--kubeconfig", kubeconfigPath,
-		"--wait", "120s",
-	)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("create kind cluster %s: %v\n%s", name, err, stderr.String())
-	}
-	t.Logf("created kind cluster %s", name)
-}
-
-// deleteCluster removes a kind cluster.
-func deleteCluster(t *testing.T, name string) {
-	t.Helper()
-	cmd := exec.Command("kind", "delete", "cluster", "--name", name)
-	if err := cmd.Run(); err != nil {
-		t.Logf("warning: failed to delete kind cluster %s: %v", name, err)
-	}
-}
-
-// requireKind skips the test if kind is not installed.
-func requireKind(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("kind"); err != nil {
-		t.Skip("kind not found in PATH; install with: brew install kind")
-	}
-}
-
-// requireDocker skips the test if Docker is not running.
-func requireDocker(t *testing.T) {
-	t.Helper()
-	cmd := exec.Command("docker", "info")
-	if err := cmd.Run(); err != nil {
-		t.Skip("docker not running; start Docker Desktop to run integration tests")
 	}
 }
