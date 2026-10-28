@@ -42,11 +42,14 @@ type Coverage struct {
 type Data struct {
 	// TotalReplicated is the count of Deployments/StatefulSets with replicas>1.
 	TotalReplicated int `json:"total_replicated"`
-	// MissingPDB is the count of replicated workloads without a matching PDB.
+	// MissingPDB is the count of replicated workloads without a matching PDB. It is zero
+	// when the PDB read failed, and State is Degraded then.
 	MissingPDB int `json:"missing_pdb"`
-	// MissingHPA is the count of replicated workloads without an HPA target.
+	// MissingHPA is the count of replicated workloads without an HPA target. It is zero
+	// when the HPA read failed, and State is Degraded then.
 	MissingHPA int `json:"missing_hpa"`
-	// Gaps lists workloads with at least one missing element, sorted by name.
+	// Gaps lists workloads with at least one missing element, sorted by namespace then name
+	// and capped at 100.
 	Gaps []Coverage `json:"gaps"`
 }
 
@@ -64,14 +67,16 @@ func NewScanner() scanner.Scanner {
 
 		pdbs, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), policyClient.PodDisruptionBudgets("").List,
 			func(l *policyv1.PodDisruptionBudgetList) []policyv1.PodDisruptionBudget { return l.Items })
-		if !cov.Observe("pod disruption budgets", err) {
+		pdbOK := cov.Observe("pod disruption budgets", err)
+		if !pdbOK {
 			pdbs = nil
 		}
 		hpas, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), hpaClient.HorizontalPodAutoscalers("").List,
 			func(l *autoscalingv2.HorizontalPodAutoscalerList) []autoscalingv2.HorizontalPodAutoscaler {
 				return l.Items
 			})
-		if !cov.Observe("horizontal pod autoscalers", err) {
+		hpaOK := cov.Observe("horizontal pod autoscalers", err)
+		if !hpaOK {
 			hpas = nil
 		}
 
@@ -105,8 +110,8 @@ func NewScanner() scanner.Scanner {
 					Namespace: d.Namespace,
 					Name:      d.Name,
 					Replicas:  replicas,
-					HasPDB:    pdbMatches(pdbs, d.Namespace, d.Spec.Template.Labels),
-					HasHPA:    hpaTargets[hpaKey{Namespace: d.Namespace, Kind: "Deployment", Name: d.Name}],
+					HasPDB:    !pdbOK || pdbMatches(pdbs, d.Namespace, d.Spec.Template.Labels),
+					HasHPA:    !hpaOK || hpaTargets[hpaKey{Namespace: d.Namespace, Kind: "Deployment", Name: d.Name}],
 				}
 				if !wc.HasPDB {
 					data.MissingPDB++
@@ -138,8 +143,8 @@ func NewScanner() scanner.Scanner {
 					Namespace: ss.Namespace,
 					Name:      ss.Name,
 					Replicas:  replicas,
-					HasPDB:    pdbMatches(pdbs, ss.Namespace, ss.Spec.Template.Labels),
-					HasHPA:    hpaTargets[hpaKey{Namespace: ss.Namespace, Kind: "StatefulSet", Name: ss.Name}],
+					HasPDB:    !pdbOK || pdbMatches(pdbs, ss.Namespace, ss.Spec.Template.Labels),
+					HasHPA:    !hpaOK || hpaTargets[hpaKey{Namespace: ss.Namespace, Kind: "StatefulSet", Name: ss.Name}],
 				}
 				if !wc.HasPDB {
 					data.MissingPDB++
