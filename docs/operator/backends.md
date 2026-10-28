@@ -43,8 +43,8 @@ Uses `github.com/jackc/pgx/v5/stdlib`. Connection pooling defaults:
 | Connection max lifetime | 30m |
 
 Schema migrations are recorded in the same `schema_migrations` table the
-SQLite path uses, so migrating between backends after the fact is a
-straightforward dump-and-restore at the row level (when needed).
+SQLite path uses. To move data between backends, use `fleetsweeper migrate`
+(see below).
 
 ### Helm
 
@@ -70,9 +70,9 @@ the configured Secret.
 Migrations are numerically aligned between backends. A row in
 `schema_migrations` recorded by SQLite version N matches a row Postgres
 version N would have written: both contain the same `version` integer.
-This means an operator who initializes a Postgres cluster against
-fleetsweeper version 0.2.0 and one who later upgrades to 0.3.0 both end up
-at exactly the same schema state.
+This means an operator who initializes a Postgres cluster with
+fleetsweeper version 0.2.0 and one who later upgrades to 0.3.0 both end
+up at exactly the same schema state.
 
 ### When to use which
 
@@ -84,5 +84,8 @@ at exactly the same schema state.
   goes beyond what a single SQLite file is comfortable with (multi-year
   retention with hundreds of clusters).
 
-You can switch between them at any point by running fleetsweeper against
-the new DSN; just back up the old database first.
+You can switch between them at any point. Stop the server, back up the old
+database (`fleetsweeper backup` for SQLite, `pg_dump` for Postgres), then run
+`fleetsweeper migrate --from <old DSN> --to <new DSN>`, for example
+`fleetsweeper migrate --from fleet.db --to postgres://fleet@db/fleetsweeper`.
+Pointing the server at a new DSN alone starts with an empty database.

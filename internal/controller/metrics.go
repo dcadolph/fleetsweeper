@@ -62,7 +62,7 @@ func WriteMetrics(w io.Writer) {
 	fmt.Fprintf(w, `fleetsweeper_controller_scans_total{result="success"} %d`+"\n", scansSucceeded.Load())
 	fmt.Fprintf(w, `fleetsweeper_controller_scans_total{result="failure"} %d`+"\n", scansFailed.Load())
 
-	fmt.Fprintln(w, "# HELP fleetsweeper_controller_paused_resources Resources observed with spec.paused=true on the most recent reconcile cycle.")
+	fmt.Fprintln(w, "# HELP fleetsweeper_controller_paused_resources Reconcile passes that found spec.paused=true.")
 	fmt.Fprintln(w, "# TYPE fleetsweeper_controller_paused_resources counter")
 	fmt.Fprintf(w, "fleetsweeper_controller_paused_resources %d\n", pausedSeen.Load())
 }

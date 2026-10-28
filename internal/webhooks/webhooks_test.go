@@ -3,6 +3,7 @@ package webhooks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
@@ -217,4 +220,70 @@ func TestDispatch_NilConfigIsNoOp(t *testing.T) {
 	t.Parallel()
 	d := NewDispatcher(nil, NoopLogger{})
 	d.Dispatch(context.Background(), []report.Finding{{Severity: "critical"}})
+}
+
+func TestDedupKey(t *testing.T) {
+	t.Parallel()
+	base := report.Finding{Cluster: "c1", Scanner: "rbac", Rule: "rbac/config-differs", Title: "A"}
+	titled := base
+	titled.Title = "B"
+	otherRule := base
+	otherRule.Rule = "rbac/other"
+	tests := []struct {
+		A, B         report.Finding
+		SubA, SubB   string
+		WantEqualKey bool
+	}{{ // Test 0: Same rule and cluster with different titles share a key.
+		A: base, B: titled, SubA: "s1", SubB: "s1", WantEqualKey: true,
+	}, { // Test 1: Different rules produce different keys.
+		A: base, B: otherRule, SubA: "s1", SubB: "s1", WantEqualKey: false,
+	}, { // Test 2: Same finding for different subscribers produces different keys.
+		A: base, B: base, SubA: "s1", SubB: "s2", WantEqualKey: false,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := dedupKey(test.SubA, test.A) == dedupKey(test.SubB, test.B)
+			if diff := cmp.Diff(test.WantEqualKey, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDispatchRetriesAfterFailure(t *testing.T) {
+	t.Parallel()
+	var posts atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if posts.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Webhooks: []Subscriber{{Name: "test", URL: ts.URL, MinSeverity: "warning"}}}
+	if err := compile(cfg); err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := NewDispatcher(cfg, NoopLogger{})
+	d.SetClient(ts.Client())
+	findings := []report.Finding{
+		{Severity: "critical", Cluster: "c1", Scanner: "node-health", Title: "x"},
+	}
+
+	tests := []struct {
+		WantPosts int32
+	}{
+		{WantPosts: 1}, // Test 0: First dispatch fails with a 500.
+		{WantPosts: 2}, // Test 1: Failure was not deduped, so the retry sends.
+		{WantPosts: 2}, // Test 2: Success is deduped, so nothing is sent.
+	}
+	for testNum, test := range tests {
+		d.Dispatch(context.Background(), findings)
+		if diff := cmp.Diff(test.WantPosts, posts.Load()); diff != "" {
+			t.Errorf("test %d: posts mismatch (-want +got):\n%s", testNum, diff)
+		}
+	}
 }

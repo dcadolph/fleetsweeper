@@ -7,9 +7,11 @@ reconciliation, outbound webhook dispatch). Leader election via
 
 ## Enable
 
-Leader election is on by default whenever fleetsweeper runs inside a
-Kubernetes pod (it requires in-cluster credentials to manage the Lease).
-Outside a pod the flag is silently ignored.
+Leader election runs only when the pod has a service-account token and a
+namespace for the Lease, set with `--leader-namespace` or the
+`$POD_NAMESPACE` environment variable. Otherwise election is skipped and
+every replica runs the scheduler and controller. A pod that has the token but
+no namespace logs a `leader election skipped` warning at startup.
 
 ```yaml
 leaderElection:
@@ -57,7 +59,6 @@ and are visible with `kubectl describe lease <release>`.
 
 ## Tunables
 
-The current implementation uses fixed defaults (30s lease, 20s renew, 5s
-retry). These are well-suited to a fleetsweeper workload. Scans run on
-the order of minutes. And not yet exposed as flags. File an issue if your
-deployment needs different values.
+The defaults are a 30s lease, a 20s renew deadline, and a 5s retry period.
+They are fixed and not exposed as flags. File an issue if your deployment
+needs different values.

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"sigs.k8s.io/yaml"
 
@@ -121,12 +122,17 @@ func TestRuleFromTitle(t *testing.T) {
 		{"prod-east has 2 node(s) under memory pressure", "prod-east"},
 		{"NodeReady: false", "NodeReady"},
 		{"shorttitle", "shorttitle"},
+		{strings.Repeat("é", 70), strings.Repeat("é", 60)},
 	}
 	for i, c := range cases {
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
 			t.Parallel()
-			if got := ruleFromTitle(c.In); got != c.Want {
+			got := ruleFromTitle(c.In)
+			if got != c.Want {
 				t.Errorf("rule(%q): want %q, got %q", c.In, c.Want, got)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("rule(%q): invalid UTF-8 %q", c.In, got)
 			}
 		})
 	}
@@ -227,6 +233,30 @@ func TestReportsForCategories(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantResult, out[0].Results[0].Category); diff != "" {
 				t.Errorf("category mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestToResultRule(t *testing.T) {
+	t.Parallel()
+	ts := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		In       report.Finding
+		WantRule string
+	}{{ // Test 0: Finding rule wins over a title with a count.
+		In: report.Finding{Scanner: "image-audit", Rule: "image-audit/digest-pinning",
+			Title: "12 images are not pinned by digest"},
+		WantRule: "image-audit/digest-pinning",
+	}, { // Test 1: Empty rule falls back to the title.
+		In:       report.Finding{Scanner: "node-health", Title: "NodeReady: false"},
+		WantRule: "NodeReady",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if got := toResult(test.In, ts).Rule; got != test.WantRule {
+				t.Errorf("rule: want %q, got %q", test.WantRule, got)
 			}
 		})
 	}

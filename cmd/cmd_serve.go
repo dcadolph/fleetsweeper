@@ -196,13 +196,20 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if leaderNamespace == "" {
 		leaderNamespace = os.Getenv("POD_NAMESPACE")
 	}
-	useLeader := leaderEnabled && leader.IsInCluster() && leaderNamespace != ""
+	var useLeader bool
+	if leaderEnabled {
+		var reason string
+		useLeader, reason = leaderElectionPlan(kube.InCluster(), leaderNamespace)
+		if reason != "" {
+			log.Warn("leader election skipped", zap.String("reason", reason))
+		}
+	}
 
 	startSideEffects := func(leaderCtx context.Context) {
 		if scanInterval > 0 {
 			contexts, err := resolveScheduleContexts(kubeconfigPath, contextNames, allContexts)
 			if err != nil {
-				log.Warn("scheduler: resolve contexts failed", logutil.ErrorField(err))
+				log.Warn("scheduler: resolve contexts failed", zap.Error(err))
 			} else {
 				go srv.StartScheduler(leaderCtx, scanInterval, contexts)
 			}
@@ -213,7 +220,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			ctrlPoll, _ := cmd.Flags().GetDuration("controller-poll")
 			dyn, events, err := controller.Clients(kubeconfigPath, ctrlContext)
 			if err != nil {
-				log.Warn("controller: client setup failed", logutil.ErrorField(err))
+				log.Warn("controller: client setup failed", zap.Error(err))
 				return
 			}
 			ctrl := controller.New(controller.Config{
@@ -226,7 +233,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			})
 			go func() {
 				if err := ctrl.Run(leaderCtx); err != nil {
-					log.Warn("controller stopped", logutil.ErrorField(err))
+					log.Warn("controller stopped", zap.Error(err))
 				}
 			}()
 		}
@@ -287,7 +294,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		go func() {
 			if err := admServer.Run(ctx); err != nil {
-				log.Warn("admission server stopped", logutil.ErrorField(err))
+				log.Warn("admission server stopped", zap.Error(err))
 			}
 		}()
 		fmt.Fprintf(cmd.ErrOrStderr(), "admission webhook listening on %s (mode=%s)\n", admAddr, mode)
@@ -296,7 +303,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if adminAddr != "" {
 		go func() {
 			if err := srv.ListenAndServeAdmin(); err != nil {
-				log.Warn("admin server stopped", logutil.ErrorField(err))
+				log.Warn("admin server stopped", zap.Error(err))
 			}
 		}()
 	}
@@ -319,6 +326,21 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		runErr = fmt.Errorf("shutdown: %w", err)
 	}
 	return runErr
+}
+
+// leaderElectionPlan reports whether serve runs leader election. In a cluster without a Lease
+// namespace election is off and reason says why, because every replica then runs scheduled work.
+// Outside a cluster election is off with no reason, since a single process needs none.
+func leaderElectionPlan(inCluster bool, namespace string) (enabled bool, reason string) {
+	switch {
+	case !inCluster:
+		return false, ""
+	case namespace == "":
+		return false, "no Lease namespace: set --leader-namespace or POD_NAMESPACE, " +
+			"or every replica runs scheduled scans and webhooks"
+	default:
+		return true, ""
+	}
 }
 
 // campaign runs one leader election term after another until ctx is canceled. Each term's

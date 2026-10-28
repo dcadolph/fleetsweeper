@@ -143,12 +143,6 @@ func buildMeterProvider(ctx context.Context, res *sdkresource.Resource) (*sdkmet
 	), nil
 }
 
-// hasEndpoint reports whether either trace or metrics OTLP endpoints are set.
-// Kept for backwards compatibility with the original two-endpoint API.
-func hasEndpoint() bool {
-	return hasTraceEndpoint() || hasMetricEndpoint()
-}
-
 // hasTraceEndpoint reports whether a trace-OTLP endpoint env var is set.
 func hasTraceEndpoint() bool {
 	return envSet("OTEL_EXPORTER_OTLP_ENDPOINT") ||

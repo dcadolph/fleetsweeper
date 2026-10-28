@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/fleetdrift"
 	"github.com/dcadolph/fleetsweeper/internal/jsonutil"
@@ -143,13 +144,13 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	log.Info("connecting to clusters", logutil.ContextField(fmt.Sprintf("%v", contexts)))
+	log.Info("connecting to clusters", zap.Strings("contexts", contexts))
 	clients := kube.ConnectAll(ctx, kubeconfigPath, contexts, workers)
 	if len(clients) == 0 {
 		return ErrNoClients
 	}
 
-	log.Info("connected", logutil.ContextField(fmt.Sprintf("%d/%d clusters", len(clients), len(contexts))))
+	log.Info("connected", zap.Int("connected", len(clients)), zap.Int("requested", len(contexts)))
 
 	scannedAt := time.Now().UTC()
 	results := server.RunScanners(ctx, clients, selected, workers, scannerTimeout, logutil.UnwrapLogger(ctx))
@@ -174,7 +175,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("save scan: %w", err)
 		}
-		log.Info("scan persisted", logutil.ContextField(scanID))
+		log.Info("scan persisted", zap.String("scan_id", scanID))
 		fmt.Fprintf(os.Stderr, "scan %s saved to %s\n", scanID, dbPath)
 	}
 

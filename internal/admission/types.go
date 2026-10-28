@@ -57,12 +57,19 @@ type Baseline struct {
 	Pinned bool `json:"-" yaml:"-"`
 }
 
+const (
+	// MinSampleContainers is the fewest sampled containers a baseline needs to be evaluated.
+	MinSampleContainers = 30
+	// MinSamplePods is the fewest sampled pods a baseline needs to be evaluated.
+	MinSamplePods = 10
+)
+
 // Sufficient reports whether the baseline has enough data to make a
 // confident comparison. The webhook short-circuits to allow when the
 // baseline is too thin so a freshly-installed Fleetsweeper does not block
 // every admission against an empty norm.
 func (b Baseline) Sufficient() bool {
-	return b.SampleContainers >= 30 && b.SamplePods >= 10
+	return b.SampleContainers >= MinSampleContainers && b.SamplePods >= MinSamplePods
 }
 
 // Threshold is the minimum baseline fraction that activates a check. Above
