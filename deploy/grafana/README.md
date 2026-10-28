@@ -75,3 +75,5 @@ already emits. No recording rules are required.
 | `fleetsweeper_last_scan_duration_seconds`         | gauge   | (none)                                  |
 | `fleetsweeper_alerts_received_total`              | counter | `source` (alertmanager, falco)          |
 | `fleetsweeper_policy_results_total`               | gauge   | `source`, `result` (pass/fail/warn/error/skip) |
+
+`fleetsweeper_outlier_score` excludes held outliers, those explained by a cohort, because they raise no finding.

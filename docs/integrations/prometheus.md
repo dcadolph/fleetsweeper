@@ -23,7 +23,7 @@ Then scrape `:8081/metrics`. The admin endpoint also exposes pprof at
 | `fleetsweeper_findings_total` | counter | Per `severity` and `scanner` label. |
 | `fleetsweeper_scan_duration_seconds` | histogram | Per-scan duration. |
 | `fleetsweeper_scan_completed_total` | counter | Per `result` label (`success` or `error`). |
-| `fleetsweeper_outlier_score` | gauge | Per-cluster MAD score on the most recent scan. |
+| `fleetsweeper_outlier_score` | gauge | Per-cluster MAD score on the most recent scan. Held outliers (explained by a cohort) are excluded. |
 
 ## Starter dashboard
 

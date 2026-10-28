@@ -155,9 +155,12 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 	}
 
 	if len(r.Outliers) > 0 {
-		emit(w, "# HELP fleetsweeper_outlier_score Modified z-score of an outlying cluster value.")
+		emit(w, "# HELP fleetsweeper_outlier_score Modified z-score of an outlying cluster value. Outliers explained by a cohort are excluded.")
 		emit(w, "# TYPE fleetsweeper_outlier_score gauge")
 		for _, o := range r.Outliers {
+			if len(o.ExplainedBy) > 0 {
+				continue
+			}
 			emit(w, fmt.Sprintf(
 				`fleetsweeper_outlier_score{cluster=%q,scanner=%q,field=%q,severity=%q} %.3f`,
 				promLabelEscape(o.Cluster), promLabelEscape(o.Scanner),
