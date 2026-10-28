@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -17,14 +18,17 @@ import (
 // Name is the registry key for this scanner.
 const Name = "rbac-audit"
 
-// systemPrefixes are name prefixes used as a last-resort heuristic when we
-// cannot look up the referenced role's bootstrapping label. They catch the
-// most common control-plane bindings that a user would never name themselves.
-var systemPrefixes = []string{"system:", "kubeadm:", "kube-"}
+// systemPrefixes are binding name prefixes reserved for control-plane bindings that a user would
+// never name themselves.
+var systemPrefixes = []string{"system:", "kubeadm:"}
 
-// systemRoleLabel marks roles that ship with Kubernetes and should be treated
-// as expected/system, even if a user authors a binding against one.
-const systemRoleLabel = "kubernetes.io/bootstrapping"
+// systemBindingLabel marks bindings that ship with Kubernetes. It is read from the binding, never
+// from the role, because built-in roles such as cluster-admin carry it on every cluster.
+const systemBindingLabel = "kubernetes.io/bootstrapping"
+
+// openSubjects are subject names that grant to every caller, so a binding naming one is never
+// treated as system, whatever its name or labels say.
+var openSubjects = []string{"system:unauthenticated", "system:anonymous"}
 
 // RiskBinding describes a ClusterRoleBinding or RoleBinding with concerning permissions.
 type RiskBinding struct {
@@ -73,13 +77,9 @@ func NewScanner() scanner.Scanner {
 			crList = nil
 		}
 
-		systemRoles := make(map[string]bool)
 		wildcardRoles := make(map[string]bool)
 		for i := range crList {
 			cr := &crList[i]
-			if _, ok := cr.Labels[systemRoleLabel]; ok {
-				systemRoles[cr.Name] = true
-			}
 			for _, rule := range cr.Rules {
 				if ruleHasWildcard(rule.Verbs) || ruleHasWildcard(rule.Resources) || ruleHasWildcard(rule.APIGroups) {
 					data.WildcardRules++
@@ -96,7 +96,7 @@ func NewScanner() scanner.Scanner {
 
 		for i := range crbList {
 			crb := &crbList[i]
-			isSystem := isSystemBinding(crb.Name, crb.RoleRef.Name, systemRoles)
+			isSystem := isSystemBinding(crb.ObjectMeta, crb.Subjects)
 
 			subjectNames := make([]string, 0, len(crb.Subjects))
 			grantsToDefaultSA := false
@@ -137,7 +137,7 @@ func NewScanner() scanner.Scanner {
 			data.RoleBindingsAudited = len(rbList)
 			for i := range rbList {
 				rb := &rbList[i]
-				isSystem := isSystemBinding(rb.Name, rb.RoleRef.Name, systemRoles)
+				isSystem := isSystemBinding(rb.ObjectMeta, rb.Subjects)
 
 				subjectNames := make([]string, 0, len(rb.Subjects))
 				grantsToDefaultSA := false
@@ -199,17 +199,20 @@ func NewScanner() scanner.Scanner {
 	})
 }
 
-// isSystemBinding reports whether a binding should be treated as a system
-// binding for the purposes of audit. It first checks the role's
-// rbac-bootstrapping label (the authoritative signal), then falls back to a
-// name-prefix heuristic so we still recognize system bindings when we cannot
-// resolve the role itself.
-func isSystemBinding(bindingName, roleName string, systemRoles map[string]bool) bool {
-	if systemRoles[roleName] {
+// isSystemBinding reports whether a binding is a system binding for the purposes of audit. The
+// binding decides: its own bootstrapping label or a reserved name prefix marks it as system. A
+// binding that grants to unauthenticated or anonymous callers is never system.
+func isSystemBinding(meta metav1.ObjectMeta, subjects []rbacv1.Subject) bool {
+	for _, s := range subjects {
+		if slices.Contains(openSubjects, s.Name) {
+			return false
+		}
+	}
+	if _, ok := meta.Labels[systemBindingLabel]; ok {
 		return true
 	}
 	for _, prefix := range systemPrefixes {
-		if strings.HasPrefix(bindingName, prefix) {
+		if strings.HasPrefix(meta.Name, prefix) {
 			return true
 		}
 	}
