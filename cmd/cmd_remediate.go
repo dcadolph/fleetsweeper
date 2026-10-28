@@ -111,7 +111,7 @@ func parseRepoSpec(s string) (string, string, error) {
 // scan-id is honored as a convenience so callers do not have to look up a
 // scan ID first.
 func pickFinding(ctx context.Context, cmd *cobra.Command, scanID, cluster, scannerFilter string, idx int) (report.Finding, error) {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return report.Finding{}, fmt.Errorf("open store: %w", err)
 	}

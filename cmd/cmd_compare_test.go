@@ -27,11 +27,11 @@ func TestResolveScanID(t *testing.T) {
 	// latest and previous both resolve into the seeded set and differ from
 	// each other. Second-granularity timestamps make the absolute order
 	// nondeterministic, so membership + distinctness is the stable assertion.
-	latest, err := resolveScanID(ctx, s, "latest", 0)
+	latest, err := resolveScanID(ctx, s, "latest")
 	if err != nil || !idSet[latest] {
 		t.Fatalf("latest: id=%q err=%v", latest, err)
 	}
-	prev, err := resolveScanID(ctx, s, "previous", 0)
+	prev, err := resolveScanID(ctx, s, "previous")
 	if err != nil || !idSet[prev] {
 		t.Fatalf("previous: id=%q err=%v", prev, err)
 	}
@@ -40,7 +40,7 @@ func TestResolveScanID(t *testing.T) {
 	}
 
 	// A literal ID passes through unchanged.
-	if got, _ := resolveScanID(ctx, s, "verbatim-id", 0); got != "verbatim-id" {
+	if got, _ := resolveScanID(ctx, s, "verbatim-id"); got != "verbatim-id" {
 		t.Errorf("verbatim: got %q", got)
 	}
 }
@@ -58,7 +58,7 @@ func TestResolveScanIDErrors(t *testing.T) {
 	ctx := context.Background()
 
 	// "previous" needs two scans.
-	if _, err := resolveScanID(ctx, s, "previous", 0); err == nil {
+	if _, err := resolveScanID(ctx, s, "previous"); err == nil {
 		t.Error("expected error resolving previous with one scan")
 	}
 
@@ -66,7 +66,7 @@ func TestResolveScanIDErrors(t *testing.T) {
 	emptyPath := filepath.Join(t.TempDir(), "empty.db")
 	es, _ := store.NewSQLite(emptyPath)
 	defer es.Close()
-	if _, err := resolveScanID(ctx, es, "latest", 0); err == nil {
+	if _, err := resolveScanID(ctx, es, "latest"); err == nil {
 		t.Error("expected error resolving latest with no scans")
 	}
 }

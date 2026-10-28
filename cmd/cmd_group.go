@@ -69,7 +69,7 @@ func init() {
 
 // runGroupCreate creates a new cluster group.
 func runGroupCreate(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func runGroupCreate(cmd *cobra.Command, args []string) error {
 
 // runGroupList lists all groups.
 func runGroupList(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func runGroupList(cmd *cobra.Command, _ []string) error {
 
 // runGroupDelete deletes a group.
 func runGroupDelete(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func runGroupDelete(cmd *cobra.Command, args []string) error {
 
 // runGroupAddCluster adds clusters to an existing group.
 func runGroupAddCluster(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func runGroupAddCluster(cmd *cobra.Command, args []string) error {
 
 // runGroupRemoveCluster removes clusters from a group.
 func runGroupRemoveCluster(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}

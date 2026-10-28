@@ -78,7 +78,7 @@ func init() {
 // runHistoryPrune deletes scans older than the configured cutoff. With --dry-run
 // it counts matching scans without deleting.
 func runHistoryPrune(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func parseRetentionDuration(s string) (time.Duration, error) {
 
 // runHistoryList lists past scans from the database.
 func runHistoryList(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func runHistoryList(cmd *cobra.Command, _ []string) error {
 
 // runHistoryShow displays a past scan and rebuilds its report.
 func runHistoryShow(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func runHistoryShow(cmd *cobra.Command, args []string) error {
 
 // runHistoryDiff compares two scans and shows what changed.
 func runHistoryDiff(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func toSet(s []string) map[string]struct{} {
 
 // runHistoryTrend shows fleet drift trends.
 func runHistoryTrend(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}

@@ -49,7 +49,7 @@ func runExport(cmd *cobra.Command, _ []string) error {
 		sealKey = os.Getenv("FLEETSWEEPER_SEAL_KEY")
 	}
 
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}

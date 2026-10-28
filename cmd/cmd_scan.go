@@ -116,7 +116,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 
 	// Resolve contexts from group if specified.
 	if groupName != "" {
-		s, err := openStore(cmd)
+		s, err := openAnyStore(cmd)
 		if err != nil {
 			return err
 		}
@@ -156,7 +156,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	var st store.Store
 	dbPath, _ := cmd.Flags().GetString("db")
 	if dbPath != "" {
-		s, err := openStore(cmd)
+		s, err := openAnyStore(cmd)
 		if err != nil {
 			return fmt.Errorf("open store: %w", err)
 		}

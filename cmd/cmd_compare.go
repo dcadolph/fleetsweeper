@@ -40,17 +40,17 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	format, _ := cmd.Flags().GetString("format")
 	noColor, _ := cmd.Flags().GetBool("no-color")
 
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer s.Close()
 
-	aID, err := resolveScanID(ctx, s, args[0], 0)
+	aID, err := resolveScanID(ctx, s, args[0])
 	if err != nil {
 		return err
 	}
-	bID, err := resolveScanID(ctx, s, args[1], 0)
+	bID, err := resolveScanID(ctx, s, args[1])
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func runCompare(cmd *cobra.Command, args []string) error {
 // resolveScanID maps a friendly alias to an actual scan ID. Recognized
 // aliases: 'latest', 'previous' (== second-latest), 'second-latest'.
 // Anything else is returned verbatim.
-func resolveScanID(ctx context.Context, s *store.SQLite, alias string, _ int) (string, error) {
+func resolveScanID(ctx context.Context, s store.Store, alias string) (string, error) {
 	switch alias {
 	case "latest":
 		scans, err := s.ListScans(ctx, 1)
@@ -111,7 +111,7 @@ func resolveScanID(ctx context.Context, s *store.SQLite, alias string, _ int) (s
 
 // loadReport pulls a scan and rebuilds the full Report from its persisted
 // raw results.
-func loadReport(ctx context.Context, s *store.SQLite, id string) (*report.Report, error) {
+func loadReport(ctx context.Context, s store.Store, id string) (*report.Report, error) {
 	scan, err := s.GetScan(ctx, id)
 	if err != nil {
 		return nil, err
