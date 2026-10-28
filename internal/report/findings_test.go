@@ -632,7 +632,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	approx := cmpopts.EquateApprox(0, 1e-9)
 
 	r, tags := normFixture()
-	r.Outliers = DetectOutliers(r, 3.5)
+	r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
 	r.Cohorts, _ = buildCohorts(r, tags, 3.5)
 	fleet := outlierFindings(r)
 	byRule := map[string]Finding{}
@@ -691,7 +691,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 		t.Parallel()
 		r, _ := normFixture()
 		var absolute int
-		for _, f := range GenerateFindings(r) {
+		for _, f := range generateFindings(r) {
 			if strings.Contains(f.Rule, "/"+ruleOutlierPrefix) || strings.Contains(f.Rule, "/"+ruleCohortOutlierPrefix) {
 				continue
 			}
@@ -708,9 +708,9 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Run("brief quotes the basis", func(t *testing.T) {
 		t.Parallel()
 		r, _ := normFixture()
-		r.Outliers = DetectOutliers(r, 3.5)
-		r.Findings = GenerateFindings(r)
-		brief := GenerateBrief(r)
+		r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
+		r.Findings = generateFindings(r)
+		brief := generateBrief(r)
 		want := "Largest deviation: c09 unenforced_count is 80 vs a fleet median of 25 across 10 clusters."
 		if !slices.Contains(brief.Lines, want) {
 			t.Errorf("brief lines %q do not contain %q", brief.Lines, want)
@@ -1045,7 +1045,7 @@ func TestNormLine(t *testing.T) {
 
 // TestFingerprintFollowsRule verifies the fingerprint is a hash of cluster,
 // scanner, and rule: a count change in the title keeps it, a different
-// cluster changes it, and GenerateFindings stamps it on every finding.
+// cluster changes it, and generateFindings stamps it on every finding.
 func TestFingerprintFollowsRule(t *testing.T) {
 	t.Parallel()
 
@@ -1054,9 +1054,9 @@ func TestFingerprintFollowsRule(t *testing.T) {
 			"privileged_containers": n, "total_pods": 10,
 		}}})
 	}
-	three := GenerateFindings(privileged("a", 3))
-	four := GenerateFindings(privileged("a", 4))
-	other := GenerateFindings(privileged("b", 3))
+	three := generateFindings(privileged("a", 3))
+	four := generateFindings(privileged("a", 4))
+	other := generateFindings(privileged("b", 3))
 	if len(three) != 1 || len(four) != 1 || len(other) != 1 {
 		t.Fatalf("want one finding each, got %d, %d, %d", len(three), len(four), len(other))
 	}
@@ -1123,7 +1123,7 @@ func TestRuleTitle(t *testing.T) {
 		if !ok || slug == "" || strings.ContainsAny(slug, "_ ") {
 			t.Errorf("rule %q is not scanner/slug", rule)
 		}
-		if _, known := ScannerLabels[scannerName]; !known && scannerName != "cohort" {
+		if _, known := scannerLabels[scannerName]; !known && scannerName != "cohort" {
 			t.Errorf("rule %q names unknown scanner %q", rule, scannerName)
 		}
 	}
@@ -1451,7 +1451,7 @@ func TestVersionFindingsMarks(t *testing.T) {
 		t.Errorf("mismatch (-want +got):\n%s", diff)
 	}
 	status := map[string]string{}
-	for _, h := range GenerateClusterHealth(r, got) {
+	for _, h := range generateClusterHealth(r, got) {
 		status[h.Name] = h.Status
 	}
 	if diff := cmp.Diff(map[string]string{"a": "healthy", "b": "healthy", "c": "degraded"}, status); diff != "" {
@@ -1490,7 +1490,7 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			got := map[string]string{}
-			for _, h := range GenerateClusterHealth(r, test.Findings) {
+			for _, h := range generateClusterHealth(r, test.Findings) {
 				got[h.Name] = h.Status
 			}
 			if diff := cmp.Diff(test.WantStatus, got); diff != "" {

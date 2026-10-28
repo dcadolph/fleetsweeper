@@ -136,9 +136,9 @@ func FindingFingerprint(f Finding) string {
 	return util.Fingerprint(f.Cluster, f.Scanner, f.Rule)
 }
 
-// StampFingerprints sets each finding's Fingerprint from its cluster, scanner,
+// stampFingerprints sets each finding's Fingerprint from its cluster, scanner,
 // and rule, and returns the same slice.
-func StampFingerprints(fs []Finding) []Finding {
+func stampFingerprints(fs []Finding) []Finding {
 	for i := range fs {
 		fs[i].Fingerprint = FindingFingerprint(fs[i])
 	}

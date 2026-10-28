@@ -192,7 +192,7 @@ func meanFloat(vals []float64) float64 {
 func SelfDriftFindings(drifts []SelfDrift) []Finding {
 	findings := make([]Finding, 0, len(drifts))
 	for _, d := range drifts {
-		label := ScannerLabels[d.Scanner]
+		label := scannerLabels[d.Scanner]
 		if label == "" {
 			label = d.Scanner
 		}
@@ -213,5 +213,5 @@ func SelfDriftFindings(drifts []SelfDrift) []Finding {
 			Affected: []string{d.Field},
 		})
 	}
-	return StampFingerprints(findings)
+	return stampFingerprints(findings)
 }

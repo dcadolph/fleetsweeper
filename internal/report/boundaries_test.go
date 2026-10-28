@@ -257,14 +257,14 @@ func maxedReport() *Report {
 func TestFleetScoreFloorsAtZero(t *testing.T) {
 	t.Parallel()
 	r := maxedReport()
-	a := ComputeScoreAttribution(r)
+	a := computeScoreAttribution(r)
 	// 36 + 24 + 5 finding caps, 10 + 5 health shares of two clusters, 10 skew, 10 nodes.
 	if diff := cmp.Diff(100.0, a.Total); diff != "" {
 		t.Errorf("total mismatch (-want +got):\n%s", diff)
 	}
 	r.Findings = append(r.Findings, Finding{Severity: SeverityWarning, Cluster: "b", Rule: "extra"})
 	r.ClusterHealths[1].Status = "critical"
-	score := ComputeFleetScore(r)
+	score, _ := scoreWithAttribution(r)
 	if diff := cmp.Diff(0, score.Score); diff != "" {
 		t.Errorf("score mismatch (-want +got):\n%s", diff)
 	}
@@ -291,7 +291,7 @@ func TestScoreDriversTopThree(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			a := ComputeScoreAttribution(test.Report)
+			a := computeScoreAttribution(test.Report)
 			impacts := make([]int, 0, len(a.Terms))
 			for _, d := range a.Drivers() {
 				impacts = append(impacts, d.Impact)

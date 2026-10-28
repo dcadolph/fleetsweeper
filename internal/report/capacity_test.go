@@ -160,7 +160,7 @@ func TestAnalyzeCapacity(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			got := AnalyzeCapacity(testReport(test.Sections), nil)
+			got := analyzeCapacity(testReport(test.Sections), nil)
 			var ca CapacityAnalysis
 			for _, a := range got {
 				if a.Cluster == "c1" {

@@ -106,10 +106,10 @@ type ClusterHealth struct {
 // which name the deviant, replace it.
 const pairwiseFleetLimit = 20
 
-// GenerateFindings analyzes a report and produces human-readable findings.
+// generateFindings analyzes a report and produces human-readable findings.
 // Above pairwiseFleetLimit clusters, outlier findings replace the fleet-wide
 // version, namespace, and RBAC drift findings when any outlier exists.
-func GenerateFindings(r *Report) []Finding {
+func generateFindings(r *Report) []Finding {
 	var findings []Finding
 
 	findings = append(findings, outlierFindings(r)...)
@@ -140,7 +140,7 @@ func GenerateFindings(r *Report) []Finding {
 
 	sortFindings(findings)
 
-	return StampFingerprints(findings)
+	return stampFingerprints(findings)
 }
 
 // sortFindings orders findings most severe first, keeping the relative order of equals.
@@ -331,7 +331,7 @@ func outlierFindings(r *Report) []Finding {
 			Rule:  outlierRule(o.Scanner, o.Field, false),
 			Title: outlierTitle(o, "the fleet norm", "fleet norm"),
 			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).%s",
-				o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner], favorableNote(o)),
+				o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner], favorableNote(o)),
 			Severity:    o.Severity,
 			Cluster:     o.Cluster,
 			Scanner:     o.Scanner,
@@ -366,7 +366,7 @@ func cohortOutlierFindings(r *Report) []Finding {
 				Title: outlierTitle(o, "its cohort norm", "its cohort"),
 				Description: fmt.Sprintf(
 					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).%s",
-					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner],
+					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner],
 					favorableNote(o),
 				),
 				Severity:    o.Severity,
@@ -409,11 +409,11 @@ func outlierKey(cluster, field, scanner string) string {
 	return cluster + "\x00" + field + "\x00" + scanner
 }
 
-// GenerateClusterHealth builds per-cluster health summaries. A cluster's
+// generateClusterHealth builds per-cluster health summaries. A cluster's
 // status and counts come from its own findings and from fleet-scoped findings
 // that mark it: a fleet finding such as version skew is the fleet's, scored
 // once through its own term, and sets status only on the clusters it names.
-func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
+func generateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 	healths := make([]ClusterHealth, 0, len(r.Clusters))
 	degradedByCluster := r.DegradedByCluster()
 	for _, cluster := range r.Clusters {

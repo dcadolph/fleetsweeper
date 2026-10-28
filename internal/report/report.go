@@ -59,7 +59,7 @@ type Report struct {
 	// Clusters lists the kubeconfig contexts that were scanned.
 	Clusters []string `json:"clusters"`
 	// Categories groups sections by functional area.
-	Categories []CategoryReport `json:"categories"`
+	Categories []Category `json:"categories"`
 	// Sections holds per-scanner comparison results keyed by scanner name.
 	Sections map[string]*SectionReport `json:"sections"`
 	// Summary holds fleet-wide summary statistics.
@@ -135,14 +135,6 @@ type BuildOptions struct {
 	// Timestamp is when the scan behind the report ran. A report rebuilt from a stored scan
 	// passes that scan's time, so rebuilding it later yields the same report. Zero means now.
 	Timestamp time.Time
-}
-
-// CategoryReport holds a category and its scanner names for the report.
-type CategoryReport struct {
-	// Name is the category display name.
-	Name string `json:"name"`
-	// Scanners lists scanner names in this category.
-	Scanners []string `json:"scanners"`
 }
 
 // Summary holds fleet-wide statistics.
@@ -249,19 +241,19 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		))
 	}
 
-	r.Capacity = AnalyzeCapacity(r, opt.Groups)
+	r.Capacity = analyzeCapacity(r, opt.Groups)
 	var cohortDists []Distribution
 	r.Cohorts, cohortDists = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
 	applyCohortNorms(r, cohortDists)
 	r.Distributions = append(r.Distributions, cohortDists...)
 	sortDistributions(r.Distributions)
-	r.Findings = GenerateFindings(r)
-	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
+	r.Findings = generateFindings(r)
+	r.Findings = append(r.Findings, stampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
 	sortFindings(r.Findings)
-	r.Incidents = FuseIncidents(r.Findings)
-	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
+	r.Incidents = fuseIncidents(r.Findings)
+	r.ClusterHealths = generateClusterHealth(r, r.Findings)
 	Rescore(r)
-	r.Brief = GenerateBrief(r)
+	r.Brief = generateBrief(r)
 
 	return r
 }
@@ -292,13 +284,13 @@ func sortScannerStatuses(s []ScannerStatus) {
 }
 
 // buildCategories creates category groupings for the scanned scanner names.
-func buildCategories(scanned []string) []CategoryReport {
+func buildCategories(scanned []string) []Category {
 	scannedSet := make(map[string]struct{}, len(scanned))
 	for _, s := range scanned {
 		scannedSet[s] = struct{}{}
 	}
 
-	var categories []CategoryReport
+	var categories []Category
 	for _, cat := range Categories() {
 		var present []string
 		for _, s := range cat.Scanners {
@@ -307,7 +299,7 @@ func buildCategories(scanned []string) []CategoryReport {
 			}
 		}
 		if len(present) > 0 {
-			categories = append(categories, CategoryReport{
+			categories = append(categories, Category{
 				Name:     cat.Name,
 				Scanners: present,
 			})

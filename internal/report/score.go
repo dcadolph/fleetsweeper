@@ -62,15 +62,6 @@ const (
 	scoreWorstNodeCap   = 10.0
 )
 
-// ComputeFleetScore returns a FleetScore derived from a built Report. The
-// function is pure: callers can compare scores across scans simply by calling
-// it on two different reports. Safe to call on nil; returns a perfect score
-// with a placeholder headline.
-func ComputeFleetScore(r *Report) FleetScore {
-	score, _ := scoreWithAttribution(r)
-	return score
-}
-
 // Rescore sets r's fleet score, its attribution, and the summary's finding
 // counts from r's current findings and cluster health, so a caller that
 // changes findings after Build keeps them in agreement. Safe to call on nil.
@@ -91,7 +82,7 @@ func scoreWithAttribution(r *Report) (FleetScore, ScoreAttribution) {
 	if r == nil {
 		return FleetScore{Score: 100, Grade: "A", Headline: "No data yet."}, ScoreAttribution{}
 	}
-	a := ComputeScoreAttribution(r)
+	a := computeScoreAttribution(r)
 	raw := math.Max(100.0-a.Total, 0)
 	score := int(math.Round(raw))
 

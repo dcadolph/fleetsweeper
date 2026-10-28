@@ -8,7 +8,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// Capacity status values assigned by AnalyzeCapacity.
+// Capacity status values assigned by analyzeCapacity.
 const (
 	capacityCritical = "critical"
 	capacityStrained = "strained"
@@ -80,9 +80,9 @@ type clusterSignals struct {
 	warnEvents int
 }
 
-// AnalyzeCapacity runs smart capacity analysis across all clusters in a report.
+// analyzeCapacity runs smart capacity analysis across all clusters in a report.
 // Groups can be nil when no grouping is available.
-func AnalyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
+func analyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 	signals := extractAllSignals(r)
 	var analyzes []CapacityAnalysis
 

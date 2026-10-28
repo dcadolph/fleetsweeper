@@ -166,15 +166,6 @@ func (o OutlierResult) Basis() *NormBasis {
 	}
 }
 
-// DetectOutliers analyzes a report and returns clusters that deviate from fleet
-// norms. The threshold controls sensitivity for numeric fields: lower values
-// flag more outliers. The function only emits findings when the sample is
-// large enough to be statistically meaningful (see minMADSample).
-func DetectOutliers(r *Report, threshold float64) []OutlierResult {
-	outliers, _ := detectOutliers(r.Clusters, r.Sections, threshold, NormScopeFleet)
-	return outliers
-}
-
 // walkFields flattens every non-uniform section that holds at least minPerCluster clusters over
 // clusters, applies the set projections and availability gate, and calls visit once per field
 // the detectors compare, with the flattened values for that section.

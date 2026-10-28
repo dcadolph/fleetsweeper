@@ -37,7 +37,7 @@ const (
 )
 
 // ComputeClusterScore evaluates one cluster in isolation. It does not consult
-// fleet-wide context (use ComputeFleetScore for that); a cluster's own
+// fleet-wide context (the fleet score covers that); a cluster's own
 // findings, status, and node/utilization metrics fully determine the score.
 func ComputeClusterScore(h ClusterHealth, findings []Finding) ClusterScore {
 	cost := 0.0
@@ -82,7 +82,7 @@ func ComputeClusterScore(h ClusterHealth, findings []Finding) ClusterScore {
 // ClusterCharges counts the critical and warning findings a cluster pays for: its own
 // findings at their severity, and each mark a fleet-scoped finding puts on it at the mark's
 // severity. A fleet finding with no mark on the cluster costs it nothing. It and
-// GenerateClusterHealth both read clusterSeverityCounts, so score and status never disagree
+// generateClusterHealth both read clusterSeverityCounts, so score and status never disagree
 // about a finding.
 func ClusterCharges(cluster string, findings []Finding) (crit, warn int) {
 	counts := clusterSeverityCounts(cluster, findings)

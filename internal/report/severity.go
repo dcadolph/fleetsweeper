@@ -33,12 +33,12 @@ func numericSeverity(scannerName, field string, delta float64) (string, bool) {
 	return classifySeverity(scannerName, field), false
 }
 
-// VersionSkewSeverity returns the severity for a set of Kubernetes version
+// versionSkewSeverity returns the severity for a set of Kubernetes version
 // strings present across a fleet. Patch differences are info, single-minor
 // skew is warning, and skew of more than one minor (outside Kubernetes' own
 // supported skew policy) is critical. Strings that fail to parse are ignored,
 // so a single garbled response cannot escalate severity.
-func VersionSkewSeverity(versions []string) string {
+func versionSkewSeverity(versions []string) string {
 	if len(versions) < 2 {
 		return SeverityInfo
 	}

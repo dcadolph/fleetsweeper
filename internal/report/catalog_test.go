@@ -31,16 +31,16 @@ func TestScannerCatalogKeySets(t *testing.T) {
 		WantKeys []string
 	}{
 		{ // Test 0: Descriptions match labels.
-			Name: "descriptions", Keys: sortedKeys(ScannerDescriptions),
-			WantKeys: sortedKeys(ScannerLabels),
+			Name: "descriptions", Keys: sortedKeys(scannerDescriptions),
+			WantKeys: sortedKeys(scannerLabels),
 		},
 		{ // Test 1: Inspect commands match labels.
 			Name: "inspect", Keys: sortedKeys(scannerInspect),
-			WantKeys: sortedKeys(ScannerLabels),
+			WantKeys: sortedKeys(scannerLabels),
 		},
 		{ // Test 2: Category scanners match labels.
 			Name: "categories", Keys: sortedKeys(inCategories),
-			WantKeys: sortedKeys(ScannerLabels),
+			WantKeys: sortedKeys(scannerLabels),
 		},
 	}
 	for testNum, test := range tests {

@@ -8,10 +8,10 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// SystemNamespacePrefixes are the namespace name prefixes excluded from
+// systemNamespacePrefixes are the namespace name prefixes excluded from
 // fleet-divergence findings. Cloud and add-on namespaces legitimately differ
 // across providers; flagging them as drift drowns real signal.
-var SystemNamespacePrefixes = []string{
+var systemNamespacePrefixes = []string{
 	"kube-",
 	"gke-",
 	"eks-",
@@ -26,22 +26,22 @@ var SystemNamespacePrefixes = []string{
 	"prometheus",
 }
 
-// SystemNamespaceExact are the namespace names treated as system regardless
+// systemNamespaceExact are the namespace names treated as system regardless
 // of prefix matching.
-var SystemNamespaceExact = map[string]bool{
+var systemNamespaceExact = map[string]bool{
 	"default":         true,
 	"kube-system":     true,
 	"kube-public":     true,
 	"kube-node-lease": true,
 }
 
-// IsSystemNamespace reports whether a namespace name should be treated as a
+// isSystemNamespace reports whether a namespace name should be treated as a
 // system namespace and therefore excluded from divergence findings.
-func IsSystemNamespace(name string) bool {
-	if SystemNamespaceExact[name] {
+func isSystemNamespace(name string) bool {
+	if systemNamespaceExact[name] {
 		return true
 	}
-	for _, p := range SystemNamespacePrefixes {
+	for _, p := range systemNamespacePrefixes {
 		if strings.HasPrefix(name, p) {
 			return true
 		}
@@ -73,7 +73,7 @@ func versionFindings(r *Report) []Finding {
 		return nil
 	}
 
-	severity := VersionSkewSeverity(uniqueVersions)
+	severity := versionSkewSeverity(uniqueVersions)
 	if severity == SeverityInfo {
 		return nil
 	}
@@ -141,7 +141,7 @@ func versionMarks(clusters []string, versions map[string]string) (string, []Clus
 		if v == "" || v == majority {
 			continue
 		}
-		if sev := VersionSkewSeverity([]string{majority, v}); sev != SeverityInfo {
+		if sev := versionSkewSeverity([]string{majority, v}); sev != SeverityInfo {
 			marks = append(marks, ClusterMark{Cluster: c, Severity: sev})
 		}
 	}
@@ -150,7 +150,7 @@ func versionMarks(clusters []string, versions map[string]string) (string, []Clus
 }
 
 // namespaceFindings flags non-system namespace count divergence. System and
-// cloud add-on namespaces are filtered through IsSystemNamespace so legitimate
+// cloud add-on namespaces are filtered through isSystemNamespace so legitimate
 // per-cloud namespace differences do not become recurring warnings.
 func namespaceFindings(r *Report) []Finding {
 	sec := r.Sections["namespaces"]
@@ -209,7 +209,7 @@ func countNonSystemNamespaces(r *Report, cluster string) int {
 				continue
 			}
 			name, _ := entry["name"].(string)
-			if !IsSystemNamespace(name) {
+			if !isSystemNamespace(name) {
 				count++
 			}
 		}

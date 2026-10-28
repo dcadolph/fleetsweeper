@@ -26,14 +26,14 @@ type htmlTemplateData struct {
 	ChartJS template.JS
 }
 
-// ClusterColors assigns a consistent color to each cluster for visual tracking.
-var ClusterColors = []string{
+// clusterColors assigns a consistent color to each cluster for visual tracking.
+var clusterColors = []string{
 	"#58a6ff", "#f85149", "#3fb950", "#d29922",
 	"#bc8cff", "#39d353", "#f78166", "#8b949e",
 }
 
-// ScannerLabels maps scanner keys to human-readable names.
-var ScannerLabels = map[string]string{
+// scannerLabels maps scanner keys to human-readable names.
+var scannerLabels = map[string]string{
 	"version":           "Kubernetes Version",
 	"namespaces":        "Namespaces",
 	"crds":              "Custom Resource Definitions",
@@ -60,8 +60,8 @@ var ScannerLabels = map[string]string{
 	"policy-reports":    "Policy Reports",
 }
 
-// ScannerDescriptions maps scanner keys to one line on what each checks.
-var ScannerDescriptions = map[string]string{
+// scannerDescriptions maps scanner keys to one line on what each checks.
+var scannerDescriptions = map[string]string{
 	"version":           "API server version, with semver-aware skew severity.",
 	"namespaces":        "Namespace lists, labels, and Pod Security Standards labels.",
 	"crds":              "Installed CustomResourceDefinitions, compared as a set of names.",
@@ -108,9 +108,9 @@ func ScannerCatalog() []ScannerInfo {
 			category[s] = c.Name
 		}
 	}
-	out := make([]ScannerInfo, 0, len(ScannerLabels))
-	for id, label := range ScannerLabels {
-		out = append(out, ScannerInfo{ID: id, Label: label, Description: ScannerDescriptions[id], Category: category[id]})
+	out := make([]ScannerInfo, 0, len(scannerLabels))
+	for id, label := range scannerLabels {
+		out = append(out, ScannerInfo{ID: id, Label: label, Description: scannerDescriptions[id], Category: category[id]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -133,10 +133,10 @@ func RenderHTML(r *Report) ([]byte, error) {
 	payload := htmlPayload{
 		Report:        r,
 		ClusterColors: make(map[string]string, len(r.Clusters)),
-		ScannerLabels: ScannerLabels,
+		ScannerLabels: scannerLabels,
 	}
 	for i, c := range r.Clusters {
-		payload.ClusterColors[c] = ClusterColors[i%len(ClusterColors)]
+		payload.ClusterColors[c] = clusterColors[i%len(clusterColors)]
 	}
 
 	payloadJSON, err := json.Marshal(payload)

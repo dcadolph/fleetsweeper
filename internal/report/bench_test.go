@@ -20,13 +20,13 @@ func BenchmarkBuild(b *testing.B) {
 	}
 }
 
-// BenchmarkComputeFleetScore isolates the score math from the surrounding
+// BenchmarkScoreWithAttribution isolates the score math from the surrounding
 // report-build cost.
-func BenchmarkComputeFleetScore(b *testing.B) {
+func BenchmarkScoreWithAttribution(b *testing.B) {
 	r := Build(makeClusterNames(), makeSyntheticResults(makeClusterNames()))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ComputeFleetScore(r)
+		_, _ = scoreWithAttribution(r)
 	}
 }
 

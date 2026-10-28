@@ -57,10 +57,10 @@ var incidentSummaries = map[string]string{
 	"security-posture":  "Workload-security, RBAC, network-policy, and image gaps overlap on this cluster and widen its attack surface at the same time.",
 }
 
-// FuseIncidents groups findings by cluster and root-cause theme, emitting an
+// fuseIncidents groups findings by cluster and root-cause theme, emitting an
 // incident wherever two or more findings on a cluster share a theme. Findings
 // with no theme, or that stand alone, are left as ordinary findings.
-func FuseIncidents(findings []Finding) []Incident {
+func fuseIncidents(findings []Finding) []Incident {
 	type key struct{ cluster, theme string }
 	groups := make(map[key][]Finding)
 	for _, f := range findings {
