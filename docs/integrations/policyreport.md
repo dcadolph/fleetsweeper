@@ -14,8 +14,9 @@ serve:
     - --policy-report-namespace=fleetsweeper
 ```
 
-After every scan the directory contains one PolicyReport YAML per cluster
-plus a fleet-level report. Point your GitOps tool at the directory.
+After every scan the directory contains one PolicyReport YAML per cluster.
+Fleet-wide findings appear in every cluster's report. Point your GitOps tool
+at the directory.
 
 ## Resource shape
 
@@ -23,27 +24,31 @@ plus a fleet-level report. Point your GitOps tool at the directory.
 apiVersion: wgpolicyk8s.io/v1alpha2
 kind: PolicyReport
 metadata:
-  name: prod-east-fleetsweeper
+  name: fleetsweeper-prod-east
   namespace: fleetsweeper
-results:
-  - policy: fleetsweeper/image-audit
-    rule: digest-pinning
-    category: hygiene
-    severity: warning
-    result: fail
-    source: fleetsweeper
-    timestamp: { seconds: 1747488000 }
-    properties:
-      cluster: prod-east
-      scanner: image-audit
-      remediation: |
-        kubectl set image deploy/foo container=image@sha256:abc123...
+  labels:
+    app.kubernetes.io/managed-by: fleetsweeper
+    fleetsweeper.io/cluster: prod-east
+    fleetsweeper.io/scan-id: scan-1
+    policy.kubernetes.io/engine: fleetsweeper
 summary:
-  pass: 14
-  fail: 3
-  warn: 1
+  pass: 0
+  fail: 1
+  warn: 0
   error: 0
   skip: 0
+results:
+  - source: fleetsweeper
+    policy: image-audit
+    rule: image-audit/digest-pinning
+    category: Workloads
+    severity: medium
+    result: fail
+    message: Image not pinned by digest
+    timestamp: { seconds: 1747488000, nanos: 0 }
+    properties:
+      fleetsweeper.cluster: prod-east
+      remediation.command: kubectl set image deploy/foo container=image@sha256:abc123
 ```
 
 ## Why use it
