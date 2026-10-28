@@ -3,9 +3,9 @@
 package workloadsec
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -176,12 +176,7 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		sort.Slice(data.HighRiskPods, func(i, j int) bool {
-			return len(data.HighRiskPods[i].Risks) > len(data.HighRiskPods[j].Risks)
-		})
-		if len(data.HighRiskPods) > 50 {
-			data.HighRiskPods = data.HighRiskPods[:50]
-		}
+		data.HighRiskPods = scanner.TopN(data.HighRiskPods, 50, comparePodRisks)
 
 		return cov.Finish(Name, data)
 	})
@@ -292,4 +287,15 @@ func hasHostPath(pod *corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// comparePodRisks orders pod risks by risk count, most first, then by namespace, pod, and
+// container.
+func comparePodRisks(a, b PodRisk) int {
+	return cmp.Or(
+		cmp.Compare(len(b.Risks), len(a.Risks)),
+		cmp.Compare(a.Namespace, b.Namespace),
+		cmp.Compare(a.Pod, b.Pod),
+		cmp.Compare(a.Container, b.Container),
+	)
 }

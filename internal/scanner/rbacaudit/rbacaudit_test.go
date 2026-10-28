@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
@@ -330,5 +332,32 @@ func TestScanRequiredReadFails(t *testing.T) {
 				t.Errorf("result = %q with data %v, want errored with no data", result.State, result.Data)
 			}
 		})
+	}
+}
+
+// TestTopNPermutation verifies the thirty risk bindings the scanner keeps do not depend on input
+// order when forty bindings tie on risk count. The fake clientset always lists in one order, so
+// the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]RiskBinding, 0, 40)
+	for i := range 40 {
+		items = append(items, RiskBinding{
+			Kind:      []string{"ClusterRoleBinding", "RoleBinding"}[i%2],
+			Namespace: fmt.Sprintf("ns-%d", i%3),
+			Name:      fmt.Sprintf("binding-%02d", i%10),
+			Risks:     make([]string, 1+i%2),
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 30, compareRiskBindings)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 30, compareRiskBindings)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }

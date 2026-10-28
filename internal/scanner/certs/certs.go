@@ -5,11 +5,11 @@
 package certs
 
 import (
+	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"sort"
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -125,12 +125,7 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		sort.Slice(data.Certs, func(i, j int) bool {
-			return data.Certs[i].DaysRemaining < data.Certs[j].DaysRemaining
-		})
-		if len(data.Certs) > 100 {
-			data.Certs = data.Certs[:100]
-		}
+		data.Certs = scanner.TopN(data.Certs, 100, compareCerts)
 
 		return cov.Finish(Name, data)
 	})
@@ -212,4 +207,15 @@ func appendValidatingCAs(data *Data, vwc *admissionregv1.ValidatingWebhookConfig
 			})
 		}
 	}
+}
+
+// compareCerts orders certificates by days remaining, soonest first, then by namespace, name,
+// and kind.
+func compareCerts(a, b Cert) int {
+	return cmp.Or(
+		cmp.Compare(a.DaysRemaining, b.DaysRemaining),
+		cmp.Compare(a.Namespace, b.Namespace),
+		cmp.Compare(a.Name, b.Name),
+		cmp.Compare(a.Kind, b.Kind),
+	)
 }

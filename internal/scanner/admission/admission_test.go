@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -242,5 +244,86 @@ func TestScanListErrors(t *testing.T) {
 				t.Errorf("state = %q, want %q", result.State, test.WantState)
 			}
 		})
+	}
+}
+
+// TestEndpointsReadFailure verifies a failed endpoints read leaves the webhook uncounted and
+// degrades the result, while a missing Endpoints object counts as unhealthy.
+func TestEndpointsReadFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Name          string
+		FailGet       error
+		WantState     scanner.State
+		WantUnhealthy int
+	}{{ // Test 0: Endpoints read times out; the webhook is not counted unhealthy.
+		Name:          "timeout",
+		FailGet:       context.DeadlineExceeded,
+		WantState:     scanner.StateDegraded,
+		WantUnhealthy: 0,
+	}, { // Test 1: Endpoints are NotFound; the webhook is unhealthy and the read succeeded.
+		Name:          "not found",
+		WantState:     scanner.StateOK,
+		WantUnhealthy: 1,
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+
+			cs := fakeclientset.NewSimpleClientset(mutating(serviceRef(nil), nil))
+			if test.FailGet != nil {
+				cs.PrependReactor("get", "endpoints", func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, test.FailGet
+				})
+			}
+			client := kube.NewTestClientWithClientset("test", cs)
+
+			result, err := NewScanner().Scan(context.Background(), client)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(test.WantState, result.State); diff != "" {
+				t.Errorf("state mismatch (-want +got):\n%s", diff)
+			}
+			data, ok := result.Data.(Data)
+			if !ok {
+				t.Fatalf("expected Data type, got %T", result.Data)
+			}
+			if diff := cmp.Diff(test.WantUnhealthy, data.UnhealthyWebhooks); diff != "" {
+				t.Errorf("unhealthy mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestTopNPermutation verifies the hundred webhooks the scanner keeps do not depend on input
+// order. Configuration "a" with webhook "bc" and configuration "ab" with webhook "c" join to one
+// string, and each configuration holds two webhooks. The fake clientset always lists in one
+// order, so the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]Webhook, 0, 110)
+	items = append(items,
+		Webhook{Configuration: "a", Webhook: "bc", Type: "validating"},
+		Webhook{Configuration: "ab", Webhook: "c", Type: "mutating"},
+	)
+	for i := range 108 {
+		items = append(items, Webhook{
+			Configuration: fmt.Sprintf("vwc-%02d", i/2),
+			Webhook:       []string{"v.example.com", "w.example.com"}[i%2],
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 100, compareWebhooks)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 100, compareWebhooks)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }

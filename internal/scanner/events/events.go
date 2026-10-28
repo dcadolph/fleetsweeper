@@ -4,8 +4,8 @@
 package events
 
 import (
+	"cmp"
 	"context"
-	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -127,13 +127,7 @@ func NewScanner() scanner.Scanner {
 			})
 		}
 
-		sort.Slice(warnings, func(i, j int) bool {
-			return warnings[i].LastSeen > warnings[j].LastSeen
-		})
-		if len(warnings) > maxRecentWarnings {
-			warnings = warnings[:maxRecentWarnings]
-		}
-		data.RecentWarnings = warnings
+		data.RecentWarnings = scanner.TopN(warnings, maxRecentWarnings, compareWarnings)
 
 		for reason, count := range reasonCounts {
 			data.TopWarningReasons = append(data.TopWarningReasons, ReasonSummary{
@@ -142,12 +136,7 @@ func NewScanner() scanner.Scanner {
 				EventCount: reasonEventCounts[reason],
 			})
 		}
-		sort.Slice(data.TopWarningReasons, func(i, j int) bool {
-			return data.TopWarningReasons[i].Count > data.TopWarningReasons[j].Count
-		})
-		if len(data.TopWarningReasons) > 10 {
-			data.TopWarningReasons = data.TopWarningReasons[:10]
-		}
+		data.TopWarningReasons = scanner.TopN(data.TopWarningReasons, 10, compareReasons)
 
 		return cov.Finish(Name, data)
 	})
@@ -159,4 +148,22 @@ func truncateMessage(msg string, maxLen int) string {
 		return msg
 	}
 	return msg[:maxLen-3] + "..."
+}
+
+// compareWarnings orders warning events by last seen, newest first, then by namespace, kind,
+// involved object, reason, and message.
+func compareWarnings(a, b EventInfo) int {
+	return cmp.Or(
+		cmp.Compare(b.LastSeen, a.LastSeen),
+		cmp.Compare(a.Namespace, b.Namespace),
+		cmp.Compare(a.Kind, b.Kind),
+		cmp.Compare(a.InvolvedObject, b.InvolvedObject),
+		cmp.Compare(a.Reason, b.Reason),
+		cmp.Compare(a.Message, b.Message),
+	)
+}
+
+// compareReasons orders warning reasons by event count, most first, then by reason.
+func compareReasons(a, b ReasonSummary) int {
+	return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Reason, b.Reason))
 }

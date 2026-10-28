@@ -4,8 +4,8 @@
 package imageaudit
 
 import (
+	"cmp"
 	"context"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -134,12 +134,7 @@ func NewScanner() scanner.Scanner {
 
 		data.UniqueImages = len(images)
 
-		sort.Slice(data.ImageRisks, func(i, j int) bool {
-			return len(data.ImageRisks[i].Risks) > len(data.ImageRisks[j].Risks)
-		})
-		if len(data.ImageRisks) > 50 {
-			data.ImageRisks = data.ImageRisks[:50]
-		}
+		data.ImageRisks = scanner.TopN(data.ImageRisks, 50, compareImageRisks)
 
 		if ProbeRegistriesEnabled() {
 			fillProbeMetrics(ctx, client, byImage, &data)
@@ -204,4 +199,16 @@ func isLatestOrNoTag(image string) bool {
 		afterSlash = image[lastSlash:]
 	}
 	return !strings.Contains(afterSlash, ":")
+}
+
+// compareImageRisks orders image risks by risk count, most first, then by image, namespace, pod,
+// and container.
+func compareImageRisks(a, b ImageRisk) int {
+	return cmp.Or(
+		cmp.Compare(len(b.Risks), len(a.Risks)),
+		cmp.Compare(a.Image, b.Image),
+		cmp.Compare(a.Namespace, b.Namespace),
+		cmp.Compare(a.Pod, b.Pod),
+		cmp.Compare(a.Container, b.Container),
+	)
 }

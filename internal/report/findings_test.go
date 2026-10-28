@@ -315,13 +315,18 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "workload-coverage", Affected: []string{"Deployment ns/web"},
 			Remediation: &Remediation{YAML: defaultPDBYAML},
 		}},
-	}, { // Test 16: An unhealthy webhook with an expiring CA yields both findings.
+	}, { // Test 16: An unhealthy webhook with an expiring CA yields both findings, and a webhook
+		// whose endpoints read failed is not called unhealthy.
 		Name:     "admission",
 		Generate: admissionFindings,
 		Report: testReport(map[string]map[string]any{"admission": {"a": map[string]any{"webhooks": []any{
 			map[string]any{
 				"configuration": "cfg", "webhook": "wh", "service": "ns/svc", "endpoints_healthy": false,
 				"failure_policy": "Fail", "ca_bundle_days_remaining": 10,
+			},
+			map[string]any{
+				"configuration": "cfg", "webhook": "unread", "service": "ns/other",
+				"endpoints_healthy": false, "endpoints_unknown": true, "ca_bundle_days_remaining": -1,
 			},
 		}}}}),
 		WantResult: []Finding{{

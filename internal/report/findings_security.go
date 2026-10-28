@@ -517,11 +517,12 @@ func admissionFindings(r *Report) []Finding {
 			whName, _ := entry["webhook"].(string)
 			svc, _ := entry["service"].(string)
 			healthy, _ := entry["endpoints_healthy"].(bool)
+			unknown, _ := entry["endpoints_unknown"].(bool)
 			failurePolicy, _ := entry["failure_policy"].(string)
 			caRemaining, _ := util.Float64(entry["ca_bundle_days_remaining"])
 			caDays := int(caRemaining)
 			label := cfg + "/" + whName
-			if !healthy && svc != "" {
+			if !healthy && !unknown && svc != "" {
 				if firstSvc == "" {
 					firstSvc = svc
 				}

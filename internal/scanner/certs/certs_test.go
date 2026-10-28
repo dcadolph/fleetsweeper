@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"testing"
 	"time"
 
@@ -254,5 +256,32 @@ func TestSecretListSelectsTLS(t *testing.T) {
 	}
 	if diff := cmp.Diff([]string{"type=kubernetes.io/tls"}, got); diff != "" {
 		t.Errorf("secret field selectors mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestTopNPermutation verifies the hundred certificates the scanner keeps do not depend on input
+// order when 110 certificates tie on days remaining. The fake clientset always lists in one
+// order, so the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]Cert, 0, 110)
+	for i := range 110 {
+		items = append(items, Cert{
+			Kind:          []string{"Secret", "ValidatingWebhookConfiguration"}[i%2],
+			Namespace:     fmt.Sprintf("ns-%d", i/40),
+			Name:          fmt.Sprintf("tls-%02d", i/2%20),
+			DaysRemaining: 30,
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 100, compareCerts)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 100, compareCerts)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }

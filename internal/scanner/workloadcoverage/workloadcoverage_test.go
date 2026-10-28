@@ -215,3 +215,58 @@ func TestScanListErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestScanPartialReads verifies a failed PDB or HPA read does not count workloads as uncovered.
+func TestScanPartialReads(t *testing.T) {
+	t.Parallel()
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "x"}, "", errors.New("rbac denied"))
+	tests := []struct {
+		Resource  string
+		Objects   []runtime.Object
+		WantData  Data
+		WantState scanner.State
+	}{{ // Test 0: A failed PDB read leaves MissingPDB at zero and reports no PDB gaps.
+		Resource: "poddisruptionbudgets",
+		Objects: []runtime.Object{
+			deployment("default", "a", int32Ptr(2), map[string]string{"app": "a"}),
+			deployment("default", "b", int32Ptr(2), map[string]string{"app": "b"}),
+			hpa("default", "Deployment", "a"),
+			hpa("default", "Deployment", "b"),
+		},
+		WantData:  Data{TotalReplicated: 2},
+		WantState: scanner.StateDegraded,
+	}, { // Test 1: A failed HPA read leaves MissingHPA at zero and reports no HPA gaps.
+		Resource: "horizontalpodautoscalers",
+		Objects: []runtime.Object{
+			deployment("default", "a", int32Ptr(2), map[string]string{"app": "a"}),
+			deployment("default", "b", int32Ptr(2), map[string]string{"app": "b"}),
+			pdb("default", "a-pdb", matchLabels(map[string]string{"app": "a"})),
+			pdb("default", "b-pdb", matchLabels(map[string]string{"app": "b"})),
+		},
+		WantData:  Data{TotalReplicated: 2},
+		WantState: scanner.StateDegraded,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cs := fakeclientset.NewSimpleClientset(test.Objects...)
+			cs.PrependReactor("list", test.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, forbidden
+			})
+			result, err := NewScanner().Scan(context.Background(), kube.NewTestClientWithClientset("test", cs))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.State != test.WantState {
+				t.Errorf("state = %q, want %q", result.State, test.WantState)
+			}
+			data, ok := result.Data.(Data)
+			if !ok {
+				t.Fatalf("expected Data type, got %T", result.Data)
+			}
+			if diff := cmp.Diff(test.WantData, data, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("data mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

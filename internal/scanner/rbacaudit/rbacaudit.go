@@ -3,10 +3,10 @@
 package rbacaudit
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -190,12 +190,7 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		sort.Slice(data.RiskBindings, func(i, j int) bool {
-			return len(data.RiskBindings[i].Risks) > len(data.RiskBindings[j].Risks)
-		})
-		if len(data.RiskBindings) > 30 {
-			data.RiskBindings = data.RiskBindings[:30]
-		}
+		data.RiskBindings = scanner.TopN(data.RiskBindings, 30, compareRiskBindings)
 
 		return cov.Finish(Name, data)
 	})
@@ -224,4 +219,14 @@ func isSystemBinding(meta metav1.ObjectMeta, subjects []rbacv1.Subject) bool {
 // ruleHasWildcard reports whether any element of the slice equals "*".
 func ruleHasWildcard(items []string) bool {
 	return slices.Contains(items, "*")
+}
+
+// compareRiskBindings orders bindings by risk count, most first, then by kind, namespace, and name.
+func compareRiskBindings(a, b RiskBinding) int {
+	return cmp.Or(
+		cmp.Compare(len(b.Risks), len(a.Risks)),
+		cmp.Compare(a.Kind, b.Kind),
+		cmp.Compare(a.Namespace, b.Namespace),
+		cmp.Compare(a.Name, b.Name),
+	)
 }
