@@ -2,6 +2,10 @@ package cohort
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -385,5 +389,80 @@ func TestProfilesGolden(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
 		t.Errorf("profiles mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// stableProfiles builds ten clusters around each of two centers that are sep apart on every
+// feature, with a fixed per-cluster offset of at most 0.05 and an optional seeded jitter.
+func stableProfiles(sep float64, rng *rand.Rand) []ClusterProfile {
+	const features, perGroup = 12, 10
+	profiles := make([]ClusterProfile, 0, 2*perGroup)
+	for group := range 2 {
+		center := 0.2 + float64(group)*sep
+		for i := range perGroup {
+			vec := make([]float64, features)
+			for f := range vec {
+				vec[f] = center + 0.05*math.Sin(float64((group*perGroup+i+1)*(f+1)))
+				if rng != nil {
+					vec[f] += (rng.Float64()*2 - 1) * 0.02
+				}
+			}
+			name := fmt.Sprintf("g%d-c%02d", group, i)
+			profiles = append(profiles, ClusterProfile{Name: name, Features: vec})
+		}
+	}
+	return profiles
+}
+
+// partitionOf returns the cohort member sets with names ignored, in canonical order.
+func partitionOf(cohorts []Cohort) []string {
+	sets := make([]string, 0, len(cohorts))
+	for _, c := range cohorts {
+		members := slices.Clone(c.Clusters)
+		slices.Sort(members)
+		sets = append(sets, strings.Join(members, ","))
+	}
+	slices.Sort(sets)
+	return sets
+}
+
+func TestAssignStableUnderPerturbation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Separation float64
+		Seed       int64
+		Runs       int
+	}{
+		{ // Test 0: centers 0.6 apart keep the same two cohorts under small jitter.
+			Separation: 0.6, Seed: 1, Runs: 50,
+		},
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			base := partitionOf(Assign(stableProfiles(test.Separation, nil), Options{}))
+			want := []string{
+				strings.Join([]string{
+					"g0-c00", "g0-c01", "g0-c02", "g0-c03", "g0-c04",
+					"g0-c05", "g0-c06", "g0-c07", "g0-c08", "g0-c09",
+				}, ","),
+				strings.Join([]string{
+					"g1-c00", "g1-c01", "g1-c02", "g1-c03", "g1-c04",
+					"g1-c05", "g1-c06", "g1-c07", "g1-c08", "g1-c09",
+				}, ","),
+			}
+			if diff := cmp.Diff(want, base, cmpopts.EquateEmpty()); diff != "" {
+				t.Fatalf("base partition mismatch (-want +got):\n%s", diff)
+			}
+			t.Logf("partition: %q", base)
+			rng := rand.New(rand.NewSource(test.Seed))
+			for run := range test.Runs {
+				got := partitionOf(Assign(stableProfiles(test.Separation, rng), Options{}))
+				if diff := cmp.Diff(base, got, cmpopts.EquateEmpty()); diff != "" {
+					t.Fatalf("run %d (seed %d) partition changed (-base +got):\n%s",
+						run, test.Seed, diff)
+				}
+			}
+		})
 	}
 }

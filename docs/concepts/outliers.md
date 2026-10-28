@@ -116,6 +116,14 @@ in the fleet distribution with `explained`, and raises no finding. The
 detector's own flag is not used for this test, since a small cohort flags at
 most one cluster per field. Auto-derived cohorts never hold an outlier.
 
+A tagged cohort of two is too small for a norm of its own, so it holds by
+agreement instead. When both members are fleet outliers on the same field and
+deviate the same way, both are held: the same side of the median for a numeric
+field (the same value when the fleet norm is exact), the same value for a
+string field, and the same missing members for a set field. Two members on
+opposite sides keep their findings. A tagged cohort of one holds nothing, and
+the report adds a note saying so.
+
 ## Location is identity
 
 The geo scanner reports where a cluster is. Its fields differ by design, so
