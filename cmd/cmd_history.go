@@ -177,17 +177,14 @@ func runHistoryShow(cmd *cobra.Command, args []string) error {
 	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
-	scan, err := s.GetScan(ctx, args[0])
+	id, err := resolveScanRef(ctx, s, args[0])
 	if err != nil {
-		return fmt.Errorf("get scan: %w", err)
+		return err
 	}
-
-	results, err := s.GetScanResults(ctx, args[0])
+	rpt, _, err := loadStoredReport(ctx, s, id)
 	if err != nil {
-		return fmt.Errorf("get results: %w", err)
+		return err
 	}
-
-	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 	out, err := jsonutil.Marshal(rpt, pretty)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -207,28 +204,19 @@ func runHistoryDiff(cmd *cobra.Command, args []string) error {
 	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
-	scan1, err := s.GetScan(ctx, args[0])
-	if err != nil {
-		return fmt.Errorf("get scan %s: %w", args[0], err)
+	var ids [2]string
+	var rpts [2]*report.Report
+	for i, ref := range args[:2] {
+		if ids[i], err = resolveScanRef(ctx, s, ref); err != nil {
+			return err
+		}
+		if rpts[i], _, err = loadStoredReport(ctx, s, ids[i]); err != nil {
+			return err
+		}
 	}
-	results1, err := s.GetScanResults(ctx, args[0])
-	if err != nil {
-		return fmt.Errorf("get results %s: %w", args[0], err)
-	}
+	rpt1, rpt2 := rpts[0], rpts[1]
 
-	scan2, err := s.GetScan(ctx, args[1])
-	if err != nil {
-		return fmt.Errorf("get scan %s: %w", args[1], err)
-	}
-	results2, err := s.GetScanResults(ctx, args[1])
-	if err != nil {
-		return fmt.Errorf("get results %s: %w", args[1], err)
-	}
-
-	rpt1 := report.Build(scan1.Clusters, results1, report.BuildOptions{Timestamp: scan1.Timestamp})
-	rpt2 := report.Build(scan2.Clusters, results2, report.BuildOptions{Timestamp: scan2.Timestamp})
-
-	diff := buildScanDiff(scan1.ID, scan2.ID, rpt1, rpt2)
+	diff := buildScanDiff(ids[0], ids[1], rpt1, rpt2)
 	out, err := jsonutil.Marshal(diff, pretty)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)

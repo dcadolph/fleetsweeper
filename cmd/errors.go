@@ -16,4 +16,8 @@ var (
 	ErrStableScans = errors.New("--admission-stable-scans must be at least 1")
 	// ErrFlagValue indicates a flag was given a value outside its allowed set.
 	ErrFlagValue = errors.New("invalid flag value")
+	// ErrNoScans indicates a command needs a stored scan and the store has none.
+	ErrNoScans = errors.New("no scans in store: run fleetsweeper scan --db <dsn> first")
+	// ErrTooFewScans indicates a scan reference needs more stored scans than the store holds.
+	ErrTooFewScans = errors.New("need at least two scans")
 )

@@ -70,12 +70,13 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 	defer st.Close()
 
 	ctx := cmdContext(cmd)
-	rpt, _, err := latestReport(ctx, st)
+	scanID, err := resolveScanRef(ctx, st, "latest")
 	if err != nil {
 		return err
 	}
-	if rpt == nil {
-		return fmt.Errorf("no scans found in store")
+	rpt, _, err := loadStoredReport(ctx, st, scanID)
+	if err != nil {
+		return err
 	}
 
 	limit, _ := cmd.Flags().GetInt("limit")

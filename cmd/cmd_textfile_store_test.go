@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,39 +8,6 @@ import (
 
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
-
-// TestLatestReport verifies the empty-store and seeded-store paths.
-func TestLatestReport(t *testing.T) {
-	t.Parallel()
-
-	// Empty store returns a nil report and no error.
-	emptyPath := filepath.Join(t.TempDir(), "empty.db")
-	es, err := store.NewSQLite(emptyPath)
-	if err != nil {
-		t.Fatalf("open empty: %v", err)
-	}
-	defer es.Close()
-	rpt, id, err := latestReport(context.Background(), es)
-	if err != nil {
-		t.Fatalf("latestReport empty: %v", err)
-	}
-	if rpt != nil || id != "" {
-		t.Errorf("empty store should yield nil report, got id=%q", id)
-	}
-
-	// Seeded store returns the most recent scan's report.
-	seededPath := filepath.Join(t.TempDir(), "seeded.db")
-	ids := seedHistoryScans(t, seededPath, 1)
-	ss, _ := store.NewSQLite(seededPath)
-	defer ss.Close()
-	rpt, id, err = latestReport(context.Background(), ss)
-	if err != nil {
-		t.Fatalf("latestReport seeded: %v", err)
-	}
-	if rpt == nil || id != ids[0] {
-		t.Errorf("seeded report: id=%q", id)
-	}
-}
 
 // TestRunExportMetrics verifies the .prom file is written atomically with the
 // expected metric names.

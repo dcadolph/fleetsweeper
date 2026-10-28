@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/dcadolph/fleetsweeper/internal/compare"
-	"github.com/dcadolph/fleetsweeper/internal/report"
-	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 // compareCmd computes the diff between two stored scans and renders it in
@@ -49,20 +46,20 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	}
 	defer s.Close()
 
-	aID, err := resolveScanID(ctx, s, args[0])
+	aID, err := resolveScanRef(ctx, s, args[0])
 	if err != nil {
 		return err
 	}
-	bID, err := resolveScanID(ctx, s, args[1])
+	bID, err := resolveScanRef(ctx, s, args[1])
 	if err != nil {
 		return err
 	}
 
-	a, err := loadReport(ctx, s, aID)
+	a, _, err := loadStoredReport(ctx, s, aID)
 	if err != nil {
 		return fmt.Errorf("load %q: %w", aID, err)
 	}
-	b, err := loadReport(ctx, s, bID)
+	b, _, err := loadStoredReport(ctx, s, bID)
 	if err != nil {
 		return fmt.Errorf("load %q: %w", bID, err)
 	}
@@ -82,46 +79,4 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		fmt.Fprint(out, compare.RenderText(d, color))
 		return nil
 	}
-}
-
-// resolveScanID maps a friendly alias to an actual scan ID. Recognized
-// aliases: 'latest', 'previous' (== second-latest), 'second-latest'.
-// Anything else is returned verbatim.
-func resolveScanID(ctx context.Context, s store.Store, alias string) (string, error) {
-	switch alias {
-	case "latest":
-		scans, err := s.ListScans(ctx, 1)
-		if err != nil {
-			return "", err
-		}
-		if len(scans) == 0 {
-			return "", fmt.Errorf("no scans available")
-		}
-		return scans[0].ID, nil
-	case "previous", "second-latest":
-		scans, err := s.ListScans(ctx, 2)
-		if err != nil {
-			return "", err
-		}
-		if len(scans) < 2 {
-			return "", fmt.Errorf("need at least two scans to use 'previous'")
-		}
-		return scans[1].ID, nil
-	default:
-		return alias, nil
-	}
-}
-
-// loadReport pulls a scan and rebuilds the full Report from its persisted
-// raw results.
-func loadReport(ctx context.Context, s store.Store, id string) (*report.Report, error) {
-	scan, err := s.GetScan(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	results, err := s.GetScanResults(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp}), nil
 }
