@@ -124,7 +124,7 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 			entry.Leverage++
 		}
 		// Promote severity to the highest seen across contributing rows.
-		if recommendSeverityRank(f.Severity) > recommendSeverityRank(entry.Severity) {
+		if util.SeverityRank(f.Severity) > util.SeverityRank(entry.Severity) {
 			entry.Severity = f.Severity
 		}
 	}
@@ -135,8 +135,8 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		out = append(out, *g)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		scoreI := out[i].Leverage * (recommendSeverityRank(out[i].Severity) + 1)
-		scoreJ := out[j].Leverage * (recommendSeverityRank(out[j].Severity) + 1)
+		scoreI := out[i].Leverage * (util.SeverityRank(out[i].Severity) + 1)
+		scoreJ := out[j].Leverage * (util.SeverityRank(out[j].Severity) + 1)
 		if scoreI != scoreJ {
 			return scoreI > scoreJ
 		}
@@ -146,21 +146,6 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		return out[i].Rule < out[j].Rule
 	})
 	return out
-}
-
-// recommendSeverityRank orders the report severities the same way
-// severityAtLeast in whatchanged does. Local copy avoids a cross-file
-// alias.
-func recommendSeverityRank(s string) int {
-	switch s {
-	case "critical":
-		return 3
-	case "warning":
-		return 2
-	case "info":
-		return 1
-	}
-	return 0
 }
 
 // containsCluster reports whether the slice already includes c.

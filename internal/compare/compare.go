@@ -9,11 +9,14 @@
 package compare
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // ScanDiff captures every meaningful change between two reports. The "old"
@@ -142,9 +145,9 @@ func (d *ScanDiff) populateFindings(a, b *report.Report) {
 			d.Resolved = append(d.Resolved, f)
 		}
 	}
-	sort.Slice(d.New, lessBySeverityThenTitle(d.New))
-	sort.Slice(d.Resolved, lessBySeverityThenTitle(d.Resolved))
-	sort.Slice(d.Persisted, lessBySeverityThenTitle(d.Persisted))
+	slices.SortStableFunc(d.New, FindingOrder)
+	slices.SortStableFunc(d.Resolved, FindingOrder)
+	slices.SortStableFunc(d.Persisted, FindingOrder)
 	sort.Slice(d.SetDrift, func(i, j int) bool {
 		if d.SetDrift[i].Cluster != d.SetDrift[j].Cluster {
 			return d.SetDrift[i].Cluster < d.SetDrift[j].Cluster
@@ -239,24 +242,15 @@ func (d *ScanDiff) populateSummary(a, b *report.Report) {
 	}
 }
 
-// lessBySeverityThenTitle is a sort comparator for finding slices: critical
-// before warning before info, ties broken by cluster name + title.
-func lessBySeverityThenTitle(fs []report.Finding) func(i, j int) bool {
-	order := map[string]int{
-		report.SeverityCritical: 0,
-		report.SeverityWarning:  1,
-		report.SeverityInfo:     2,
-	}
-	return func(i, j int) bool {
-		oi, oj := order[fs[i].Severity], order[fs[j].Severity]
-		if oi != oj {
-			return oi < oj
-		}
-		if fs[i].Cluster != fs[j].Cluster {
-			return fs[i].Cluster < fs[j].Cluster
-		}
-		return fs[i].Title < fs[j].Title
-	}
+// FindingOrder orders findings by descending severity, then cluster, title, and rule. Unknown
+// severities sort after info.
+func FindingOrder(a, b report.Finding) int {
+	return cmp.Or(
+		cmp.Compare(util.SeverityRank(b.Severity), util.SeverityRank(a.Severity)),
+		strings.Compare(a.Cluster, b.Cluster),
+		strings.Compare(a.Title, b.Title),
+		strings.Compare(a.Rule, b.Rule),
+	)
 }
 
 // RenderText returns a plain-text rendering of the diff suitable for the

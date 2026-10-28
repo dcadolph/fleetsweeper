@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -234,19 +235,9 @@ func indexFindings(in []report.Finding, minSeverity string) map[string]report.Fi
 	return out
 }
 
-// sortFindings sorts in place: critical first, then by cluster, then title.
+// sortFindings sorts in place: critical first, then by cluster, title, and rule.
 func sortFindings(f []report.Finding) {
-	sevRank := map[string]int{"critical": 0, "warning": 1, "info": 2}
-	sort.SliceStable(f, func(i, j int) bool {
-		ri, rj := sevRank[f[i].Severity], sevRank[f[j].Severity]
-		if ri != rj {
-			return ri < rj
-		}
-		if f[i].Cluster != f[j].Cluster {
-			return f[i].Cluster < f[j].Cluster
-		}
-		return f[i].Title < f[j].Title
-	})
+	slices.SortStableFunc(f, compare.FindingOrder)
 }
 
 // clusterScoreDelta returns one record per cluster whose score moved.

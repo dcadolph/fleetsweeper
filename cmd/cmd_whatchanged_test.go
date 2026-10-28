@@ -3,8 +3,13 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
@@ -157,5 +162,48 @@ func TestWriteWhatChanged_JSON(t *testing.T) {
 	}
 	if got.ScanA != "a" || got.FleetScoreDelta != 5 {
 		t.Errorf("decoded: %+v", got)
+	}
+}
+
+// TestSortFindings verifies severity-descending order with a full tie-break.
+func TestSortFindings(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		In        []report.Finding
+		WantOrder []string
+	}{{ // Test 0: Unknown severity sorts after info.
+		In: []report.Finding{
+			{Title: "d", Severity: "debug", Cluster: "a"},
+			{Title: "i", Severity: "info", Cluster: "a"},
+			{Title: "w", Severity: "warning", Cluster: "a"},
+			{Title: "c", Severity: "critical", Cluster: "a"},
+		},
+		WantOrder: []string{"c", "w", "i", "d"},
+	}, { // Test 1: Ties break by cluster, title, then rule.
+		In: []report.Finding{
+			{Title: "t", Severity: "info", Cluster: "b", Rule: "r"},
+			{Title: "u", Severity: "info", Cluster: "a", Rule: "r"},
+			{Title: "t", Severity: "info", Cluster: "a", Rule: "z"},
+			{Title: "t", Severity: "info", Cluster: "a", Rule: "y"},
+		},
+		WantOrder: []string{"t/a/y", "t/a/z", "u/a/r", "t/b/r"},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			in := slices.Clone(test.In)
+			sortFindings(in)
+			var got []string
+			for _, f := range in {
+				if test.WantOrder[0] == "c" {
+					got = append(got, f.Title)
+					continue
+				}
+				got = append(got, f.Title+"/"+f.Cluster+"/"+f.Rule)
+			}
+			if diff := cmp.Diff(test.WantOrder, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("order mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
