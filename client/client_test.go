@@ -378,7 +378,7 @@ func TestContractNorm(t *testing.T) {
 				v = 80
 			}
 			clusters = append(clusters, cl)
-			results[cl] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+			results[cl] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"unenforced_count": v}}}
 		}
 		rec := store.ScanRecord{ID: fmt.Sprintf("scan-%d", n), Timestamp: start.Add(time.Duration(n) * time.Hour), Clusters: clusters}
 		if _, err := st.SaveScanRecord(ctx, rec, results); err != nil {
@@ -386,7 +386,7 @@ func TestContractNorm(t *testing.T) {
 		}
 	}
 
-	dists, err := c.Distributions(ctx, client.DistributionQuery{Field: "enforced_count"})
+	dists, err := c.Distributions(ctx, client.DistributionQuery{Field: "unenforced_count"})
 	if err != nil || dists.ScanID != "scan-5" || len(dists.Distributions) != 1 {
 		t.Fatalf("distributions: %+v, %v", dists, err)
 	}
@@ -400,7 +400,7 @@ func TestContractNorm(t *testing.T) {
 		t.Errorf("want one flagged cluster, got %d", flagged)
 	}
 
-	hist, err := c.DistributionHistory(ctx, "security", "enforced_count", "", 5)
+	hist, err := c.DistributionHistory(ctx, "security", "unenforced_count", "", 5)
 	if err != nil || len(hist.Points) != 5 || hist.Points[0].ScanID != "scan-1" {
 		t.Errorf("history: %+v, %v", hist, err)
 	}
@@ -427,7 +427,7 @@ func TestContractNorm(t *testing.T) {
 		t.Errorf("cohort map: %+v, %v", m, err)
 	}
 
-	out, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "enforced_count"})
+	out, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "unenforced_count"})
 	if err != nil {
 		t.Fatalf("whatif: %v", err)
 	}

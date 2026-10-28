@@ -194,9 +194,10 @@ func outlierFindings(r *Report) []Finding {
 			continue
 		}
 		findings = append(findings, Finding{
-			Rule:        outlierRule(o.Scanner, o.Field, false),
-			Title:       fmt.Sprintf("%s deviates from fleet norm on %s", o.Cluster, o.Field),
-			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).", o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner]),
+			Rule:  outlierRule(o.Scanner, o.Field, false),
+			Title: outlierTitle(o, "the fleet norm", "fleet norm"),
+			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).%s",
+				o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner], favorableNote(o)),
 			Severity:    o.Severity,
 			Cluster:     o.Cluster,
 			Scanner:     o.Scanner,
@@ -228,10 +229,11 @@ func cohortOutlierFindings(r *Report) []Finding {
 			}
 			findings = append(findings, Finding{
 				Rule:  outlierRule(o.Scanner, o.Field, true),
-				Title: fmt.Sprintf("%s deviates from its cohort on %s", o.Cluster, o.Field),
+				Title: outlierTitle(o, "its cohort norm", "its cohort"),
 				Description: fmt.Sprintf(
-					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).",
+					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).%s",
 					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, ScannerLabels[o.Scanner],
+					favorableNote(o),
 				),
 				Severity:    o.Severity,
 				Cluster:     o.Cluster,
@@ -243,6 +245,28 @@ func cohortOutlierFindings(r *Report) []Finding {
 		}
 	}
 	return findings
+}
+
+// outlierTitle titles an outlier finding: "better than <better>" for a favorable outlier and
+// "deviates from <norm>" otherwise.
+func outlierTitle(o OutlierResult, better, norm string) string {
+	if o.Favorable {
+		return fmt.Sprintf("%s is better than %s on %s", o.Cluster, better, o.Field)
+	}
+	return fmt.Sprintf("%s deviates from %s on %s", o.Cluster, norm, o.Field)
+}
+
+// favorableNote explains a favorable outlier's info severity, or returns "" for any other.
+func favorableNote(o OutlierResult) string {
+	if !o.Favorable {
+		return ""
+	}
+	better := "Lower"
+	if spec, _ := lookupField(o.Scanner, o.Field); spec.Polarity == DownIsBad {
+		better = "Higher"
+	}
+	return fmt.Sprintf(" %s is better for this field, so this is not a regression. If the cluster"+
+		" differs by design, tag it into a cohort.", better)
 }
 
 // outlierKey identifies an outlier by cluster, field, and scanner so fleet and

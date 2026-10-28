@@ -91,6 +91,8 @@ be worth an SRE's attention, not a daily false positive.
   add-ons legitimately differ.
 - **Maximum CPU and memory percentages** are warning, since natural
   per-cluster variation should not page an SRE.
+- **Outliers on the better side** of a field with a worse direction (fewer
+  privileged containers than the fleet, more enforced namespaces) are info.
 
 ## Where a field's meaning is declared
 

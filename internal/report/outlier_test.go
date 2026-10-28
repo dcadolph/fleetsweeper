@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -384,6 +385,83 @@ func TestDetectSetOutliersGolden(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantResults, got, opts...); diff != "" {
 				t.Errorf("results mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNumericSeverityDirection verifies a numeric outlier on the better side of a field with
+// a polarity is info and favorable, on the worse side keeps the field's severity, and on a
+// field with no polarity keeps it in both directions, for the MAD and majority detectors.
+func TestNumericSeverityDirection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner       string
+		Field         string
+		WantSeverity  string
+		WantTitle     string
+		WantNote      string
+		Vals          []any
+		WantFavorable bool
+	}{{ // Test 0: Fewer privileged containers than a fleet of nine is info and favorable.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals:         []any{5, 6, 7, 6, 5, 7, 6, 6, 0},
+		WantSeverity: SeverityInfo, WantFavorable: true,
+		WantTitle: "c08 is better than the fleet norm on privileged_containers",
+		WantNote:  "Lower is better for this field",
+	}, { // Test 1: More privileged containers than a fleet of nine is critical.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals:         []any{5, 6, 7, 6, 5, 7, 6, 6, 30},
+		WantSeverity: SeverityCritical,
+		WantTitle:    "c08 deviates from fleet norm on privileged_containers",
+	}, { // Test 2: A namespace count far below the fleet is a warning.
+		Scanner: "namespaces", Field: "count",
+		Vals:         []any{20, 22, 24, 24, 24, 26, 26, 28, 2},
+		WantSeverity: SeverityWarning,
+		WantTitle:    "c08 deviates from fleet norm on count",
+	}, { // Test 3: A namespace count far above the fleet is a warning.
+		Scanner: "namespaces", Field: "count",
+		Vals:         []any{20, 22, 24, 24, 24, 26, 26, 28, 80},
+		WantSeverity: SeverityWarning,
+		WantTitle:    "c08 deviates from fleet norm on count",
+	}, { // Test 4: More enforced namespaces in a fleet of five is info and favorable.
+		Scanner: "security", Field: "enforced_count",
+		Vals:         []any{10, 11, 10, 11, 40},
+		WantSeverity: SeverityInfo, WantFavorable: true,
+		WantTitle: "c04 is better than the fleet norm on enforced_count",
+		WantNote:  "Higher is better for this field",
+	}, { // Test 5: Fewer enforced namespaces in a fleet of five is critical capped at warning.
+		Scanner: "security", Field: "enforced_count",
+		Vals:         []any{10, 11, 10, 11, 1},
+		WantSeverity: SeverityWarning,
+		WantTitle:    "c04 deviates from fleet norm on enforced_count",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := fieldFleet(test.Scanner, test.Field, test.Vals...)
+			r := Build(clusters, results)
+			if len(r.Outliers) != 1 {
+				t.Fatalf("want one outlier, got %+v", r.Outliers)
+			}
+			o := r.Outliers[0]
+			if diff := cmp.Diff(test.WantSeverity+fmt.Sprint(test.WantFavorable),
+				o.Severity+fmt.Sprint(o.Favorable)); diff != "" {
+				t.Errorf("severity and favorable mismatch (-want +got):\n%s", diff)
+			}
+			got := outlierRuleFindings(r, fieldRule(test.Scanner, ruleOutlierPrefix, test.Field))
+			if len(got) != 1 {
+				t.Fatalf("want one outlier finding, got %+v", got)
+			}
+			if diff := cmp.Diff(test.WantTitle, got[0].Title); diff != "" {
+				t.Errorf("title mismatch (-want +got):\n%s", diff)
+			}
+			if got[0].Severity != test.WantSeverity {
+				t.Errorf("finding severity = %s, want %s", got[0].Severity, test.WantSeverity)
+			}
+			if hasNote := strings.Contains(got[0].Description, "is better for this field"); hasNote !=
+				(test.WantNote != "") || !strings.Contains(got[0].Description, test.WantNote) {
+				t.Errorf("description %q, want note %q", got[0].Description, test.WantNote)
 			}
 		})
 	}

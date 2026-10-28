@@ -38,7 +38,7 @@ func TestWhatifCommand(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "whatif.db")
 	seedStepScans(t, dbPath)
 
-	out, err := execWhatif(t, dbPath, "--cluster=c04", "--field=security/enforced_count", "--json=true")
+	out, err := execWhatif(t, dbPath, "--cluster=c04", "--field=security/unenforced_count", "--json=true")
 	if err != nil {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
@@ -54,12 +54,12 @@ func TestWhatifCommand(t *testing.T) {
 		t.Errorf("cleared mismatch (-want +got):\n%s", diff)
 	}
 
-	text, err := execWhatif(t, dbPath, "--cluster=c04", "--field=security/enforced_count", "--scan-id=scan-6")
+	text, err := execWhatif(t, dbPath, "--cluster=c04", "--field=security/unenforced_count", "--scan-id=scan-6")
 	if err != nil {
 		t.Fatalf("text: %v\n%s", err, text)
 	}
 	for _, want := range []string{
-		"What if c04 security/enforced_count were fixed (median, fleet norm)?",
+		"What if c04 security/unenforced_count were fixed (median, fleet norm)?",
 		fmt.Sprintf("Fleet score: %d -> %d", got.ScoreBefore, got.ScoreAfter),
 		"No longer flagged: c04",
 		"Nothing was changed.",
@@ -71,10 +71,10 @@ func TestWhatifCommand(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"--cluster=c04"},
-		{"--cluster=c04", "--field=enforced_count"},
+		{"--cluster=c04", "--field=unenforced_count"},
 		{"--cluster=c04", "--field=security/nope"},
-		{"--cluster=c04", "--field=security/enforced_count", "--fix=mode"},
-		{"--cluster=c04", "--field=security/enforced_count", "--scan-id=missing"},
+		{"--cluster=c04", "--field=security/unenforced_count", "--fix=mode"},
+		{"--cluster=c04", "--field=security/unenforced_count", "--scan-id=missing"},
 	} {
 		if _, err := execWhatif(t, dbPath, args...); err == nil {
 			t.Errorf("args %v: want an error", args)

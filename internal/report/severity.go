@@ -28,6 +28,18 @@ func classifySeverity(scannerName, field string) string {
 	return SeverityInfo
 }
 
+// numericSeverity returns the severity of a numeric outlier that sits delta from its norm and
+// whether it is favorable: on the better side of a field with a polarity. A favorable outlier
+// is info, so a cluster that differs for the better stays visible without costing more than
+// an info finding.
+func numericSeverity(scannerName, field string, delta float64) (string, bool) {
+	spec, _ := lookupField(scannerName, field)
+	if (spec.Polarity == UpIsBad && delta < 0) || (spec.Polarity == DownIsBad && delta > 0) {
+		return SeverityInfo, true
+	}
+	return classifySeverity(scannerName, field), false
+}
+
 // VersionSkewSeverity returns the severity for a set of Kubernetes version
 // strings present across a fleet. Patch differences are info, single-minor
 // skew is warning, and skew of more than one minor (outside Kubernetes' own

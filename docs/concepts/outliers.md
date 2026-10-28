@@ -35,6 +35,18 @@ since any spread at all would score as infinite.
 MAD is preferred over standard deviation because one badly misconfigured
 cluster does not widen the band that is supposed to catch it.
 
+### Which side of the norm
+
+Some numeric fields have a worse direction: more privileged containers, more
+cluster-admin bindings, or more nodes not ready is worse, and fewer enforced
+namespaces or ready nodes is worse. A numeric outlier on the better side of
+such a field is reported at info severity, marked `favorable`, and titled
+"better than the fleet norm", so a cluster that differs for the better stays
+visible without costing more than an info finding. If it differs by design,
+tag it into a cohort. Fields with no worse direction, such as namespace,
+service, or node counts, keep their severity on both sides, because there
+the difference itself is the fact.
+
 ## String fields: mode share
 
 For categorical fields (PSA mode, ingress class, default storage class),

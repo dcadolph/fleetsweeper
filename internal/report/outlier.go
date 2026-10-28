@@ -126,6 +126,9 @@ type OutlierResult struct {
 	ExplainedBy string `json:"explained_by,omitempty"`
 	// LimitedSample marks a norm drawn from a population too small for MAD.
 	LimitedSample bool `json:"limited_sample"`
+	// Favorable marks a numeric outlier on the better side of a field with a polarity. It is
+	// reported at info severity.
+	Favorable bool `json:"favorable,omitempty"`
 }
 
 // Basis returns the norm this outlier was measured against. A finding built
@@ -293,6 +296,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 				absZ = maxReportedDeviation
 				zScore = math.Copysign(maxReportedDeviation, zScore)
 			}
+			sev, favorable := numericSeverity(scannerName, field, v-median)
 			outliers = append(outliers, OutlierResult{
 				Cluster:    c,
 				Field:      field,
@@ -300,7 +304,8 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 				FleetNorm:  formatNum(median),
 				Deviation:  absZ,
 				Scanner:    scannerName,
-				Severity:   classifySeverity(scannerName, field),
+				Severity:   sev,
+				Favorable:  favorable,
 				Kind:       NormKindNumeric,
 				Median:     median,
 				MAD:        mad,

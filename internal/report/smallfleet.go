@@ -59,6 +59,9 @@ func detectMajorityOutliers(r *Report, threshold float64, scope string) ([]Outli
 			o.Scope = scope
 			o.LimitedSample = true
 			o.Severity = classifySeverity(scannerName, field)
+			if o.Kind == NormKindNumeric {
+				o.Severity, o.Favorable = numericSeverity(scannerName, field, o.Z)
+			}
 			if o.Severity == SeverityCritical {
 				o.Severity = SeverityWarning
 			}

@@ -73,9 +73,9 @@ func TestDemoDistributions(t *testing.T) {
 	}
 
 	var one distributionsResponse
-	serve(t, h, http.MethodGet, "/api/distributions?scanner=security&field=enforced_count", "", "", &one)
-	if len(one.Distributions) != 1 || one.Distributions[0].Field != "enforced_count" {
-		t.Errorf("filter: want one enforced_count distribution, got %d", len(one.Distributions))
+	serve(t, h, http.MethodGet, "/api/distributions?scanner=security&field=unenforced_count", "", "", &one)
+	if len(one.Distributions) != 1 || one.Distributions[0].Field != "unenforced_count" {
+		t.Errorf("filter: want one unenforced_count distribution, got %d", len(one.Distributions))
 	}
 }
 
@@ -266,7 +266,7 @@ func TestDemoWhatIf(t *testing.T) {
 	}{
 		{Body: `{"cluster":"x"}`, Want: http.StatusBadRequest},
 		{Body: `{"cluster":"x","scanner":"security","field":"nope"}`, Want: http.StatusUnprocessableEntity},
-		{Body: `{"cluster":"x","scanner":"security","field":"enforced_count","extra":1}`, Want: http.StatusBadRequest},
+		{Body: `{"cluster":"x","scanner":"security","field":"unenforced_count","extra":1}`, Want: http.StatusBadRequest},
 	} {
 		if code := serve(t, h, http.MethodPost, "/api/whatif", c.Body, "", nil); code != c.Want {
 			t.Errorf("%s: want %d, got %d", c.Body, c.Want, code)
@@ -283,7 +283,7 @@ func TestWhatIfAuth(t *testing.T) {
 	viewer := saveTestKey(t, st, "key_viewer", store.RoleViewer, "c00", "c04")
 	h := srv.Handler()
 
-	body := `{"cluster":"c04","scanner":"security","field":"enforced_count"}`
+	body := `{"cluster":"c04","scanner":"security","field":"unenforced_count"}`
 	var out whatifResponse
 	if code := serve(t, h, http.MethodPost, "/api/whatif", body, viewer, &out); code != http.StatusOK {
 		t.Fatalf("viewer in scope: want 200, got %d", code)
@@ -291,7 +291,7 @@ func TestWhatIfAuth(t *testing.T) {
 	if out.ScanID != "scan-1" || out.Outcome.ScoreAfter <= out.Outcome.ScoreBefore {
 		t.Errorf("outcome %+v", out)
 	}
-	outside := `{"cluster":"c05","scanner":"security","field":"enforced_count"}`
+	outside := `{"cluster":"c05","scanner":"security","field":"unenforced_count"}`
 	if code := serve(t, h, http.MethodPost, "/api/whatif", outside, viewer, nil); code != http.StatusForbidden {
 		t.Errorf("viewer outside scope: want 403, got %d", code)
 	}
@@ -309,7 +309,7 @@ func TestWhatIfAuth(t *testing.T) {
 	}
 }
 
-// seedTenClusters stores one scan of clusters c00 to c09 on security/enforced_count, with c04
+// seedTenClusters stores one scan of clusters c00 to c09 on security/unenforced_count, with c04
 // at the given value and the rest near 24.
 func seedTenClusters(t *testing.T, st store.Store, id string, at time.Time, c04 float64) {
 	t.Helper()
@@ -322,7 +322,7 @@ func seedTenClusters(t *testing.T, st store.Store, id string, at time.Time, c04 
 			v = c04
 		}
 		clusters = append(clusters, c)
-		results[c] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+		results[c] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"unenforced_count": v}}}
 	}
 	if _, err := st.SaveScanRecord(context.Background(), store.ScanRecord{ID: id, Timestamp: at, Clusters: clusters}, results); err != nil {
 		t.Fatalf("save %s: %v", id, err)
@@ -345,7 +345,7 @@ func TestStoredDriftAndScan(t *testing.T) {
 	}
 
 	var old distributionsResponse
-	serve(t, h, http.MethodGet, "/api/distributions?scan=scan-1&field=enforced_count", "", "", &old)
+	serve(t, h, http.MethodGet, "/api/distributions?scan=scan-1&field=unenforced_count", "", "", &old)
 	if old.ScanID != "scan-1" || len(old.Distributions) != 1 {
 		t.Fatalf("scan-1 distributions: %+v", old)
 	}

@@ -74,7 +74,7 @@ func TestSmallFleetBuild(t *testing.T) {
 			t.Parallel()
 			field := "count"
 			if test.Scanner == "security" {
-				field = "enforced_count"
+				field = "unenforced_count"
 			}
 			clusters, results := fieldFleet(test.Scanner, field, test.Vals...)
 			r := Build(clusters, results)

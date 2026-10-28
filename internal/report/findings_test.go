@@ -482,15 +482,15 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 // numeric fields with one deviant each, an absolute-rule privileged count on
 // the high deviant, and every cluster tagged into one cohort.
 func normFixture() (*Report, map[string]string) {
-	enforced := []float64{20, 22, 24, 24, 24, 26, 26, 28, 30, 80}
+	unenforced := []float64{20, 22, 24, 24, 24, 26, 26, 28, 30, 80}
 	quota := []float64{48, 49, 50, 50, 50, 51, 51, 52, 53, 2}
-	perCluster := make(map[string]any, len(enforced))
-	tags := make(map[string]string, len(enforced))
-	clusters := make([]string, 0, len(enforced))
-	for i := range enforced {
+	perCluster := make(map[string]any, len(unenforced))
+	tags := make(map[string]string, len(unenforced))
+	clusters := make([]string, 0, len(unenforced))
+	for i := range unenforced {
 		c := fmt.Sprintf("c%02d", i)
 		clusters = append(clusters, c)
-		perCluster[c] = map[string]any{"enforced_count": enforced[i], "quota_count": quota[i]}
+		perCluster[c] = map[string]any{"unenforced_count": unenforced[i], "quota_count": quota[i]}
 		tags[c] = "edge"
 	}
 	r := &Report{Clusters: clusters, Sections: map[string]*SectionReport{
@@ -508,7 +508,7 @@ func normFixture() (*Report, map[string]string) {
 func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Parallel()
 
-	// enforced_count: sorted 20 22 24 24 24 26 26 28 30 80, median 25.
+	// unenforced_count: sorted 20 22 24 24 24 26 26 28 30 80, median 25.
 	// Absolute deviations 1 1 1 1 1 3 3 5 5 55, MAD (1+3)/2 = 2.
 	// c09 at 80: z = 0.6745 * 55 / 2 = 18.548750.
 	// quota_count: sorted 2 48 49 50 50 50 51 51 52 53, median 50.
@@ -538,7 +538,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 		Finding  Finding
 		WantNorm *NormBasis
 	}{{ // Test 0: The high deviant reports the hand-computed median, MAD, and z.
-		Name: "fleet high", Finding: byRule["security/outlier-enforced-count"], WantNorm: wantEnforced,
+		Name: "fleet high", Finding: byRule["security/outlier-unenforced-count"], WantNorm: wantEnforced,
 	}, { // Test 1: The low deviant reports a negative z.
 		Name: "fleet low", Finding: byRule["security/outlier-quota-count"], WantNorm: wantQuota,
 	}}
@@ -604,7 +604,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 		r.Outliers = DetectOutliers(r, 3.5)
 		r.Findings = GenerateFindings(r)
 		brief := GenerateBrief(r)
-		want := "Largest deviation: c09 enforced_count is 80 vs a fleet median of 25 across 10 clusters."
+		want := "Largest deviation: c09 unenforced_count is 80 vs a fleet median of 25 across 10 clusters."
 		if !slices.Contains(brief.Lines, want) {
 			t.Errorf("brief lines %q do not contain %q", brief.Lines, want)
 		}
