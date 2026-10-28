@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// contextKey is the context key the logger is stored under.
 type contextKey struct{}
 
 // WrapLogger stores a zap logger in the context.
@@ -21,14 +22,4 @@ func UnwrapLogger(ctx context.Context) *zap.Logger {
 		return l
 	}
 	return zap.NewNop()
-}
-
-// ContextField returns a zap field for a kubeconfig context name.
-func ContextField(name string) zap.Field {
-	return zap.String("context", name)
-}
-
-// ErrorField returns a zap field for an error value.
-func ErrorField(err error) zap.Field {
-	return zap.Error(err)
 }

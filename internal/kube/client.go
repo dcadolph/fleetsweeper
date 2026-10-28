@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -154,7 +155,7 @@ func ConnectAll(ctx context.Context, kubeconfigPath string, contexts []string, w
 
 			c, err := NewClient(ctx, kubeconfigPath, n)
 			if err != nil {
-				log.Warn("skipping unreachable cluster", logutil.ContextField(n), logutil.ErrorField(err))
+				log.Warn("skipping unreachable cluster", zap.String("context", n), zap.Error(err))
 				return
 			}
 

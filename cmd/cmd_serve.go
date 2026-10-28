@@ -195,7 +195,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if scanInterval > 0 {
 			contexts, err := resolveScheduleContexts(kubeconfigPath, contextNames, allContexts)
 			if err != nil {
-				log.Warn("scheduler: resolve contexts failed", logutil.ErrorField(err))
+				log.Warn("scheduler: resolve contexts failed", zap.Error(err))
 			} else {
 				go srv.StartScheduler(leaderCtx, scanInterval, contexts)
 			}
@@ -206,7 +206,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			ctrlPoll, _ := cmd.Flags().GetDuration("controller-poll")
 			dyn, events, err := controller.Clients(kubeconfigPath, ctrlContext)
 			if err != nil {
-				log.Warn("controller: client setup failed", logutil.ErrorField(err))
+				log.Warn("controller: client setup failed", zap.Error(err))
 				return
 			}
 			ctrl := controller.New(controller.Config{
@@ -219,7 +219,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			})
 			go func() {
 				if err := ctrl.Run(leaderCtx); err != nil {
-					log.Warn("controller stopped", logutil.ErrorField(err))
+					log.Warn("controller stopped", zap.Error(err))
 				}
 			}()
 		}
@@ -280,7 +280,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 		go func() {
 			if err := admServer.Run(ctx); err != nil {
-				log.Warn("admission server stopped", logutil.ErrorField(err))
+				log.Warn("admission server stopped", zap.Error(err))
 			}
 		}()
 		fmt.Fprintf(cmd.ErrOrStderr(), "admission webhook listening on %s (mode=%s)\n", admAddr, mode)
@@ -289,7 +289,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if adminAddr != "" {
 		go func() {
 			if err := srv.ListenAndServeAdmin(); err != nil {
-				log.Warn("admin server stopped", logutil.ErrorField(err))
+				log.Warn("admin server stopped", zap.Error(err))
 			}
 		}()
 	}
