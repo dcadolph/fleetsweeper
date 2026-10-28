@@ -340,54 +340,17 @@ func enqueue(queue workqueue.TypedRateLimitingInterface[string], obj any) {
 func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructured) (time.Duration, error) {
 	recordReconcile()
 
-	name := obj.GetName()
-	ns := obj.GetNamespace()
-	key := ns + "/" + name
+	key := obj.GetNamespace() + "/" + obj.GetName()
 	gen := obj.GetGeneration()
 	status := readStatus(obj)
 	status.ObservedGeneration = gen
 
-	spec, err := readSpec(obj)
-	if err == nil && spec.Interval == "" {
-		err = errors.New("spec.interval is required")
-	}
-	var interval time.Duration
-	if err == nil {
-		interval, err = time.ParseDuration(spec.Interval)
-		if err == nil && interval <= 0 {
-			err = errors.New("spec.interval must be positive")
-		}
-		if err != nil {
-			err = fmt.Errorf("invalid spec.interval %q (use a Go duration like 15m): %w", spec.Interval, err)
-		}
-	}
+	spec, interval, err := specInterval(obj)
 	if err != nil {
-		recordReconcileFail()
-		c.log.Warn("controller: invalid spec",
-			zap.String("name", name), zap.String("namespace", ns), zap.Error(err))
-		msg := "invalid spec: " + err.Error()
-		if status.Phase == PhaseFailed && status.Message == msg {
-			return 0, nil
-		}
-		status.Phase = PhaseFailed
-		status.Message = msg
-		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionTrue,
-			ReasonInvalidSpec, msg)
-		c.recorder.Event(obj, corev1.EventTypeWarning, ReasonInvalidSpec, msg)
-		return 0, c.patchStatus(ctx, obj, status)
+		return c.markInvalid(ctx, obj, status, gen, err)
 	}
-
 	if spec.Paused {
-		recordPaused()
-		recordReconcileOK()
-		if status.Phase == PhasePaused {
-			return 0, nil
-		}
-		status.Phase = PhasePaused
-		status.Message = "paused by spec.paused"
-		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionFalse,
-			ReasonPaused, status.Message)
-		return 0, c.patchStatus(ctx, obj, status)
+		return c.markPaused(ctx, obj, status, gen)
 	}
 
 	now := time.Now().UTC()
@@ -417,6 +380,87 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 	}
 	c.recorder.Event(obj, corev1.EventTypeNormal, ReasonScanStarted, "Scan started")
 
+	res := c.runScan(ctx, key, spec)
+	if res.Aborted {
+		return 0, res.AbortErr
+	}
+	completedAt := time.Now().UTC()
+	if res.ScanErr != nil {
+		return c.recordFailure(ctx, obj, status, gen, interval, completedAt, res.ScanErr)
+	}
+	return c.recordSuccess(ctx, obj, status, gen, interval, completedAt, res.Summary)
+}
+
+// specInterval reads the spec and validates its interval.
+func specInterval(obj *unstructured.Unstructured) (ClusterScanSpec, time.Duration, error) {
+	spec, err := readSpec(obj)
+	if err != nil {
+		return spec, 0, err
+	}
+	if spec.Interval == "" {
+		return spec, 0, errors.New("spec.interval is required")
+	}
+	interval, err := time.ParseDuration(spec.Interval)
+	if err == nil && interval <= 0 {
+		err = errors.New("spec.interval must be positive")
+	}
+	if err != nil {
+		return spec, 0, fmt.Errorf(
+			"invalid spec.interval %q (use a Go duration like 15m): %w", spec.Interval, err)
+	}
+	return spec, interval, nil
+}
+
+// markInvalid records an invalid spec on the status and emits a warning event once per message.
+func (c *Controller) markInvalid(
+	ctx context.Context, obj *unstructured.Unstructured, status ClusterScanStatus,
+	gen int64, err error,
+) (time.Duration, error) {
+	recordReconcileFail()
+	c.log.Warn("controller: invalid spec",
+		zap.String("name", obj.GetName()), zap.String("namespace", obj.GetNamespace()), zap.Error(err))
+	msg := "invalid spec: " + err.Error()
+	if status.Phase == PhaseFailed && status.Message == msg {
+		return 0, nil
+	}
+	status.Phase = PhaseFailed
+	status.Message = msg
+	setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionTrue,
+		ReasonInvalidSpec, msg)
+	c.recorder.Event(obj, corev1.EventTypeWarning, ReasonInvalidSpec, msg)
+	return 0, c.patchStatus(ctx, obj, status)
+}
+
+// markPaused records the paused phase on the status when it is not already set.
+func (c *Controller) markPaused(
+	ctx context.Context, obj *unstructured.Unstructured, status ClusterScanStatus, gen int64,
+) (time.Duration, error) {
+	recordPaused()
+	recordReconcileOK()
+	if status.Phase == PhasePaused {
+		return 0, nil
+	}
+	status.Phase = PhasePaused
+	status.Message = "paused by spec.paused"
+	setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionFalse,
+		ReasonPaused, status.Message)
+	return 0, c.patchStatus(ctx, obj, status)
+}
+
+// scanRun is the outcome of one tracked scan.
+type scanRun struct {
+	// Summary is the result of a completed scan.
+	Summary ScanSummary
+	// ScanErr is the error returned by the scan itself.
+	ScanErr error
+	// AbortErr is the error to return from reconcile when Aborted is set.
+	AbortErr error
+	// Aborted reports that the scan was canceled or the context ended, so no outcome is recorded.
+	Aborted bool
+}
+
+// runScan runs one scan while tracking it as in flight under key.
+func (c *Controller) runScan(ctx context.Context, key string, spec ClusterScanSpec) scanRun {
 	scanCtx, cancel := context.WithCancelCause(ctx)
 	c.mu.Lock()
 	c.inflight[key] = cancel
@@ -438,42 +482,56 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 	})
 	if errors.Is(context.Cause(scanCtx), errClusterScanDeleted) {
 		recordScanResult(false)
-		c.log.Info("controller: scan canceled because its clusterscan was deleted", zap.String("key", key))
-		return 0, nil
+		c.log.Info("controller: scan canceled because its clusterscan was deleted",
+			zap.String("key", key))
+		return scanRun{Aborted: true}
 	}
 	if ctx.Err() != nil {
 		recordScanResult(false)
-		return 0, ctx.Err()
+		return scanRun{Aborted: true, AbortErr: ctx.Err()}
 	}
+	return scanRun{Summary: summary, ScanErr: scanErr}
+}
 
-	completedAt := time.Now().UTC()
-	if scanErr != nil {
-		recordScanResult(false)
-		recordReconcileFail()
-		c.log.Warn("controller: scan failed",
-			zap.String("name", name), zap.String("namespace", ns), zap.Error(scanErr))
-		status.ConsecutiveFailures++
-		next := completedAt.Add(retryDelay(status.ConsecutiveFailures, interval))
-		c.remember(key, gen, next)
-		status.Phase = PhaseFailed
-		status.Message = "scan failed: " + scanErr.Error()
-		status.NextScanTime = &next
-		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionTrue,
-			ReasonScanFailed, status.Message)
-		c.recorder.Event(obj, corev1.EventTypeWarning, ReasonScanFailed, status.Message)
-		if err := c.patchStatus(ctx, obj, status); err != nil {
-			return 0, errors.Join(fmt.Errorf("scan: %w", scanErr), err)
-		}
-		return 0, fmt.Errorf("scan: %w", scanErr)
+// recordFailure patches the status for a failed scan and schedules the retry.
+func (c *Controller) recordFailure(
+	ctx context.Context, obj *unstructured.Unstructured, status ClusterScanStatus, gen int64,
+	interval time.Duration, completedAt time.Time, scanErr error,
+) (time.Duration, error) {
+	recordScanResult(false)
+	recordReconcileFail()
+	c.log.Warn("controller: scan failed",
+		zap.String("name", obj.GetName()), zap.String("namespace", obj.GetNamespace()),
+		zap.Error(scanErr))
+	status.ConsecutiveFailures++
+	next := completedAt.Add(retryDelay(status.ConsecutiveFailures, interval))
+	c.remember(obj.GetNamespace()+"/"+obj.GetName(), gen, next)
+	status.Phase = PhaseFailed
+	status.Message = "scan failed: " + scanErr.Error()
+	status.NextScanTime = &next
+	setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionTrue,
+		ReasonScanFailed, status.Message)
+	c.recorder.Event(obj, corev1.EventTypeWarning, ReasonScanFailed, status.Message)
+	if err := c.patchStatus(ctx, obj, status); err != nil {
+		return 0, errors.Join(fmt.Errorf("scan: %w", scanErr), err)
 	}
+	return 0, fmt.Errorf("scan: %w", scanErr)
+}
 
+// recordSuccess patches the status for a completed scan and schedules the next one.
+func (c *Controller) recordSuccess(
+	ctx context.Context, obj *unstructured.Unstructured, status ClusterScanStatus, gen int64,
+	interval time.Duration, completedAt time.Time, summary ScanSummary,
+) (time.Duration, error) {
 	recordScanResult(true)
 	recordReconcileOK()
 	next := completedAt.Add(interval)
-	c.remember(key, gen, next)
+	c.remember(obj.GetNamespace()+"/"+obj.GetName(), gen, next)
 	status.Phase = PhaseSucceeded
-	status.Message = fmt.Sprintf("scan %s completed: score %d (%s), %d critical, %d warning across %d clusters",
-		summary.ScanID, summary.Score, summary.Grade, summary.Critical, summary.Warning, summary.Clusters)
+	status.Message = fmt.Sprintf(
+		"scan %s completed: score %d (%s), %d critical, %d warning across %d clusters",
+		summary.ScanID, summary.Score, summary.Grade, summary.Critical, summary.Warning,
+		summary.Clusters)
 	status.LastScanID = summary.ScanID
 	status.LastScanTime = &completedAt
 	status.NextScanTime = &next
