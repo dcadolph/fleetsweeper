@@ -25,9 +25,8 @@ import (
 // Operators should be able to recognize traffic from this tool at a glance.
 const userAgent = "fleetsweeper"
 
-// defaultQPS and defaultBurst override the client-go defaults of 5/10 which
-// throttle every multi-list scanner on any cluster of meaningful size. The
-// audit flagged this as a P0; a single fleet sweep was bottlenecked here.
+// defaultQPS and defaultBurst raise client-go's 5/10 defaults, which throttle scanners that list
+// many resources.
 const (
 	defaultQPS   = 50
 	defaultBurst = 100
@@ -63,10 +62,9 @@ func (c *Client) Dynamic() dynamic.Interface {
 	return c.dynamic
 }
 
-// NewClient creates a Client connected to the named kubeconfig context. When
-// kubeconfigPath is empty and the process is running inside a Kubernetes pod
-// the in-cluster service account configuration is used instead and the
-// "in-cluster" context name is returned.
+// NewClient creates a Client connected to the named kubeconfig context. When kubeconfigPath is
+// empty and the process is running inside a Kubernetes pod the in-cluster service account
+// configuration is used instead. Context is set to contextName as given.
 func NewClient(_ context.Context, kubeconfigPath, contextName string) (*Client, error) {
 	cfg, err := LoadConfig(kubeconfigPath, contextName)
 	if err != nil {
