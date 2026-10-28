@@ -94,7 +94,7 @@ type Data struct {
 // deprecated version; only versions still served by the apiserver and with at
 // least one instance are reported.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		data := Data{}
 
 		if info, err := client.Clientset().Discovery().ServerVersion(); err == nil {

@@ -98,7 +98,7 @@ func TestMockFleet(t *testing.T) {
 		if i < 0 {
 			t.Fatal("no version/skew finding")
 		}
-		var marked []string
+		marked := make([]string, 0, len(first.Findings[i].Marks))
 		for _, m := range first.Findings[i].Marks {
 			marked = append(marked, m.Cluster)
 		}

@@ -233,7 +233,7 @@ func inMigrationTx(ctx context.Context, db *sql.DB, d dialect, fn func(tx *sql.T
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck // Rollback after Commit is a no-op.
+	defer tx.Rollback()
 	if d.Lock != nil {
 		if err := d.Lock(ctx, tx); err != nil {
 			return fmt.Errorf("lock: %w", err)

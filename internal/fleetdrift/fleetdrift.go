@@ -28,10 +28,10 @@ const APIVersion = "fleetsweeper.io/v1alpha1"
 // Kind is the FleetDriftReport CRD kind.
 const Kind = "FleetDriftReport"
 
-// FleetDriftReport mirrors the FleetDriftReport CRD shape declared in
+// Report mirrors the FleetDriftReport CRD shape declared in
 // deploy/crds/fleetdriftreport.yaml. Marshaling uses sigs.k8s.io/yaml so the
 // emitted document matches the conventions Kubernetes tooling expects.
-type FleetDriftReport struct {
+type Report struct {
 	// APIVersion identifies the group/version of the resource.
 	APIVersion string `json:"apiVersion"`
 	// Kind identifies the resource type.
@@ -127,7 +127,7 @@ type RemediationSpec struct {
 // report.Report. Fleet-scoped findings (Cluster == "fleet") are duplicated
 // onto every cluster's report so a single GitOps reconciler does not have to
 // know about an out-of-band aggregate object.
-func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
+func ReportsFor(r *report.Report, scanID, namespace string) []Report {
 	if r == nil {
 		return nil
 	}
@@ -143,11 +143,11 @@ func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
 	}
 	score := FleetScoreSpec{Score: r.FleetScore.Score, Grade: r.FleetScore.Grade}
 
-	out := make([]FleetDriftReport, 0, len(r.Clusters))
+	out := make([]Report, 0, len(r.Clusters))
 	for _, cluster := range r.Clusters {
 		fs := append([]report.Finding{}, findingsByCluster[cluster]...)
 		fs = append(fs, findingsByCluster["fleet"]...)
-		out = append(out, FleetDriftReport{
+		out = append(out, Report{
 			APIVersion: APIVersion,
 			Kind:       Kind,
 			Metadata: Metadata{
@@ -179,7 +179,7 @@ func ReportsFor(r *report.Report, scanID, namespace string) []FleetDriftReport {
 // cluster named <sanitized-cluster>.yaml. The directory is created if it
 // does not exist. Existing files for the same cluster are overwritten so the
 // directory always reflects the latest scan.
-func Write(reports []FleetDriftReport, dir string) error {
+func Write(reports []Report, dir string) error {
 	if dir == "" {
 		return fmt.Errorf("fleetdrift: output dir is required")
 	}

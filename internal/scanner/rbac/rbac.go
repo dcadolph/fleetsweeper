@@ -58,7 +58,7 @@ type Data struct {
 
 // NewScanner returns a scanner that collects RBAC configuration from a cluster.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		rbacClient := client.Clientset().RbacV1()
 		data := Data{}
 		var cov scanner.Coverage

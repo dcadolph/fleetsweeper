@@ -58,7 +58,7 @@ func TestReportsFor_Basic(t *testing.T) {
 	}
 
 	// The prod-us cluster sees its own critical finding.
-	var prodUS *FleetDriftReport
+	var prodUS *Report
 	for i := range reports {
 		if reports[i].Spec.Cluster == "prod-us-east-1" {
 			prodUS = &reports[i]
@@ -75,7 +75,7 @@ func TestReportsFor_Basic(t *testing.T) {
 func TestWrite_ReadBack(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	rep := FleetDriftReport{
+	rep := Report{
 		APIVersion: APIVersion,
 		Kind:       Kind,
 		Metadata: Metadata{
@@ -93,7 +93,7 @@ func TestWrite_ReadBack(t *testing.T) {
 			},
 		},
 	}
-	if err := Write([]FleetDriftReport{rep}, dir); err != nil {
+	if err := Write([]Report{rep}, dir); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	path := filepath.Join(dir, "prod.yaml")
@@ -101,7 +101,7 @@ func TestWrite_ReadBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	var got FleetDriftReport
+	var got Report
 	if err := yaml.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

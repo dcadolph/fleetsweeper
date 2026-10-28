@@ -72,7 +72,7 @@ func TestHandleGetScanSeal_ReturnsSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bundle files: %v", err)
 	}
-	wantSig, err := seal.SealBundle(files, "topsecret")
+	wantSig, err := seal.Bundle(files, "topsecret")
 	if err != nil {
 		t.Fatalf("seal bundle: %v", err)
 	}

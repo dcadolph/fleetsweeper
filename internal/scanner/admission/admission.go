@@ -67,7 +67,7 @@ type Data struct {
 
 // NewScanner returns a scanner that audits admission webhook health.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		data := Data{}
 		now := time.Now()
 

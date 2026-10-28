@@ -80,7 +80,7 @@ type Data struct {
 // Trivy CRD yields StateUnavailable while any other list failure propagates a
 // wrapped ErrScan instead of a clean, zero-vulnerability result.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		list, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Dynamic().Resource(reportsGVR).List,
 			func(l *unstructured.UnstructuredList) []unstructured.Unstructured { return l.Items })

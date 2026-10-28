@@ -32,39 +32,34 @@ type integrationsResponse struct {
 // "configured" with "reachable" and lead to false-positive alerts.
 func (s *Server) handleGetIntegrations(w http.ResponseWriter, _ *http.Request) {
 	items := []integrationStatus{
-		{Name: "Prometheus /metrics", Status: configuredOr("configured", "off",
-			s.adminServer != nil)},
-		{Name: "OpenTelemetry traces", Status: configuredOr("configured", "off",
+		{Name: "Prometheus /metrics", Status: configuredOr("configured", s.adminServer != nil)},
+		{Name: "OpenTelemetry traces", Status: configuredOr("configured",
 			os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
 				os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != ""),
 			Hint: "Set OTEL_EXPORTER_OTLP_ENDPOINT to enable"},
-		{Name: "OpenTelemetry metrics", Status: configuredOr("configured", "off",
+		{Name: "OpenTelemetry metrics", Status: configuredOr("configured",
 			os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
 				os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "")},
-		{Name: "Slack webhook", Status: configuredOr("configured", "off",
-			s.slackWebhookURL != ""),
+		{Name: "Slack webhook", Status: configuredOr("configured", s.slackWebhookURL != ""),
 			Hint: "Pass --slack-webhook-url to enable"},
-		{Name: "FleetDriftReport export", Status: configuredOr("configured", "off",
-			s.fleetDriftOutputDir != ""),
+		{Name: "FleetDriftReport export", Status: configuredOr("configured", s.fleetDriftOutputDir != ""),
 			Hint: "Pass --fleetdrift-output <dir> to enable"},
-		{Name: "PolicyReport export", Status: configuredOr("configured", "off",
-			s.policyReportOutputDir != ""),
+		{Name: "PolicyReport export", Status: configuredOr("configured", s.policyReportOutputDir != ""),
 			Hint: "Pass --policy-report-output <dir> to enable"},
-		{Name: "Cost correlation", Status: configuredOr("configured", "off",
-			s.costCSVPath != ""),
+		{Name: "Cost correlation", Status: configuredOr("configured", s.costCSVPath != ""),
 			Hint: "Pass --cost-csv <path> to enable"},
-		{Name: "Demo mode", Status: configuredOr("demo", "off", s.demo)},
+		{Name: "Demo mode", Status: configuredOr("demo", s.demo)},
 		s.bearerAuthStatus(),
 	}
 	writeJSON(w, http.StatusOK, integrationsResponse{Items: items})
 }
 
-// configuredOr returns either the on string or the off string based on b.
-func configuredOr(on, off string, b bool) string {
+// configuredOr returns the on string when b is true and "off" otherwise.
+func configuredOr(on string, b bool) string {
 	if b {
 		return on
 	}
-	return off
+	return "off"
 }
 
 // bearerAuthStatus reports why bearer auth is on or off, naming demo mode

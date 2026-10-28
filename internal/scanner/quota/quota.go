@@ -14,8 +14,8 @@ import (
 // Name is the registry key for this scanner.
 const Name = "resource-quotas"
 
-// QuotaInfo describes a single ResourceQuota.
-type QuotaInfo struct {
+// Info describes a single ResourceQuota.
+type Info struct {
 	// Namespace is the namespace containing the quota.
 	Namespace string `json:"namespace"`
 	// Name is the quota name.
@@ -45,14 +45,14 @@ type Data struct {
 	// NamespacesWithQuotas is how many namespaces have at least one quota.
 	NamespacesWithQuotas int `json:"namespaces_with_quotas"`
 	// Quotas lists all ResourceQuotas.
-	Quotas []QuotaInfo `json:"quotas"`
+	Quotas []Info `json:"quotas"`
 	// LimitRanges lists all LimitRanges.
 	LimitRanges []LimitRangeInfo `json:"limit_ranges"`
 }
 
 // NewScanner returns a scanner that collects ResourceQuota and LimitRange data.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		cs := client.Clientset()
 		qList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), cs.CoreV1().ResourceQuotas("").List,
@@ -68,7 +68,7 @@ func NewScanner() scanner.Scanner {
 		}
 
 		namespacesWithQuotas := make(map[string]struct{})
-		quotas := make([]QuotaInfo, 0, len(qList))
+		quotas := make([]Info, 0, len(qList))
 		for _, q := range qList {
 			namespacesWithQuotas[q.Namespace] = struct{}{}
 			hard := make(map[string]string, len(q.Spec.Hard))
@@ -79,7 +79,7 @@ func NewScanner() scanner.Scanner {
 			for k, v := range q.Status.Used {
 				used[string(k)] = v.String()
 			}
-			quotas = append(quotas, QuotaInfo{
+			quotas = append(quotas, Info{
 				Namespace: q.Namespace,
 				Name:      q.Name,
 				Hard:      hard,

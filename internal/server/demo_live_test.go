@@ -51,7 +51,7 @@ func TestDemoLiveScan(t *testing.T) {
 				return
 			}
 			d, _ := res.Data.(crd.Data)
-			hasGroup := slices.ContainsFunc(d.CRDs, func(c crd.CRDInfo) bool { return c.Group == demoDriftGroup })
+			hasGroup := slices.ContainsFunc(d.CRDs, func(c crd.Info) bool { return c.Group == demoDriftGroup })
 			if hasGroup == test.WantDrift {
 				t.Errorf("drift %v: %s group present = %v", test.WantDrift, demoDriftGroup, hasGroup)
 			}

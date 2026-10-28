@@ -71,7 +71,7 @@ func TestMapStressNonPlanar(t *testing.T) {
 // them, and checks each cohort still forms one contiguous run.
 func TestMapLeafOrderKeepsCohortsContiguous(t *testing.T) {
 	t.Parallel()
-	var profiles []ClusterProfile
+	profiles := make([]ClusterProfile, 0, 8)
 	for i := range 8 {
 		tag := "east"
 		if i%2 == 1 {
@@ -132,7 +132,7 @@ func TestMapPeers(t *testing.T) {
 // same map on every call.
 func TestMapDeterministic(t *testing.T) {
 	t.Parallel()
-	var profiles []ClusterProfile
+	profiles := make([]ClusterProfile, 0, 12)
 	for i := range 12 {
 		profiles = append(profiles, ClusterProfile{Name: fmt.Sprintf("c%02d", i), Features: []float64{float64(i % 2), 0}})
 	}

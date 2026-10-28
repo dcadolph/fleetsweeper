@@ -55,7 +55,7 @@ type Data struct {
 // type does not abort the others; the result is marked StateDegraded with a
 // reason naming any list that failed.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		appsClient := client.Clientset().AppsV1()
 		policyClient := client.Clientset().PolicyV1()
 		hpaClient := client.Clientset().AutoscalingV2()

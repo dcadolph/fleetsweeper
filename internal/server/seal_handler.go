@@ -58,7 +58,7 @@ func (s *Server) handleGetScanSeal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "build bundle failed")
 		return
 	}
-	sig, err := seal.SealBundle(files, s.sealKey)
+	sig, err := seal.Bundle(files, s.sealKey)
 	if err != nil {
 		s.log.Error("seal bundle", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "seal failed")

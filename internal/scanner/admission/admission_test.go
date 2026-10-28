@@ -23,21 +23,21 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/testcerts"
 )
 
-// serviceRef builds a webhook client config pointing at namespace/name with an
-// optional CA bundle.
-func serviceRef(namespace, name string, caBundle []byte) admissionregv1.WebhookClientConfig {
+// serviceRef builds a webhook client config pointing at webhooks/svc with an optional CA
+// bundle.
+func serviceRef(caBundle []byte) admissionregv1.WebhookClientConfig {
 	return admissionregv1.WebhookClientConfig{
-		Service:  &admissionregv1.ServiceReference{Namespace: namespace, Name: name},
+		Service:  &admissionregv1.ServiceReference{Namespace: "webhooks", Name: "svc"},
 		CABundle: caBundle,
 	}
 }
 
-// mutating builds a MutatingWebhookConfiguration with one webhook.
-func mutating(cfgName, whName string, cc admissionregv1.WebhookClientConfig, policy *admissionregv1.FailurePolicyType) *admissionregv1.MutatingWebhookConfiguration {
+// mutating builds a MutatingWebhookConfiguration named mwc with one webhook, m.example.com.
+func mutating(cc admissionregv1.WebhookClientConfig, policy *admissionregv1.FailurePolicyType) *admissionregv1.MutatingWebhookConfiguration {
 	return &admissionregv1.MutatingWebhookConfiguration{
-		ObjectMeta: metav1.ObjectMeta{Name: cfgName},
+		ObjectMeta: metav1.ObjectMeta{Name: "mwc"},
 		Webhooks: []admissionregv1.MutatingWebhook{{
-			Name:          whName,
+			Name:          "m.example.com",
 			ClientConfig:  cc,
 			FailurePolicy: policy,
 		}},
@@ -85,21 +85,21 @@ func TestNewScanner(t *testing.T) {
 	}{{ // Test 0: Healthy service, ignore policy, no CA. Nothing flagged.
 		Name: "healthy ignore",
 		Objects: []runtime.Object{
-			mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", nil), &ignore),
+			mutating(serviceRef(nil), &ignore),
 			readyEndpoints("webhooks", "svc"),
 		},
 		WantTotal: 1,
 	}, { // Test 1: Service with no endpoints is unhealthy.
 		Name: "missing endpoints",
 		Objects: []runtime.Object{
-			mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", nil), &ignore),
+			mutating(serviceRef(nil), &ignore),
 		},
 		WantTotal:     1,
 		WantUnhealthy: 1,
 	}, { // Test 2: failurePolicy=Fail counts as fail-closed.
 		Name: "fail closed",
 		Objects: []runtime.Object{
-			mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", nil), &fail),
+			mutating(serviceRef(nil), &fail),
 			readyEndpoints("webhooks", "svc"),
 		},
 		WantTotal:      1,
@@ -107,7 +107,7 @@ func TestNewScanner(t *testing.T) {
 	}, { // Test 3: CA bundle expiring within the window is flagged.
 		Name: "expiring ca",
 		Objects: []runtime.Object{
-			mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", expiringCA), &ignore),
+			mutating(serviceRef(expiringCA), &ignore),
 			readyEndpoints("webhooks", "svc"),
 		},
 		WantTotal:             1,
@@ -161,13 +161,13 @@ func TestNewScannerDegraded(t *testing.T) {
 		FailValidating bool
 	}{{ // Test 0: Mutating list fails; validating webhooks still counted.
 		Name:         "mutating fails",
-		Objects:      []runtime.Object{validating("vwc", "v.example.com", serviceRef("webhooks", "svc", nil), nil)},
+		Objects:      []runtime.Object{validating("vwc", "v.example.com", serviceRef(nil), nil)},
 		FailMutating: true,
 		WantTotal:    1,
 		WantReasons:  []string{"mutating webhook list"},
 	}, { // Test 1: Validating list fails; mutating webhooks still counted.
 		Name:           "validating fails",
-		Objects:        []runtime.Object{mutating("mwc", "m.example.com", serviceRef("webhooks", "svc", nil), nil)},
+		Objects:        []runtime.Object{mutating(serviceRef(nil), nil)},
 		FailValidating: true,
 		WantTotal:      1,
 		WantReasons:    []string{"validating webhook list"},

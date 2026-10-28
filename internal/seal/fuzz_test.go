@@ -67,7 +67,7 @@ func FuzzDecodeSignature(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
 	}
-	f.Fuzz(func(t *testing.T, in string) {
+	f.Fuzz(func(_ *testing.T, in string) {
 		_, _ = decodeSignature(in)
 	})
 }

@@ -123,7 +123,7 @@ func Run(ctx context.Context, opts Options) Report {
 		opts.HTTPClient = &http.Client{Timeout: 8 * time.Second}
 	}
 	checks := []func() Result{
-		func() Result { return checkOTel() },
+		checkOTel,
 		func() Result { return checkSlack(ctx, opts) },
 		func() Result { return checkCostCSV(opts) },
 		func() Result { return checkFleetDriftOutput(opts) },

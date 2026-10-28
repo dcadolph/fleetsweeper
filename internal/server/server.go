@@ -1,3 +1,5 @@
+// Package server serves the fleetsweeper HTTP API and the embedded web dashboard backed by
+// the scan store.
 package server
 
 import (

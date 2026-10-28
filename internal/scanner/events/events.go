@@ -80,7 +80,7 @@ type Data struct {
 // filter to the apiserver so a 200-node cluster with thousands of Normal
 // events does not stream all of them across the wire.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		cutoff := time.Now().Add(-warningWindow)
 		var cov scanner.Coverage
 		opts := scanner.CacheReadOptions()

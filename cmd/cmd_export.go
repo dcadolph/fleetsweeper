@@ -86,7 +86,7 @@ func runExport(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("build bundle: %w", err)
 	}
 	if sealKey != "" {
-		if _, err := seal.SealBundle(files, sealKey); err != nil {
+		if _, err := seal.Bundle(files, sealKey); err != nil {
 			return fmt.Errorf("seal bundle: %w", err)
 		}
 	}

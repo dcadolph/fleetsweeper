@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -117,7 +118,7 @@ func (s *SQLite) GetLocation(ctx context.Context, cluster string) (*LocationReco
 		`SELECT cluster, lat, lng, site, notes, updated_at
 		 FROM cluster_locations WHERE cluster = ?`, cluster)
 	rec, err := scanLocation(row)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -386,7 +387,7 @@ func (s *SQLite) SaveGroup(ctx context.Context, name string, clusters []string) 
 func (s *SQLite) GetGroup(ctx context.Context, name string) (*GroupRecord, error) {
 	var groupName string
 	err := s.db.QueryRowContext(ctx, "SELECT name FROM groups WHERE name = ?", name).Scan(&groupName)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: group %s", ErrNotFound, name)
 	}
 	if err != nil {
@@ -553,7 +554,7 @@ func scanRecordFromRow(row *sql.Row) (*ScanRecord, error) {
 	var r ScanRecord
 	var ts, clustersJSON, scannersJSON string
 	if err := row.Scan(&r.ID, &ts, &clustersJSON, &scannersJSON); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: scan", ErrNotFound)
 		}
 		return nil, fmt.Errorf("%w: %w", ErrQuery, err)

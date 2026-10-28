@@ -14,7 +14,7 @@ import (
 func TestRegistry(t *testing.T) {
 	t.Parallel()
 
-	stub := ScannerFunc(func(_ context.Context, _ *kube.Client) (Result, error) {
+	stub := Func(func(_ context.Context, _ *kube.Client) (Result, error) {
 		return Result{Scanner: "stub"}, nil
 	})
 
@@ -97,7 +97,7 @@ func TestScannerFunc(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			f := ScannerFunc(func(_ context.Context, _ *kube.Client) (Result, error) {
+			f := Func(func(_ context.Context, _ *kube.Client) (Result, error) {
 				return test.WantResult, test.Want
 			})
 			got, err := f.Scan(context.Background(), nil)

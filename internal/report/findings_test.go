@@ -486,7 +486,7 @@ func normFixture() (*Report, map[string]string) {
 	quota := []float64{48, 49, 50, 50, 50, 51, 51, 52, 53, 2}
 	perCluster := make(map[string]any, len(enforced))
 	tags := make(map[string]string, len(enforced))
-	var clusters []string
+	clusters := make([]string, 0, len(enforced))
 	for i := range enforced {
 		c := fmt.Sprintf("c%02d", i)
 		clusters = append(clusters, c)

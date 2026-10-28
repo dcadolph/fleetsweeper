@@ -113,12 +113,12 @@ func (p demoProfile) between(from, to int) bool {
 	return p.I >= p.N-from && p.I < p.N-to
 }
 
-// demoResults returns every scanner's result for every demo cluster at scan i of n, taken at at,
-// with latest the time of the newest scan.
-func demoResults(i, n int, at, latest time.Time) map[string]map[string]scanner.Result {
+// demoResults returns every scanner's result for every demo cluster at scan i of demoScans,
+// taken at at, with latest the time of the newest scan.
+func demoResults(i int, at, latest time.Time) map[string]map[string]scanner.Result {
 	out := make(map[string]map[string]scanner.Result, len(demoFleet()))
 	for _, c := range demoFleet() {
-		p := demoProfile{C: c, Shape: demoShapes[c.Cohort], I: i, N: n, At: at, Latest: latest}
+		p := demoProfile{C: c, Shape: demoShapes[c.Cohort], I: i, N: demoScans, At: at, Latest: latest}
 		results := map[string]scanner.Result{
 			version.Name:            ok(version.Name, demoVersionData(p)),
 			nodehealth.Name:         ok(nodehealth.Name, demoNodeHealth(p)),
@@ -452,7 +452,7 @@ func demoNetworkPolicies(p demoProfile) networkpolicy.Data {
 func demoQuotas(p demoProfile) quota.Data {
 	var d quota.Data
 	for _, ns := range p.Shape.AppNamespaces {
-		d.Quotas = append(d.Quotas, quota.QuotaInfo{
+		d.Quotas = append(d.Quotas, quota.Info{
 			Namespace: ns, Name: "compute",
 			Hard: map[string]string{"requests.cpu": "8", "requests.memory": "16Gi"},
 			Used: map[string]string{"requests.cpu": "3", "requests.memory": "7Gi"},
@@ -466,14 +466,14 @@ func demoQuotas(p demoProfile) quota.Data {
 // demoServices returns the service scanner's data: an api and a web service per application
 // namespace, plus the cluster's own.
 func demoServices(p demoProfile) service.Data {
-	d := service.Data{Services: []service.ServiceInfo{
+	d := service.Data{Services: []service.Info{
 		{Namespace: "default", Name: "kubernetes", Type: "ClusterIP", Ports: []service.PortInfo{{Name: "https", Port: 443, Protocol: "TCP"}}},
 		{Namespace: "kube-system", Name: "kube-dns", Type: "ClusterIP", Ports: []service.PortInfo{{Name: "dns", Port: 53, Protocol: "UDP"}}},
 	}}
 	for _, ns := range p.Shape.AppNamespaces {
 		d.Services = append(d.Services,
-			service.ServiceInfo{Namespace: ns, Name: "api", Type: "ClusterIP", Ports: []service.PortInfo{{Name: "http", Port: 8080, Protocol: "TCP"}}},
-			service.ServiceInfo{Namespace: ns, Name: "web", Type: "ClusterIP", Ports: []service.PortInfo{{Name: "http", Port: 80, Protocol: "TCP"}}})
+			service.Info{Namespace: ns, Name: "api", Type: "ClusterIP", Ports: []service.PortInfo{{Name: "http", Port: 8080, Protocol: "TCP"}}},
+			service.Info{Namespace: ns, Name: "web", Type: "ClusterIP", Ports: []service.PortInfo{{Name: "http", Port: 80, Protocol: "TCP"}}})
 	}
 	d.Count = len(d.Services)
 	return d
@@ -484,7 +484,7 @@ func demoIngresses(p demoProfile) ingress.Data {
 	var d ingress.Data
 	for i := range p.Shape.Ingresses {
 		ns := p.Shape.AppNamespaces[i%len(p.Shape.AppNamespaces)]
-		d.Ingresses = append(d.Ingresses, ingress.IngressInfo{
+		d.Ingresses = append(d.Ingresses, ingress.Info{
 			Namespace: ns, Name: fmt.Sprintf("%s-%d", ns, i/len(p.Shape.AppNamespaces)), IngressClassName: "nginx",
 			Hosts: []string{fmt.Sprintf("%s.%s.example.internal", ns, p.C.Name)}, TLS: true,
 		})
@@ -499,7 +499,7 @@ func demoCRDs(p demoProfile) crd.Data {
 	for _, g := range p.Shape.CRDGroups {
 		prefix := strings.Split(g, ".")[0]
 		for _, kind := range []string{"configs", "policies", "statuses"} {
-			d.CRDs = append(d.CRDs, crd.CRDInfo{Name: prefix + kind + "." + g, Group: g, Versions: []string{"v1"}, Scope: "Namespaced"})
+			d.CRDs = append(d.CRDs, crd.Info{Name: prefix + kind + "." + g, Group: g, Versions: []string{"v1"}, Scope: "Namespaced"})
 		}
 	}
 	d.Count = len(d.CRDs)

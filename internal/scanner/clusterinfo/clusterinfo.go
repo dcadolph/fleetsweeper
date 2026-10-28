@@ -55,7 +55,7 @@ type Data struct {
 // NewScanner returns a scanner that aggregates platform identity for every
 // node in the cluster and exposes intra-cluster drift.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		list, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
 			func(l *corev1.NodeList) []corev1.Node { return l.Items })

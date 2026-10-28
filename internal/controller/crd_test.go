@@ -47,8 +47,9 @@ func TestCRDSchemaCoversStatus(t *testing.T) {
 	}
 	item := status.Properties["conditions"].Items.Schema
 	enumOf := func(name string) []string {
-		var out []string
-		for _, v := range item.Properties[name].Enum {
+		enum := item.Properties[name].Enum
+		out := make([]string, 0, len(enum))
+		for _, v := range enum {
 			out = append(out, strings.Trim(string(v.Raw), `"`))
 		}
 		return out

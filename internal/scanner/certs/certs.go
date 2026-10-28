@@ -72,7 +72,7 @@ const tlsSecretSelector = "type=" + string(corev1.SecretTypeTLS)
 // reason naming the failed list. When every list fails, the scan errors rather than reporting a
 // cluster with zero certificates.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		data := Data{Soonest: -1}
 		now := time.Now()
 		var cov scanner.Coverage

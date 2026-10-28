@@ -39,7 +39,7 @@ func testBundle(t *testing.T, key string) map[string][]byte {
 		t.Fatalf("bundle files: %v", err)
 	}
 	if key != "" {
-		if _, err := SealBundle(files, key); err != nil {
+		if _, err := Bundle(files, key); err != nil {
 			t.Fatalf("seal: %v", err)
 		}
 	}
@@ -133,7 +133,7 @@ func TestManifestRoundTrip(t *testing.T) {
 		FileName: []byte("sig")}
 	m := Manifest(files)
 	lines := strings.Split(strings.TrimSpace(string(m)), "\n")
-	var names []string
+	names := make([]string, 0, len(lines))
 	for _, l := range lines {
 		_, name, _ := strings.Cut(l, "  ")
 		names = append(names, name)

@@ -51,7 +51,7 @@ func SeedDemo(ctx context.Context, st store.Store, now time.Time) error {
 	for i := range demoScans {
 		at := now.Add(-time.Duration(demoScans-1-i) * demoStep)
 		rec := store.ScanRecord{ID: demoScanIDAt(i), Timestamp: at, Clusters: clusters}
-		if _, err := st.SaveScanRecord(ctx, rec, demoResults(i, demoScans, at, now)); err != nil {
+		if _, err := st.SaveScanRecord(ctx, rec, demoResults(i, at, now)); err != nil {
 			return fmt.Errorf("%w: save scan %d: %w", ErrDemoSeed, i, err)
 		}
 	}
@@ -84,11 +84,11 @@ func SeedDemo(ctx context.Context, st store.Store, now time.Time) error {
 // since startup: the newest seeded state of each requested cluster at now, with the scripted
 // drift on even k. Requested names outside the demo fleet are ignored.
 func demoLiveScan(k int, requested []string, now time.Time) ([]string, map[string]map[string]scanner.Result) {
-	all := demoResults(demoScans-1, demoScans, now, now)
+	all := demoResults(demoScans-1, now, now)
 	if k%2 == 0 {
 		if res, ok := all[demoDriftCluster][crd.Name]; ok {
 			if d, isCRD := res.Data.(crd.Data); isCRD {
-				kept := make([]crd.CRDInfo, 0, len(d.CRDs))
+				kept := make([]crd.Info, 0, len(d.CRDs))
 				for _, c := range d.CRDs {
 					if c.Group != demoDriftGroup {
 						kept = append(kept, c)

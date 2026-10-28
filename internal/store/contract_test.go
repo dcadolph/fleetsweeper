@@ -656,7 +656,7 @@ func contractSubsecond(t *testing.T, st Store) {
 	if err != nil {
 		t.Fatalf("list alerts: %v", err)
 	}
-	gotAudit, gotAlerts := []string{}, []string{}
+	gotAudit, gotAlerts := make([]string, 0, len(audit)), make([]string, 0, len(alerts))
 	for _, e := range audit {
 		gotAudit = append(gotAudit, e.ID)
 	}

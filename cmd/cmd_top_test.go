@@ -246,7 +246,7 @@ func TestGetJSON(t *testing.T) {
 // when it responds.
 func TestHydrateScoresForecast(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"forecasts": []map[string]any{
 				{"cluster": "a", "current_score": 77},
@@ -269,7 +269,7 @@ func TestHydrateScoresForecast(t *testing.T) {
 // the forecast endpoint is unavailable.
 func TestHydrateScoresFallback(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -313,16 +313,16 @@ func newTopTestServer(t *testing.T) *httptest.Server {
 		}
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/scans", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/scans", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]string{{"id": "s1"}, {"id": "s2"}})
 	})
-	mux.HandleFunc("/api/scans/s1/report", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/scans/s1/report", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(report(70, "C"))
 	})
-	mux.HandleFunc("/api/scans/s2/report", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/scans/s2/report", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(report(80, "B"))
 	})
-	mux.HandleFunc("/api/forecast/clusters", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/forecast/clusters", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"forecasts": []map[string]any{
 				{"cluster": "a", "current_score": 90},
@@ -356,7 +356,7 @@ func TestFetchLatestReports(t *testing.T) {
 // TestFetchLatestReportsNoScans verifies an empty scan list is an error.
 func TestFetchLatestReportsNoScans(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]string{})
 	}))
 	defer srv.Close()

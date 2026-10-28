@@ -100,8 +100,8 @@ func (c *Coverage) Require(what string, err error) bool {
 // with no data, plus an error wrapping ErrScan and every read's error so the failure is logged
 // and the data never counts as a measurement.
 func (c *Coverage) Finish(name string, data any) (Result, error) {
-	var reasons []string
-	var errs []error
+	reasons := make([]string, 0, len(c.failures))
+	errs := make([]error, 0, len(c.failures))
 	allUnavailable := true
 	blind := false
 	for _, f := range c.failures {

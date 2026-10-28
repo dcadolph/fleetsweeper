@@ -1,3 +1,4 @@
+// Package store persists scans, results, and related fleet records in SQLite or Postgres.
 package store
 
 import (

@@ -235,7 +235,7 @@ func TestStaticIndex(t *testing.T) {
 // checking every pair is accounted for and failures are recorded as errored, never dropped.
 func TestRunScanners(t *testing.T) {
 	t.Parallel()
-	failing := scanner.ScannerFunc(func(context.Context, *kube.Client) (scanner.Result, error) {
+	failing := scanner.Func(func(context.Context, *kube.Client) (scanner.Result, error) {
 		return scanner.Result{}, errors.New("api unavailable")
 	})
 	scanners := map[string]scanner.Scanner{"node-health": pressureScanner, "broken": failing}

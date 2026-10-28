@@ -121,7 +121,7 @@ func TestDriftLedgerSteady(t *testing.T) {
 func TestDriftLedgerIgnoresNormOnlyMoves(t *testing.T) {
 	t.Parallel()
 	l := DriftLedger(stepScans(6, 3))
-	var names []string
+	names := make([]string, 0, len(l.Clusters))
 	for _, c := range l.Clusters {
 		names = append(names, c.Cluster)
 	}

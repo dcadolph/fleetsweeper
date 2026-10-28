@@ -1,3 +1,5 @@
+// Package metrics implements the scanner that reads node resource utilization from the
+// metrics.k8s.io API.
 package metrics
 
 import (
@@ -66,7 +68,7 @@ type Data struct {
 // read errors, so it is never mistaken for a healthy, zero-utilization cluster. A failed node
 // read leaves usage without percentages and marks the result StateDegraded.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
 		if dyn == nil {
 			return scanner.Result{Scanner: Name, State: scanner.StateErrored, Reason: "no dynamic client"},

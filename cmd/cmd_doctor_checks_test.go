@@ -33,7 +33,7 @@ func TestDoctorCheckServer(t *testing.T) {
 	}
 
 	// Test 1: A server that answers 200 on both probes is healthy.
-	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ok.Close()
@@ -42,7 +42,7 @@ func TestDoctorCheckServer(t *testing.T) {
 	}
 
 	// Test 2: A server returning 500 fails the check.
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer bad.Close()

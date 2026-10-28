@@ -1,3 +1,4 @@
+// Package cmd implements the fleetsweeper command line interface on top of cobra.
 package cmd
 
 import (

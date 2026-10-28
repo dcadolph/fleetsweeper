@@ -100,7 +100,7 @@ type Data struct {
 // ClusterPolicyReport resources. Safe to register unconditionally; the
 // scanner returns Available=false when neither CRD is installed.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		data := Data{}
 		bySource := map[string]*sourceTally{}
 		topMap := map[string]*PolicyFailure{}

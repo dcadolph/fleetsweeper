@@ -51,7 +51,7 @@ func TestNewScanner(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		WantCRDs  []CRDInfo
+		WantCRDs  []Info
 		Objects   []*unstructured.Unstructured
 		WantCount int
 	}{{ // Test 0: No CRDs installed yields empty data.
@@ -64,7 +64,7 @@ func TestNewScanner(t *testing.T) {
 			crdObject("apples.example.com", "example.com", "Cluster", "v1"),
 		},
 		WantCount: 2,
-		WantCRDs: []CRDInfo{
+		WantCRDs: []Info{
 			{Name: "apples.example.com", Group: "example.com", Scope: "Cluster", Versions: []string{"v1"}},
 			{
 				Name:     "widgets.example.com",
@@ -76,7 +76,7 @@ func TestNewScanner(t *testing.T) {
 	}, { // Test 2: A single cluster-scoped CRD declaring no versions.
 		Objects:   []*unstructured.Unstructured{crdObject("clusters.infra.io", "infra.io", "Cluster")},
 		WantCount: 1,
-		WantCRDs: []CRDInfo{
+		WantCRDs: []Info{
 			{Name: "clusters.infra.io", Group: "infra.io", Scope: "Cluster", Versions: nil},
 		},
 	}, { // Test 3: A CRD object missing its spec extracts only the name.
@@ -86,7 +86,7 @@ func TestNewScanner(t *testing.T) {
 			"metadata":   map[string]any{"name": "orphan.example.com"},
 		}}},
 		WantCount: 1,
-		WantCRDs:  []CRDInfo{{Name: "orphan.example.com"}},
+		WantCRDs:  []Info{{Name: "orphan.example.com"}},
 	}}
 
 	for testNum, test := range tests {

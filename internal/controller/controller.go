@@ -371,7 +371,7 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 		}
 		status.Phase = PhaseFailed
 		status.Message = msg
-		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionFalse, metav1.ConditionTrue,
+		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionTrue,
 			ReasonInvalidSpec, msg)
 		c.recorder.Event(obj, corev1.EventTypeWarning, ReasonInvalidSpec, msg)
 		return 0, c.patchStatus(ctx, obj, status)
@@ -385,7 +385,7 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 		}
 		status.Phase = PhasePaused
 		status.Message = "paused by spec.paused"
-		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionFalse, metav1.ConditionFalse,
+		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionFalse,
 			ReasonPaused, status.Message)
 		return 0, c.patchStatus(ctx, obj, status)
 	}
@@ -458,7 +458,7 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 		status.Phase = PhaseFailed
 		status.Message = "scan failed: " + scanErr.Error()
 		status.NextScanTime = &next
-		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionFalse, metav1.ConditionTrue,
+		setConditions(&status, gen, metav1.ConditionFalse, metav1.ConditionTrue,
 			ReasonScanFailed, status.Message)
 		c.recorder.Event(obj, corev1.EventTypeWarning, ReasonScanFailed, status.Message)
 		if err := c.patchStatus(ctx, obj, status); err != nil {
@@ -483,7 +483,7 @@ func (c *Controller) reconcile(ctx context.Context, obj *unstructured.Unstructur
 	status.ObservedCritical = summary.Critical
 	status.ObservedWarning = summary.Warning
 	status.ObservedClusters = summary.Clusters
-	setConditions(&status, gen, metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionFalse,
+	setConditions(&status, gen, metav1.ConditionTrue, metav1.ConditionFalse,
 		ReasonScanSucceeded, status.Message)
 	c.recorder.Event(obj, corev1.EventTypeNormal, ReasonScanSucceeded, status.Message)
 	if err := c.patchStatus(ctx, obj, status); err != nil {
@@ -537,12 +537,12 @@ func retryDelay(failures int, interval time.Duration) time.Duration {
 	return min(delay, interval)
 }
 
-// setConditions writes the Ready, Scanning, and Failed conditions with one reason and message.
-func setConditions(status *ClusterScanStatus, gen int64, ready, scanning, failed metav1.ConditionStatus,
-	reason, message string) {
+// setConditions writes the Ready and Failed conditions and clears Scanning, all with one reason
+// and message. Every caller records a finished or skipped scan, so Scanning is always False.
+func setConditions(status *ClusterScanStatus, gen int64, ready, failed metav1.ConditionStatus, reason, message string) {
 	for _, cond := range []metav1.Condition{
 		{Type: ConditionReady, Status: ready},
-		{Type: ConditionScanning, Status: scanning},
+		{Type: ConditionScanning, Status: metav1.ConditionFalse},
 		{Type: ConditionFailed, Status: failed},
 	} {
 		cond.ObservedGeneration = gen

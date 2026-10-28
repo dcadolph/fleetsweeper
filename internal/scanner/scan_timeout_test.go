@@ -14,7 +14,7 @@ import (
 func TestRunWithTimeout(t *testing.T) {
 	t.Parallel()
 
-	blocking := ScannerFunc(func(ctx context.Context, _ *kube.Client) (Result, error) {
+	blocking := Func(func(ctx context.Context, _ *kube.Client) (Result, error) {
 		<-ctx.Done()
 		return Result{}, ctx.Err()
 	})
@@ -28,7 +28,7 @@ func TestRunWithTimeout(t *testing.T) {
 		t.Error("timeout did not fire promptly")
 	}
 
-	fast := ScannerFunc(func(_ context.Context, _ *kube.Client) (Result, error) {
+	fast := Func(func(_ context.Context, _ *kube.Client) (Result, error) {
 		return Result{Scanner: "x"}, nil
 	})
 	if _, err := RunWithTimeout(context.Background(), fast, nil, 0); err != nil {

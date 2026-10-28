@@ -1,3 +1,5 @@
+// Package jsonutil centralizes JSON encoding for command output, compact by default and
+// indented on request.
 package jsonutil
 
 import "encoding/json"

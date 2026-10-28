@@ -172,6 +172,4 @@ func writeFile(path, contents string) error {
 
 // osWriteFile is just os.WriteFile, indirected so the test file doesn't have
 // to import "os" alongside the helper.
-var osWriteFile = func(name string, data []byte, perm uint32) error {
-	return osWriteFileImpl(name, data, perm)
-}
+var osWriteFile = osWriteFileImpl

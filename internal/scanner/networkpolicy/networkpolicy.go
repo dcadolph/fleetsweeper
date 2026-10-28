@@ -1,3 +1,4 @@
+// Package networkpolicy implements the scanner that collects NetworkPolicy data from a cluster.
 package networkpolicy
 
 import (
@@ -42,7 +43,7 @@ type Data struct {
 
 // NewScanner returns a scanner that collects NetworkPolicy data from a cluster.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		cs := client.Clientset()
 		npList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), cs.NetworkingV1().NetworkPolicies("").List,

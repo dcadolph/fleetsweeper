@@ -333,9 +333,9 @@ func extractAllSignals(r *Report) map[string]clusterSignals {
 		if sec := r.Sections["metrics"]; sec != nil {
 			_, sig.hasMetrics = sec.PerCluster[cluster]
 		}
-		sig.cpuPct = getFloatField(r, "metrics", cluster, "avg_cpu_percent")
-		sig.memPct = getFloatField(r, "metrics", cluster, "avg_memory_percent")
-		sig.maxMemPct = getFloatField(r, "metrics", cluster, "max_memory_percent")
+		sig.cpuPct = getMetricsFloat(r, cluster, "avg_cpu_percent")
+		sig.memPct = getMetricsFloat(r, cluster, "avg_memory_percent")
+		sig.maxMemPct = getMetricsFloat(r, cluster, "max_memory_percent")
 		sig.nodeCount = getIntField(r, "node-health", cluster, "node_count")
 		sig.healthyNodes = getIntField(r, "node-health", cluster, "healthy_nodes")
 		sig.memPressure = getIntField(r, "node-health", cluster, "memory_pressure_nodes")
