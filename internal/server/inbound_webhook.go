@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -111,16 +110,3 @@ func signWebhookBody(secret string, body []byte) string {
 	mac.Write(body)
 	return webhookSignaturePrefix + hex.EncodeToString(mac.Sum(nil))
 }
-
-// signedBytes returns the raw signature bytes for a body. Useful when tests
-// want to inspect signature length or assemble a custom header.
-func signedBytes(secret string, body []byte) []byte {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return mac.Sum(nil)
-}
-
-// _ silences the unused-helper lint for signedBytes; the helper exists for
-// future test wiring and is intentionally exported within the package.
-var _ = bytes.Equal
-var _ = signedBytes

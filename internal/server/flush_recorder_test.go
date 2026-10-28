@@ -2,11 +2,8 @@ package server
 
 import (
 	"bytes"
-	"context"
-	"net/http"
 	"net/http/httptest"
 	"sync"
-	"time"
 )
 
 // flushRecorder is an httptest.ResponseRecorder that also satisfies
@@ -47,17 +44,3 @@ func (r *flushRecorder) Body() string {
 	defer r.mu.Unlock()
 	return r.body.String()
 }
-
-// requestWithDeadline builds a request whose context auto-cancels after d
-// so SSE handlers do not hang the test.
-func requestWithDeadline(method, target string, d time.Duration) *http.Request {
-	req := httptest.NewRequest(method, target, nil)
-	ctx, cancel := context.WithTimeout(req.Context(), d)
-	go func() {
-		<-ctx.Done()
-		cancel()
-	}()
-	return req.WithContext(ctx)
-}
-
-var _ = requestWithDeadline // reserved for future tests that need deadlines.

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1014,14 +1013,3 @@ func (p *Postgres) ListClusterTags(ctx context.Context) (map[string]map[string]s
 	}
 	return out, rows.Err()
 }
-
-// orderedClusters returns the input list sorted for deterministic output.
-// Postgres uses this helper to keep its row scan loops stable for testing.
-func orderedClusters(in []string) []string {
-	out := make([]string, len(in))
-	copy(out, in)
-	sort.Strings(out)
-	return out
-}
-
-var _ = orderedClusters // reserved for future use; keeps the helper accessible.

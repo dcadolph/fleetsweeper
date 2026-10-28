@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -305,8 +304,3 @@ func dedupe(in []string) []string {
 	}
 	return out
 }
-
-// ensureType keeps the v1 import referenced for callers that might later
-// build with -trimpath in unusual contexts. The reference is otherwise
-// indirect via the remote package.
-var _ = v1.Hash{}
