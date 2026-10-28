@@ -408,6 +408,56 @@ func TestDetectSetOutliersGolden(t *testing.T) {
 	}
 }
 
+// TestDetectStringOutliersSkipsAbsent verifies a cluster that lacks a string field, or reports
+// it as null, is left out of the population instead of counted as the value "<nil>".
+func TestDetectStringOutliersSkipsAbsent(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Last           map[string]any
+		Other          bool
+		WantClusters   []string
+		WantSampleSize int
+	}{{ // Test 0: Nine at baseline and one without the field flag nothing.
+		Last: map[string]any{},
+	}, { // Test 1: Nine at baseline and one null flag nothing.
+		Last: map[string]any{"f": nil},
+	}, { // Test 2: A real deviant is flagged against the nine clusters that report the field.
+		Last: map[string]any{}, Other: true, WantClusters: []string{"c08"}, WantSampleSize: 9,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters := make([]string, 0, 10)
+			flat := map[string]map[string]any{}
+			for i := range 9 {
+				c := fmt.Sprintf("c%02d", i)
+				clusters = append(clusters, c)
+				flat[c] = map[string]any{"f": "baseline"}
+			}
+			if test.Other {
+				flat["c08"]["f"] = "other"
+			}
+			clusters = append(clusters, "c09")
+			flat["c09"] = test.Last
+			got, dist := detectStringOutliers(clusters, flat, "f", "version")
+			gotClusters := make([]string, 0, len(got))
+			for _, o := range got {
+				gotClusters = append(gotClusters, o.Cluster)
+			}
+			if diff := cmp.Diff(test.WantClusters, gotClusters, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("outliers mismatch (-want +got):\n%s", diff)
+			}
+			var gotSize int
+			if dist != nil {
+				gotSize = dist.SampleSize
+			}
+			if diff := cmp.Diff(test.WantSampleSize, gotSize); diff != "" {
+				t.Errorf("sample size mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestNumericSeverityDirection verifies a numeric outlier on the better side of a field with
 // a polarity is info and favorable, on the worse side keeps the field's severity, and on a
 // field with no polarity keeps it in both directions, for the MAD and majority detectors.

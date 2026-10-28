@@ -391,11 +391,11 @@ func detectStringOutliers(clusters []string, flat map[string]map[string]any, fie
 	var order []string
 
 	for _, c := range clusters {
-		m := flat[c]
-		if m == nil {
+		raw, ok := flat[c][field]
+		if !ok || raw == nil {
 			continue
 		}
-		v := fmt.Sprintf("%v", m[field])
+		v := fmt.Sprintf("%v", raw)
 		counts[v]++
 		clusterVals[c] = v
 		order = append(order, c)
