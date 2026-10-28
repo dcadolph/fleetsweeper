@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -83,6 +82,10 @@ func init() {
 // runServe starts the HTTP server and blocks until the parent context is canceled.
 func runServe(cmd *cobra.Command, _ []string) error {
 	if err := applyConfigFile(cmd); err != nil {
+		return err
+	}
+	admissionMode, _ := cmd.Flags().GetString("admission-mode")
+	if err := oneOf("admission-mode", admissionMode, "advisory", "enforce"); err != nil {
 		return err
 	}
 	demo, _ := cmd.Flags().GetBool("demo")
@@ -252,7 +255,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	if admAddr, _ := cmd.Flags().GetString("admission-addr"); admAddr != "" {
 		mode := admission.ModeAdvisory
-		if v, _ := cmd.Flags().GetString("admission-mode"); strings.EqualFold(v, "enforce") {
+		if admissionMode == "enforce" {
 			mode = admission.ModeEnforce
 		}
 		certPath, _ := cmd.Flags().GetString("admission-cert")

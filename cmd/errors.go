@@ -14,4 +14,6 @@ var (
 	ErrDemoDatabase = errors.New("--demo runs on its own in-memory store and does not take --db")
 	// ErrStableScans indicates --admission-stable-scans is below one.
 	ErrStableScans = errors.New("--admission-stable-scans must be at least 1")
+	// ErrFlagValue indicates a flag was given a value outside its allowed set.
+	ErrFlagValue = errors.New("invalid flag value")
 )

@@ -59,6 +59,10 @@ type recommendation struct {
 
 // runRecommend implements the recommend subcommand.
 func runRecommend(cmd *cobra.Command, _ []string) error {
+	severity, _ := cmd.Flags().GetString("severity")
+	if err := oneOf("severity", severity, "", "critical", "warning", "info"); err != nil {
+		return err
+	}
 	st, err := openAnyStore(cmd)
 	if err != nil {
 		return err
@@ -74,7 +78,6 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no scans found in store")
 	}
 
-	severity, _ := cmd.Flags().GetString("severity")
 	limit, _ := cmd.Flags().GetInt("limit")
 	recs := buildRecommendations(rpt.Findings, severity)
 	if limit > 0 && len(recs) > limit {

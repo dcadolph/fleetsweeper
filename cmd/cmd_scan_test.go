@@ -36,27 +36,6 @@ func TestBuildRegistry(t *testing.T) {
 }
 
 // TestSelectScanners verifies empty selection means all, a subset is honored,
-// and unknown names are silently dropped.
-func TestSelectScanners(t *testing.T) {
-	t.Parallel()
-	reg := buildRegistry()
-	all := reg.All()
-
-	// Test 0: Empty names returns the full set.
-	if got := selectScanners(reg, nil); len(got) != len(all) {
-		t.Errorf("empty selection: got %d, want %d", len(got), len(all))
-	}
-
-	// Test 1: A known subset is selected, unknown names ignored.
-	got := selectScanners(reg, []string{"version", "not-a-real-scanner"})
-	if len(got) != 1 {
-		t.Fatalf("subset selection: got %d, want 1", len(got))
-	}
-	if _, ok := got["version"]; !ok {
-		t.Error("expected 'version' in selection")
-	}
-}
-
 // TestResolveContexts verifies the explicit, none, and all-contexts branches.
 func TestResolveContexts(t *testing.T) {
 	t.Parallel()

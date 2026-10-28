@@ -38,6 +38,9 @@ func init() {
 func runCompare(cmd *cobra.Command, args []string) error {
 	ctx := cmdContext(cmd)
 	format, _ := cmd.Flags().GetString("format")
+	if err := oneOf("format", format, "text", "markdown", "md", "json"); err != nil {
+		return err
+	}
 	noColor, _ := cmd.Flags().GetBool("no-color")
 
 	s, err := openAnyStore(cmd)

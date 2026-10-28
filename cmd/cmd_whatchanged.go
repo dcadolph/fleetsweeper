@@ -84,6 +84,10 @@ type clusterScoreChange struct {
 
 // runWhatChanged implements the whatchanged subcommand.
 func runWhatChanged(cmd *cobra.Command, args []string) error {
+	severity, _ := cmd.Flags().GetString("severity")
+	if err := oneOf("severity", severity, "", "critical", "warning", "info"); err != nil {
+		return err
+	}
 	st, err := openAnyStore(cmd)
 	if err != nil {
 		return err
@@ -105,7 +109,6 @@ func runWhatChanged(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("build scan-b report: %w", err)
 	}
 
-	severity, _ := cmd.Flags().GetString("severity")
 	diff := computeWhatChanged(rptA, rptB, scanA, scanB, severity)
 	window, err := driftWindow(ctx, st, scanA, scanB, rptA, rptB)
 	if err != nil {

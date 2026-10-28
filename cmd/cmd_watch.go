@@ -62,7 +62,10 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	}
 
 	registry := buildRegistry()
-	selected := selectScanners(registry, scannerNames)
+	selected, err := selectScanners(registry, scannerNames)
+	if err != nil {
+		return err
+	}
 
 	out := cmd.OutOrStdout()
 	var prev *report.Report
