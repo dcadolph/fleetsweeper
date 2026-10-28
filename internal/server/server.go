@@ -90,9 +90,6 @@ type Server struct {
 	alertsReceivedAM atomic.Int64
 	// alertsReceivedFalco is the count of Falco events persisted since startup.
 	alertsReceivedFalco atomic.Int64
-	// metricsCache memoizes the rebuilt report behind /metrics so two scrapes
-	// within a TTL window do not trigger duplicate report builds.
-	metricsCache metricsCache
 	// reports caches reports rebuilt from stored scans for the read-only series endpoints.
 	reports reportCache
 	// slackWebhookURL, when non-empty, receives new critical findings as

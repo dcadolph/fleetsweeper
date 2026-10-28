@@ -12,7 +12,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
@@ -36,22 +35,19 @@ func TestPromLabelEscape(t *testing.T) {
 	}
 }
 
-func TestMetricsCache_HitMiss(t *testing.T) {
+func TestMetricsReportCache(t *testing.T) {
 	t.Parallel()
-	var c metricsCache
-	r := &report.Report{Clusters: []string{"a"}}
-	if got := c.loadFresh("id-1", time.Second); got != nil {
-		t.Errorf("expected miss before store, got hit")
+	srv, st := testServer(t)
+	seedScan(t, st, "a", "b")
+	for range 2 {
+		var buf bytes.Buffer
+		srv.writeMetrics(context.Background(), &buf)
+		mustContain(t, buf.String(), "fleetsweeper_cluster_count 2")
 	}
-	c.store("id-1", r)
-	if got := c.loadFresh("id-1", time.Second); got == nil {
-		t.Errorf("expected hit after store, got miss")
-	}
-	if got := c.loadFresh("id-2", time.Second); got != nil {
-		t.Errorf("expected miss on different scan id, got hit")
-	}
-	if got := c.loadFresh("id-1", time.Nanosecond); got != nil {
-		t.Errorf("expected miss after ttl expiry, got hit")
+	srv.reports.mu.Lock()
+	defer srv.reports.mu.Unlock()
+	if got := len(srv.reports.entries); got != 1 {
+		t.Errorf("report cache holds %d entries after two scrapes, want 1", got)
 	}
 }
 

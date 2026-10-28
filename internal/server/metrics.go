@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -15,44 +14,6 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/policyreportingest"
 )
-
-// metricsTTL is the soft cache window for the rebuilt report behind /metrics.
-// Prometheus typically scrapes every 15-30 seconds; rebuilding a report on
-// every scrape would do unbounded work. The cache is best-effort: on a write
-// (new scan) the next scrape rebuilds.
-const metricsTTL = 20 * time.Second
-
-// metricsCache memoizes the latest report build keyed by scan ID so two
-// scrapes within metricsTTL only do the work once. Safe for concurrent use.
-type metricsCache struct {
-	mu      sync.Mutex
-	scanID  string
-	report  *report.Report
-	fetched time.Time
-}
-
-// loadFresh returns the cached report if it covers the given scan ID and is
-// younger than ttl. Returns nil to signal the caller must rebuild.
-func (c *metricsCache) loadFresh(scanID string, ttl time.Duration) *report.Report {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.scanID != scanID {
-		return nil
-	}
-	if time.Since(c.fetched) > ttl {
-		return nil
-	}
-	return c.report
-}
-
-// store records the rebuilt report and its scan ID.
-func (c *metricsCache) store(scanID string, r *report.Report) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.scanID = scanID
-	c.report = r
-	c.fetched = time.Now()
-}
 
 // writeMetrics emits the Prometheus exposition for the server's current state
 // to w. The function is structured top-down: counters that always exist first,
@@ -258,18 +219,14 @@ func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
 	}
 
 	latest := scans[0]
-	if cached := s.metricsCache.loadFresh(latest.ID, metricsTTL); cached != nil {
-		return cached
-	}
-
 	results, err := s.store.GetScanResults(ctx, latest.ID)
 	if err != nil {
 		s.log.Warn("metrics: get scan results", zap.Error(err))
 		return nil
 	}
-	r := s.buildReport(ctx, latest, results)
-	s.metricsCache.store(latest.ID, r)
-	return r
+	opts := s.reportOptions(ctx, s.log)
+	opts.Timestamp = latest.Timestamp
+	return s.reports.get(latest.ID, latest.Clusters, results, opts)
 }
 
 // emit writes one line of Prometheus exposition followed by a newline.
