@@ -10,6 +10,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
@@ -197,5 +199,51 @@ func TestReportsForNameLength(t *testing.T) {
 				t.Errorf("name = %q (%d chars), want %q", got, len(got), test.WantResult)
 			}
 		})
+	}
+}
+
+// TestReportsForCategories verifies that results carry the report category of their scanner.
+func TestReportsForCategories(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner    string
+		WantResult string
+	}{
+		{Scanner: "cluster-info", WantResult: "Health & Resources"},   // Test 0: Node drift.
+		{Scanner: "vulnerabilities", WantResult: "Security & Access"}, // Test 1: Vulnerabilities.
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := &report.Report{
+				Clusters: []string{"c1"},
+				Findings: []report.Finding{{
+					Severity: report.SeverityWarning, Cluster: "c1", Scanner: test.Scanner, Title: "t",
+				}},
+			}
+			out := ReportsFor(r, "scan-1", "fleetsweeper")
+			if len(out) != 1 || len(out[0].Results) != 1 {
+				t.Fatalf("want 1 report with 1 result, got %+v", out)
+			}
+			if diff := cmp.Diff(test.WantResult, out[0].Results[0].Category); diff != "" {
+				t.Errorf("category mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestCategoryForScannerMatchesReport verifies that every report category scanner maps to its
+// category and an unknown scanner maps to Other.
+func TestCategoryForScannerMatchesReport(t *testing.T) {
+	t.Parallel()
+	for _, c := range report.Categories() {
+		for _, s := range c.Scanners {
+			if got := report.CategoryOf(s); got != c.Name {
+				t.Errorf("scanner %q: want %q, got %q", s, c.Name, got)
+			}
+		}
+	}
+	if got := report.CategoryOf("unknown-scanner"); got != "Other" {
+		t.Errorf("unknown scanner: want Other, got %q", got)
 	}
 }

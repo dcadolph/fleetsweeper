@@ -4,6 +4,7 @@ package report
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -39,6 +40,16 @@ func Categories() []Category {
 		}},
 		{Name: "Events & Logs", Scanners: []string{"events"}},
 	}
+}
+
+// CategoryOf returns the name of the category that holds scanner, or "Other" when none does.
+func CategoryOf(scanner string) string {
+	for _, c := range Categories() {
+		if slices.Contains(c.Scanners, scanner) {
+			return c.Name
+		}
+	}
+	return "Other"
 }
 
 // Report is the top-level output structure.
