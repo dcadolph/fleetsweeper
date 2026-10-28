@@ -558,3 +558,44 @@ func TestHandlerStabilityGate(t *testing.T) {
 		})
 	}
 }
+
+// TestInsufficientBaselineWarning pins the warning text for a baseline below the sample gate.
+func TestInsufficientBaselineWarning(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Baseline     Baseline
+		WantWarnings []string
+	}{
+		{ // Test 0: A 3-pod, 12-container baseline names what it has and what is required.
+			Baseline: Baseline{SamplePods: 3, SampleContainers: 12},
+			WantWarnings: []string{
+				"fleetsweeper: baseline has 3 pods and 12 containers; " +
+					"evaluation starts at 10 pods and 30 containers",
+			},
+		},
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			h := &Handler{
+				Provider: fakeProvider{b: test.Baseline},
+				Checks:   DefaultChecks(),
+				Mode:     ModeEnforce,
+				Log:      zap.NewNop(),
+			}
+			raw, err := json.Marshal(dirtyPod())
+			if err != nil {
+				t.Fatalf("marshal pod: %v", err)
+			}
+			req := &admissionv1.AdmissionRequest{
+				UID:    "u",
+				Kind:   metav1.GroupVersionKind{Version: "v1", Kind: "Pod"},
+				Object: runtime.RawExtension{Raw: raw},
+			}
+			resp, _ := h.evaluateDecision(context.Background(), req)
+			if diff := cmp.Diff(test.WantWarnings, resp.Warnings, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("warnings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

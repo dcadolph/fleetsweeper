@@ -147,8 +147,10 @@ func (h *Handler) evaluateDecision(
 
 	baseline := h.Provider.Current(ctx)
 	if !baseline.Sufficient() {
-		resp.Warnings = append(resp.Warnings,
-			"fleetsweeper: baseline below sample threshold; not evaluating")
+		resp.Warnings = append(resp.Warnings, fmt.Sprintf(
+			"fleetsweeper: baseline has %d pods and %d containers; "+
+				"evaluation starts at %d pods and %d containers",
+			baseline.SamplePods, baseline.SampleContainers, MinSamplePods, MinSampleContainers))
 		return resp, DecisionSkipped
 	}
 
