@@ -3,6 +3,9 @@ package diagnose
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestRun_AllOff(t *testing.T) {
@@ -198,5 +203,184 @@ func TestFormatText_PlainAndTTY(t *testing.T) {
 	tty := FormatText(r, true)
 	if !strings.Contains(tty, "\033[32m") || !strings.Contains(tty, "\033[31m") {
 		t.Errorf("tty output missing ANSI colors:\n%q", tty)
+	}
+}
+
+// roundTripperFunc adapts a function to http.RoundTripper.
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+// RoundTrip calls f.
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestCheckSlack_Table(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		URL         string
+		WantStatus  Status
+		WantMessage string
+	}{{ // Test 0: Plain http scheme is rejected.
+		URL:         "http://insecure.example/webhook",
+		WantStatus:  StatusFail,
+		WantMessage: "webhook URL must be https with a host: http",
+	}, { // Test 1: https without a host is rejected.
+		URL:         "https:///path",
+		WantStatus:  StatusFail,
+		WantMessage: "webhook URL must be https with a host: https",
+	}, { // Test 2: Unparseable URL reports the parse error.
+		URL:        "https://bad host/\x7f",
+		WantStatus: StatusFail,
+	}, { // Test 3: Empty URL is off.
+		URL: "", WantStatus: StatusOff,
+	}, { // Test 4: Valid https URL passes.
+		URL:         "https://hooks.slack.com/services/a/b",
+		WantStatus:  StatusOK,
+		WantMessage: "URL parsed OK; pass --probe to send a test message",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := checkSlack(context.Background(), Options{SlackWebhookURL: test.URL})
+			if diff := cmp.Diff(test.WantStatus, got.Status); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+			if strings.Contains(got.Message, "<nil>") {
+				t.Errorf("message contains <nil>: %q", got.Message)
+			}
+			if test.WantMessage != "" {
+				if diff := cmp.Diff(test.WantMessage, got.Message); diff != "" {
+					t.Errorf("message mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckGitHub_Probe(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Body       string
+		WantStatus Status
+		Code       int
+		Token      string
+		Probe      bool
+		Err        error
+	}{{ // Test 0: Transport error fails.
+		Err: errors.New("boom"), WantStatus: StatusFail,
+	}, { // Test 1: Empty token is off.
+		Token: "-", WantStatus: StatusOff,
+	}, { // Test 2: Without probe a good token is OK.
+		Token: "real-token-1234567890", WantStatus: StatusOK,
+	}, { // Test 3: Short token fails.
+		Token: "short", WantStatus: StatusFail, Probe: true,
+	}, { // Test 4: 401 fails.
+		Code: http.StatusUnauthorized, WantStatus: StatusFail,
+	}, { // Test 5: 500 warns.
+		Code: http.StatusInternalServerError, WantStatus: StatusWarn,
+	}, { // Test 6: 200 with a bad body warns.
+		Code: http.StatusOK, Body: "not json", WantStatus: StatusWarn,
+	}, { // Test 7: 200 with a login is OK.
+		Code: http.StatusOK, Body: `{"login":"x"}`, WantStatus: StatusOK,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			token, probe := "real-token-1234567890", true
+			if test.Token != "" {
+				token, probe = test.Token, test.Probe
+			}
+			if token == "-" {
+				token = ""
+			}
+			client := &http.Client{Transport: roundTripperFunc(
+				func(*http.Request) (*http.Response, error) {
+					if test.Err != nil {
+						return nil, test.Err
+					}
+					return &http.Response{
+						StatusCode: test.Code,
+						Status:     fmt.Sprintf("%d", test.Code),
+						Body:       io.NopCloser(strings.NewReader(test.Body)),
+						Header:     http.Header{},
+					}, nil
+				})}
+			got := checkGitHub(context.Background(), Options{
+				GitHubToken: token,
+				Probe:       probe,
+				HTTPClient:  client,
+			})
+			if diff := cmp.Diff(test.WantStatus, got.Status); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCheckSlack_ProbeFailures(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Err        error
+		WantStatus Status
+		Code       int
+	}{{ // Test 0: Transport error fails.
+		Err: errors.New("boom"), WantStatus: StatusFail,
+	}, { // Test 1: Non-2xx fails.
+		Code: http.StatusBadRequest, WantStatus: StatusFail,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			client := &http.Client{Transport: roundTripperFunc(
+				func(*http.Request) (*http.Response, error) {
+					if test.Err != nil {
+						return nil, test.Err
+					}
+					return &http.Response{
+						StatusCode: test.Code,
+						Status:     fmt.Sprintf("%d", test.Code),
+						Body:       io.NopCloser(strings.NewReader("bad")),
+						Header:     http.Header{},
+					}, nil
+				})}
+			got := checkSlack(context.Background(), Options{
+				SlackWebhookURL: "https://hooks.slack.com/services/a/b",
+				Probe:           true,
+				HTTPClient:      client,
+			})
+			if diff := cmp.Diff(test.WantStatus, got.Status); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCheckOTel(t *testing.T) {
+	tests := []struct {
+		Env        map[string]string
+		WantStatus Status
+	}{{ // Test 0: Nothing set is off.
+		WantStatus: StatusOff,
+	}, { // Test 1: Shared endpoint is OK.
+		Env:        map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "http://x"},
+		WantStatus: StatusOK,
+	}, { // Test 2: Traces only is OK.
+		Env:        map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://x"},
+		WantStatus: StatusOK,
+	}, { // Test 3: Metrics only is OK.
+		Env:        map[string]string{"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://x"},
+		WantStatus: StatusOK,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			for _, k := range []string{
+				"OTEL_EXPORTER_OTLP_ENDPOINT",
+				"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+				"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+			} {
+				t.Setenv(k, test.Env[k])
+			}
+			if diff := cmp.Diff(test.WantStatus, checkOTel().Status); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

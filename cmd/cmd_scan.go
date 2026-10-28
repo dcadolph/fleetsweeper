@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -65,6 +66,7 @@ func init() {
 	scanCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs to (one file per cluster). Empty disables.")
 	scanCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs (one file per cluster). Empty disables.")
 	scanCmd.Flags().String("policy-report-namespace", "fleetsweeper", "Namespace placed on emitted PolicyReports.")
+	scanCmd.Flags().Bool("probe-registries", false, "Resolve image manifests against their registries to report image age. Contacts every registry the fleet pulls from.")
 }
 
 // buildRegistry creates the scanner registry with all available scanners.
@@ -110,13 +112,21 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
 	groupName, _ := cmd.Flags().GetString("group")
-	if probe, _ := cmd.Flags().GetBool("probe-registries"); probe {
-		imageaudit.SetProbeRegistries(true)
+	outputFormat, _ := cmd.Flags().GetString("output")
+	if err := oneOf("output", outputFormat, "json", "html"); err != nil {
+		return err
+	}
+	probe, _ := cmd.Flags().GetBool("probe-registries")
+	imageaudit.SetProbeRegistries(probe)
+	registry := buildRegistry()
+	selected, err := selectScanners(registry, scannerNames)
+	if err != nil {
+		return err
 	}
 
 	// Resolve contexts from group if specified.
 	if groupName != "" {
-		s, err := openStore(cmd)
+		s, err := openAnyStore(cmd)
 		if err != nil {
 			return err
 		}
@@ -141,9 +151,6 @@ func runScan(cmd *cobra.Command, _ []string) error {
 
 	log.Info("connected", logutil.ContextField(fmt.Sprintf("%d/%d clusters", len(clients), len(contexts))))
 
-	registry := buildRegistry()
-	selected := selectScanners(registry, scannerNames)
-
 	scannedAt := time.Now().UTC()
 	results := server.RunScanners(ctx, clients, selected, workers, scannerTimeout, logutil.UnwrapLogger(ctx))
 
@@ -156,7 +163,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	var st store.Store
 	dbPath, _ := cmd.Flags().GetString("db")
 	if dbPath != "" {
-		s, err := openStore(cmd)
+		s, err := openAnyStore(cmd)
 		if err != nil {
 			return fmt.Errorf("open store: %w", err)
 		}
@@ -232,7 +239,6 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	outputFormat, _ := cmd.Flags().GetString("output")
 	htmlFile, _ := cmd.Flags().GetString("html-file")
 	if htmlFile != "" {
 		outputFormat = "html"
@@ -274,19 +280,28 @@ func resolveContexts(kubeconfigPath string, explicit []string, all bool) ([]stri
 	return nil, ErrNoContexts
 }
 
-// selectScanners filters the registry to the requested scanner names. When
-// names is empty all scanners are selected.
-func selectScanners(registry *scanner.Registry, names []string) map[string]scanner.Scanner {
+// selectScanners filters the registry to the requested scanner names. When names is empty all
+// scanners are selected. Unknown names return an ErrFlagValue error listing them and the
+// registered names.
+func selectScanners(registry *scanner.Registry, names []string) (map[string]scanner.Scanner, error) {
 	if len(names) == 0 {
-		return registry.All()
+		return registry.All(), nil
 	}
 	selected := make(map[string]scanner.Scanner, len(names))
+	var unknown []string
 	for _, name := range names {
-		if s, ok := registry.Get(name); ok {
-			selected[name] = s
+		s, ok := registry.Get(name)
+		if !ok {
+			unknown = append(unknown, name)
+			continue
 		}
+		selected[name] = s
 	}
-	return selected
+	if len(unknown) > 0 {
+		return nil, fmt.Errorf("%w: --scanners %s: want any of %s", ErrFlagValue,
+			strings.Join(unknown, ", "), strings.Join(registry.Names(), ", "))
+	}
+	return selected, nil
 }
 
 // buildScanReport builds the scan's report. With a store it adds the stored cohort tags and

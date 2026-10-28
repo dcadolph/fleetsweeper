@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/cost"
-	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/seal"
 )
 
@@ -49,29 +48,20 @@ func runExport(cmd *cobra.Command, _ []string) error {
 		sealKey = os.Getenv("FLEETSWEEPER_SEAL_KEY")
 	}
 
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer s.Close()
 
-	if scanID == "latest" {
-		scans, err := s.ListScans(ctx, 1)
-		if err != nil || len(scans) == 0 {
-			return fmt.Errorf("no scans available")
-		}
-		scanID = scans[0].ID
+	if scanID, err = resolveScanRef(ctx, s, scanID); err != nil {
+		return err
 	}
-
-	scan, err := s.GetScan(ctx, scanID)
+	sc, err := loadStoredScan(ctx, s, scanID)
 	if err != nil {
-		return fmt.Errorf("get scan %q: %w", scanID, err)
+		return err
 	}
-	results, err := s.GetScanResults(ctx, scan.ID)
-	if err != nil {
-		return fmt.Errorf("get scan results: %w", err)
-	}
-	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
+	rpt, results, scan := sc.Report(), sc.Results, sc.Record
 
 	opts := seal.BundleOptions{PolicyReportNamespace: prNS, Sealed: sealKey != ""}
 	if costCSV != "" {

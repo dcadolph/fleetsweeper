@@ -37,8 +37,7 @@ type Topic struct {
 }
 
 // topics is the authoritative list of explainer entries. Append to extend.
-// Sorted alphabetically by Key here purely for source-file legibility; the
-// runtime sort happens in Keys().
+// Keys() sorts the keys at runtime.
 func topics() []Topic {
 	return []Topic{
 		{
@@ -225,6 +224,82 @@ func topics() []Topic {
 				"For higher security, use restricted instead of baseline.",
 			},
 			Related: []string{"workload-security", "network-policies"},
+		},
+		{
+			Key:     "cluster-health",
+			Aliases: []string{"cluster-status", "unhealthy-clusters"},
+			Title:   "Cluster Health",
+			Summary: "The per-cluster status (healthy, degraded, or critical) that feeds " +
+				"the Fleet Score.",
+			Severity: "Critical clusters cost up to 20 Fleet Score points scaled by their " +
+				"fraction of the fleet. Degraded clusters cost up to 10.",
+			HowComputed: "A cluster with any critical finding is critical, and one with any " +
+				"warning is degraded. A fleet-wide finding such as version skew sets status " +
+				"only on the clusters it names and costs its points once through its own term.",
+			Remediation: []string{
+				"Open the cluster on the dashboard and work its critical findings first.",
+				"Check node health, since the worst cluster's unhealthy-node fraction " +
+					"also feeds the score.",
+			},
+			Related: []string{"fleet-score", "node-health"},
+		},
+		{
+			Key:     "capacity",
+			Aliases: []string{"resource-utilization", "utilization"},
+			Title:   "Capacity and Utilization",
+			Summary: "Each cluster's capacity state (healthy, busy, strained, or critical), " +
+				"read from node pressure, node failures, and CPU and memory utilization.",
+			Severity: "A critical cluster raises a critical finding, a strained one a " +
+				"warning, and a busy one an info finding.",
+			HowComputed: "Node pressure together with node failures or high utilization is " +
+				"critical, as is a not-ready node under high utilization. Pressure, failures, " +
+				"or high utilization alone is strained, and elevated utilization is busy. " +
+				"Utilization comes from the Resource Utilization scanner.",
+			Remediation: []string{
+				"Install metrics-server on clusters that report no utilization data.",
+				"Add nodes or right-size workloads before trends project pressure.",
+			},
+			Probes: []string{
+				"kubectl --context <ctx> top nodes",
+			},
+			Related: []string{"metrics", "trends", "node-health"},
+		},
+		{
+			Key:     "metrics",
+			Aliases: []string{"metrics-server"},
+			Title:   "Metrics Server Data",
+			Summary: "Real-time CPU and memory figures that the Resource Utilization " +
+				"scanner reads from metrics-server on each cluster.",
+			Severity: "A cluster that does not serve the metrics API reports the scanner as " +
+				"unavailable. Utilization feeds capacity state and outlier analysis.",
+			HowComputed: "Reads NodeMetrics from the metrics.k8s.io API at scan time and " +
+				"records each node's CPU and memory use against its allocatable capacity, " +
+				"plus the cluster's average and maximum.",
+			Remediation: []string{
+				"Confirm the metrics-server deployment is running and its APIService is available.",
+			},
+			Probes: []string{
+				"kubectl --context <ctx> get apiservice v1beta1.metrics.k8s.io",
+			},
+			Related: []string{"capacity", "outliers"},
+		},
+		{
+			Key:     "deprecated-apis",
+			Aliases: []string{"deprecations", "removed-apis"},
+			Title:   "Deprecated APIs",
+			Summary: "In-use API versions that Kubernetes has deprecated or removed. " +
+				"These break upgrades if left in place.",
+			Severity: "One warning finding per cluster lists each deprecated API, its " +
+				"instance count, and the release that removes it.",
+			HowComputed: "The Deprecated APIs scanner walks the discovery API for every " +
+				"server-known group and version and cross-references an embedded removal " +
+				"table.",
+			Remediation: []string{
+				"Migrate manifests and controllers to the replacement API version " +
+					"before the upgrade.",
+				"Re-run the scan after the upgrade plan to confirm nothing remains.",
+			},
+			Related: []string{"version-skew", "fleet-score"},
 		},
 	}
 }

@@ -63,45 +63,6 @@ func TestResolveScansTooFew(t *testing.T) {
 	}
 }
 
-// TestLatestScanID verifies the happy path and the empty-store error.
-func TestLatestScanID(t *testing.T) {
-	t.Parallel()
-	dbPath := filepath.Join(t.TempDir(), "wc.db")
-	ids := seedHistoryScans(t, dbPath, 1)
-	s, _ := store.NewSQLite(dbPath)
-	defer s.Close()
-	got, err := latestScanID(context.Background(), s)
-	if err != nil || got != ids[0] {
-		t.Fatalf("latest: got %q err=%v", got, err)
-	}
-
-	empty, _ := store.NewSQLite(filepath.Join(t.TempDir(), "empty.db"))
-	defer empty.Close()
-	if _, err := latestScanID(context.Background(), empty); err == nil {
-		t.Error("expected error on empty store")
-	}
-}
-
-// TestBuildReportStore verifies a stored scan rebuilds and a bad id errors.
-func TestBuildReportStore(t *testing.T) {
-	t.Parallel()
-	dbPath := filepath.Join(t.TempDir(), "wc.db")
-	ids := seedHistoryScans(t, dbPath, 1)
-	s, _ := store.NewSQLite(dbPath)
-	defer s.Close()
-
-	rpt, err := buildReport(context.Background(), s, ids[0])
-	if err != nil {
-		t.Fatalf("buildReport: %v", err)
-	}
-	if len(rpt.Clusters) != 1 {
-		t.Errorf("clusters: %v", rpt.Clusters)
-	}
-	if _, err := buildReport(context.Background(), s, "nope"); err == nil {
-		t.Error("expected error for unknown scan id")
-	}
-}
-
 // execWhatChanged executes the whatchanged subcommand and captures its output,
 // which is written through cmd.OutOrStdout().
 func execWhatChanged(t *testing.T, dbPath string, args ...string) (string, error) {

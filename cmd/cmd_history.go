@@ -78,7 +78,7 @@ func init() {
 // runHistoryPrune deletes scans older than the configured cutoff. With --dry-run
 // it counts matching scans without deleting.
 func runHistoryPrune(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func parseRetentionDuration(s string) (time.Duration, error) {
 
 // runHistoryList lists past scans from the database.
 func runHistoryList(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func runHistoryList(cmd *cobra.Command, _ []string) error {
 
 // runHistoryShow displays a past scan and rebuilds its report.
 func runHistoryShow(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -177,17 +177,14 @@ func runHistoryShow(cmd *cobra.Command, args []string) error {
 	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
-	scan, err := s.GetScan(ctx, args[0])
+	id, err := resolveScanRef(ctx, s, args[0])
 	if err != nil {
-		return fmt.Errorf("get scan: %w", err)
+		return err
 	}
-
-	results, err := s.GetScanResults(ctx, args[0])
+	rpt, _, err := loadStoredReport(ctx, s, id)
 	if err != nil {
-		return fmt.Errorf("get results: %w", err)
+		return err
 	}
-
-	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 	out, err := jsonutil.Marshal(rpt, pretty)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -198,7 +195,7 @@ func runHistoryShow(cmd *cobra.Command, args []string) error {
 
 // runHistoryDiff compares two scans and shows what changed.
 func runHistoryDiff(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -207,28 +204,19 @@ func runHistoryDiff(cmd *cobra.Command, args []string) error {
 	ctx := cmdContext(cmd)
 	pretty, _ := cmd.Flags().GetBool("pretty")
 
-	scan1, err := s.GetScan(ctx, args[0])
-	if err != nil {
-		return fmt.Errorf("get scan %s: %w", args[0], err)
+	var ids [2]string
+	var rpts [2]*report.Report
+	for i, ref := range args[:2] {
+		if ids[i], err = resolveScanRef(ctx, s, ref); err != nil {
+			return err
+		}
+		if rpts[i], _, err = loadStoredReport(ctx, s, ids[i]); err != nil {
+			return err
+		}
 	}
-	results1, err := s.GetScanResults(ctx, args[0])
-	if err != nil {
-		return fmt.Errorf("get results %s: %w", args[0], err)
-	}
+	rpt1, rpt2 := rpts[0], rpts[1]
 
-	scan2, err := s.GetScan(ctx, args[1])
-	if err != nil {
-		return fmt.Errorf("get scan %s: %w", args[1], err)
-	}
-	results2, err := s.GetScanResults(ctx, args[1])
-	if err != nil {
-		return fmt.Errorf("get results %s: %w", args[1], err)
-	}
-
-	rpt1 := report.Build(scan1.Clusters, results1, report.BuildOptions{Timestamp: scan1.Timestamp})
-	rpt2 := report.Build(scan2.Clusters, results2, report.BuildOptions{Timestamp: scan2.Timestamp})
-
-	diff := buildScanDiff(scan1.ID, scan2.ID, rpt1, rpt2)
+	diff := buildScanDiff(ids[0], ids[1], rpt1, rpt2)
 	out, err := jsonutil.Marshal(diff, pretty)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
@@ -299,12 +287,11 @@ func buildScanDiff(idA, idB string, a, b *report.Report) *scanDiff {
 	return d
 }
 
-// findingSet creates a map keyed by a finding's identity for diffing.
+// findingSet creates a map keyed by finding fingerprint for diffing.
 func findingSet(findings []report.Finding) map[string]report.Finding {
 	m := make(map[string]report.Finding, len(findings))
 	for _, f := range findings {
-		key := f.Severity + "|" + f.Cluster + "|" + f.Scanner + "|" + f.Title
-		m[key] = f
+		m[report.FindingFingerprint(f)] = f
 	}
 	return m
 }
@@ -320,7 +307,7 @@ func toSet(s []string) map[string]struct{} {
 
 // runHistoryTrend shows fleet drift trends.
 func runHistoryTrend(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}

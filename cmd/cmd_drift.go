@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/spf13/cobra"
-	"go.yaml.in/yaml/v3"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/admission"
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // driftCmd inspects every pod in a kubeconfig context and reports which
@@ -86,12 +84,40 @@ func runDrift(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
+	return runDriftWithClient(ctx, cmd.OutOrStdout(), client, driftOptions{
+		ContextName: contextName,
+		Namespace:   namespace,
+		Baseline:    baseline,
+		JSON:        jsonOut,
+		FailOnDrift: failOnDrift,
+	})
+}
+
+// driftOptions holds the resolved inputs for a drift run after the connection is made.
+type driftOptions struct {
+	// ContextName is the requested kubeconfig context, used when the client reports none.
+	ContextName string
+	// Namespace restricts the scan to one namespace. Empty scans all namespaces.
+	Namespace string
+	// Baseline is the fleet norm pods are compared against.
+	Baseline admission.Baseline
+	// JSON selects JSON output over the human-readable table.
+	JSON bool
+	// FailOnDrift makes the run return an error when any pod drifts.
+	FailOnDrift bool
+}
+
+// runDriftWithClient lists pods through client, evaluates them against the baseline, and
+// writes the report to out.
+func runDriftWithClient(ctx context.Context, out io.Writer, client *kube.Client,
+	opts driftOptions) error {
+	baseline := opts.Baseline
 	resolvedContext := client.Context
 	if resolvedContext == "" {
-		resolvedContext = contextName
+		resolvedContext = opts.ContextName
 	}
 
-	pods, err := listPods(ctx, client, namespace)
+	pods, err := listPods(ctx, client, opts.Namespace)
 	if err != nil {
 		return fmt.Errorf("list pods: %w", err)
 	}
@@ -119,10 +145,10 @@ func runDrift(cmd *cobra.Command, _ []string) error {
 		return a.Pod < b.Pod
 	})
 
-	if err := writeDriftReport(cmd.OutOrStdout(), report, jsonOut); err != nil {
+	if err := writeDriftReport(out, report, opts.JSON); err != nil {
 		return err
 	}
-	if failOnDrift && report.DriftedPods > 0 {
+	if opts.FailOnDrift && report.DriftedPods > 0 {
 		return fmt.Errorf("drift detected: %d/%d pods", report.DriftedPods, report.TotalPods)
 	}
 	return nil
@@ -133,15 +159,7 @@ func runDrift(cmd *cobra.Command, _ []string) error {
 // the store is opened and the latest baseline is recomputed.
 func resolveDriftBaseline(cmd *cobra.Command, baselinePath string) (admission.Baseline, error) {
 	if baselinePath != "" {
-		body, err := os.ReadFile(baselinePath)
-		if err != nil {
-			return admission.Baseline{}, fmt.Errorf("read baseline: %w", err)
-		}
-		var b admission.Baseline
-		if err := yaml.Unmarshal(body, &b); err != nil {
-			return admission.Baseline{}, fmt.Errorf("parse baseline: %w", err)
-		}
-		return b, nil
+		return admission.LoadBaselineFile(baselinePath)
 	}
 	return loadBaseline(cmd)
 }
@@ -149,11 +167,8 @@ func resolveDriftBaseline(cmd *cobra.Command, baselinePath string) (admission.Ba
 // listPods returns every pod in the requested scope. Empty namespace
 // lists across all namespaces.
 func listPods(ctx context.Context, c *kube.Client, namespace string) ([]corev1.Pod, error) {
-	list, err := c.Clientset().CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return list.Items, nil
+	return scanner.ListAll(ctx, scanner.CacheReadOptions(), c.Clientset().CoreV1().Pods(namespace).List,
+		func(l *corev1.PodList) []corev1.Pod { return l.Items })
 }
 
 // evaluatePod applies every Check to a pod and folds the warnings.

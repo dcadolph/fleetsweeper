@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -68,16 +69,16 @@ func TestToSet(t *testing.T) {
 	}
 }
 
-// TestFindingSet verifies findings are keyed by their identity tuple.
+// TestFindingSet verifies findings are keyed by their fingerprint.
 func TestFindingSet(t *testing.T) {
 	t.Parallel()
-	f1 := report.Finding{Severity: "critical", Cluster: "a", Scanner: "s", Title: "t1"}
-	f2 := report.Finding{Severity: "warning", Cluster: "a", Scanner: "s", Title: "t2"}
+	f1 := report.Finding{Severity: "critical", Cluster: "a", Scanner: "s", Rule: "r1"}
+	f2 := report.Finding{Severity: "warning", Cluster: "a", Scanner: "s", Rule: "r2"}
 	got := findingSet([]report.Finding{f1, f2})
 	if len(got) != 2 {
 		t.Fatalf("want 2 keys, got %d", len(got))
 	}
-	if _, ok := got["critical|a|s|t1"]; !ok {
+	if _, ok := got[report.FindingFingerprint(f1)]; !ok {
 		t.Errorf("missing expected key, got %v", got)
 	}
 }
@@ -112,6 +113,39 @@ func TestBuildScanDiff(t *testing.T) {
 	}
 	if len(d.FindingsResolved) != 1 || d.FindingsResolved[0].Title != "gone" {
 		t.Errorf("findings resolved: %+v", d.FindingsResolved)
+	}
+
+	tests := []struct {
+		A            []report.Finding
+		B            []report.Finding
+		WantAdded    int
+		WantResolved int
+	}{{ // Test 0: Same rule with a changed title is not added or resolved.
+		A: []report.Finding{{
+			Rule: "nodes-not-ready", Cluster: "c1", Scanner: "s", Severity: "critical",
+			Title: "c1 has 2 node(s) not ready",
+		}},
+		B: []report.Finding{{
+			Rule: "nodes-not-ready", Cluster: "c1", Scanner: "s", Severity: "critical",
+			Title: "c1 has 3 node(s) not ready",
+		}},
+	}, { // Test 1: Different rule is added and resolved.
+		A:         []report.Finding{{Rule: "r1", Cluster: "c1", Scanner: "s"}},
+		B:         []report.Finding{{Rule: "r2", Cluster: "c1", Scanner: "s"}},
+		WantAdded: 1, WantResolved: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("title drift %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := buildScanDiff("A", "B",
+				&report.Report{Findings: test.A}, &report.Report{Findings: test.B})
+			if len(got.FindingsAdded) != test.WantAdded {
+				t.Errorf("added: want %d got %+v", test.WantAdded, got.FindingsAdded)
+			}
+			if len(got.FindingsResolved) != test.WantResolved {
+				t.Errorf("resolved: want %d got %+v", test.WantResolved, got.FindingsResolved)
+			}
+		})
 	}
 }
 

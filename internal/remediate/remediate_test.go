@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
@@ -198,5 +200,42 @@ func TestRenderPRBody_IncludesContext(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q\n---\n%s", want, body)
 		}
+	}
+}
+
+func TestOpen_DryRun_BaseBranch(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		BaseBranch   string
+		WantBase     string
+		WantRequests int32
+	}{
+		{BaseBranch: "release", WantBase: "release"}, // Test 0: Explicit base is kept.
+		{BaseBranch: "", WantBase: ""},               // Test 1: Empty base stays empty.
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			var requests atomic.Int32
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				_, _ = io.WriteString(w, `{"default_branch":"main"}`)
+			}))
+			defer ts.Close()
+			res, err := Open(context.Background(), Options{
+				Owner: "o", Repo: "r", Token: "tok", BaseURL: ts.URL, Push: false,
+				BaseBranch: test.BaseBranch,
+				Finding:    report.Finding{Title: "t", Remediation: &report.Remediation{YAML: "x"}},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(test.WantBase, res.BaseBranch); diff != "" {
+				t.Errorf("base mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantRequests, requests.Load()); diff != "" {
+				t.Errorf("requests mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

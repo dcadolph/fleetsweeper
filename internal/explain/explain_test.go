@@ -1,89 +1,143 @@
 package explain
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestLookup_ExactKey(t *testing.T) {
+// TestLookup verifies key, alias, case-insensitive, substring, and miss resolution.
+func TestLookup(t *testing.T) {
 	t.Parallel()
-	tp := Lookup("node-health")
-	if tp == nil {
-		t.Fatalf("expected node-health topic; got nil")
-	}
-	if tp.Key != "node-health" {
-		t.Errorf("key: want node-health, got %s", tp.Key)
+	tests := []struct {
+		In      string
+		WantKey string
+	}{{ // Test 0: Exact key.
+		In: "node-health", WantKey: "node-health",
+	}, { // Test 1: Alias.
+		In: "memory-pressure", WantKey: "node-health",
+	}, { // Test 2: Case-insensitive key.
+		In: "Node-Health", WantKey: "node-health",
+	}, { // Test 3: Substring on title.
+		In: "Standards", WantKey: "security",
+	}, { // Test 4: Unknown key.
+		In: "nonexistent-topic-zzz", WantKey: "",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			gotKey := ""
+			if got := Lookup(test.In); got != nil {
+				gotKey = got.Key
+			}
+			if diff := cmp.Diff(test.WantKey, gotKey); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
-func TestLookup_Alias(t *testing.T) {
-	t.Parallel()
-	tp := Lookup("memory-pressure")
-	if tp == nil || tp.Key != "node-health" {
-		t.Errorf("alias memory-pressure should resolve to node-health; got %+v", tp)
-	}
-}
-
-func TestLookup_CaseInsensitive(t *testing.T) {
-	t.Parallel()
-	tp := Lookup("Node-Health")
-	if tp == nil {
-		t.Errorf("expected case-insensitive lookup to hit")
-	}
-}
-
-func TestLookup_Fallback(t *testing.T) {
-	t.Parallel()
-	// Substring on title should still resolve.
-	tp := Lookup("Standards")
-	if tp == nil || tp.Key != "security" {
-		t.Errorf("substring 'Standards' should hit Pod Security Standards; got %+v", tp)
-	}
-}
-
-func TestLookup_NotFound(t *testing.T) {
-	t.Parallel()
-	if Lookup("nonexistent-topic-zzz") != nil {
-		t.Errorf("expected nil for unknown key")
-	}
-}
-
+// TestKeys_Sorted verifies Keys returns every key in order.
 func TestKeys_Sorted(t *testing.T) {
 	t.Parallel()
-	k := Keys()
-	for i := 1; i < len(k); i++ {
-		if k[i-1] > k[i] {
-			t.Errorf("keys not sorted at %d: %s > %s", i, k[i-1], k[i])
-		}
+	tests := []struct {
+		WantSorted bool
+	}{{ // Test 0: Keys are sorted.
+		WantSorted: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			k := Keys()
+			sorted := true
+			for i := 1; i < len(k); i++ {
+				if k[i-1] > k[i] {
+					sorted = false
+				}
+			}
+			if diff := cmp.Diff(test.WantSorted, sorted); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(len(topics()), len(k)); diff != "" {
+				t.Errorf("key count mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
-func TestRender_IncludesAllSections(t *testing.T) {
+// TestRelated_Resolve verifies every Related entry resolves by exact key or alias.
+func TestRelated_Resolve(t *testing.T) {
 	t.Parallel()
-	tp := Lookup("fleet-score")
-	if tp == nil {
-		t.Fatalf("fleet-score topic missing")
+	idx := indexByKey()
+	type tc struct {
+		Topic   string
+		Related string
 	}
-	out := Render(*tp, false)
-	for _, want := range []string{
-		"Fleet Score", "Summary:", "Severity:", "How computed:",
-		"Remediation:", "Probes:", "Related:",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("rendered output missing section %q\n---\n%s", want, out)
+	var tests []tc
+	for _, tp := range topics() {
+		for _, r := range tp.Related {
+			tests = append(tests, tc{Topic: tp.Key, Related: r})
 		}
+	}
+	if len(tests) == 0 {
+		t.Fatal("no related entries found")
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s -> %s", testNum, test.Topic, test.Related), func(t *testing.T) {
+			t.Parallel()
+			_, ok := idx[strings.ToLower(test.Related)]
+			if diff := cmp.Diff(true, ok); diff != "" {
+				t.Errorf("related %q of %q does not resolve (-want +got):\n%s",
+					test.Related, test.Topic, diff)
+			}
+		})
 	}
 }
 
-func TestRender_ColorWrappers(t *testing.T) {
+// TestRender verifies section output and ANSI handling.
+func TestRender(t *testing.T) {
 	t.Parallel()
-	tp := *Lookup("rbac-audit")
-	plain := Render(tp, false)
-	colored := Render(tp, true)
-	if strings.Contains(plain, "\033[") {
-		t.Errorf("plain render should not contain ANSI codes")
-	}
-	if !strings.Contains(colored, "\033[") {
-		t.Errorf("colored render should contain ANSI codes")
+	tests := []struct {
+		In           string
+		Color        bool
+		WantContains []string
+		WantANSI     bool
+	}{{ // Test 0: Plain render includes every section.
+		In: "fleet-score", Color: false, WantANSI: false,
+		WantContains: []string{
+			"Fleet Score", "Summary:", "Severity:", "How computed:",
+			"Remediation:", "Probes:", "Related:",
+		},
+	}, { // Test 1: Colored render has ANSI codes.
+		In: "rbac-audit", Color: true, WantANSI: true,
+		WantContains: []string{"RBAC"},
+	}, { // Test 2: Plain render has no ANSI codes.
+		In: "rbac-audit", Color: false, WantANSI: false,
+		WantContains: []string{"RBAC"},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			tp := Lookup(test.In)
+			if tp == nil {
+				t.Fatalf("%s topic missing", test.In)
+			}
+			out := Render(*tp, test.Color)
+			var missing []string
+			for _, want := range test.WantContains {
+				if !strings.Contains(out, want) {
+					missing = append(missing, want)
+				}
+			}
+			if diff := cmp.Diff([]string(nil), missing, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("missing sections (-want +got):\n%s\n---\n%s", diff, out)
+			}
+			if diff := cmp.Diff(test.WantANSI, strings.Contains(out, "\033[")); diff != "" {
+				t.Errorf("ANSI mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

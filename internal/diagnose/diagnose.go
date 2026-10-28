@@ -12,7 +12,7 @@
 // "Local check" is deliberately conservative. We do not call external APIs
 // by default because that would conflate "configured" with "reachable" and
 // make `diagnose` itself a flaky network test. Pass --probe to opt into
-// active probing (Slack ping, GitHub API call, kubeconfig connect).
+// active probing (Slack ping, GitHub API call).
 package diagnose
 
 import (
@@ -65,10 +65,6 @@ type Result struct {
 
 // Options bundles the configuration the diagnose command needs.
 type Options struct {
-	// KubeconfigPath, when set, is checked for valid contexts.
-	KubeconfigPath string
-	// DBPath, when set, is opened and queried.
-	DBPath string
 	// SlackWebhookURL, when set, is checked for syntactic validity. When
 	// Probe is true the webhook is also pinged with a test payload.
 	SlackWebhookURL string
@@ -175,9 +171,14 @@ func checkSlack(ctx context.Context, opts Options) Result {
 		return r
 	}
 	u, err := url.Parse(opts.SlackWebhookURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil {
 		r.Status = StatusFail
 		r.Message = fmt.Sprintf("webhook URL invalid: %v", err)
+		return r
+	}
+	if u.Scheme != "https" || u.Host == "" {
+		r.Status = StatusFail
+		r.Message = fmt.Sprintf("webhook URL must be https with a host: %s", u.Scheme)
 		return r
 	}
 	if !opts.Probe {

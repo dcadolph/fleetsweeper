@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -84,6 +85,10 @@ type clusterScoreChange struct {
 
 // runWhatChanged implements the whatchanged subcommand.
 func runWhatChanged(cmd *cobra.Command, args []string) error {
+	severity, _ := cmd.Flags().GetString("severity")
+	if err := oneOf("severity", severity, "", "critical", "warning", "info"); err != nil {
+		return err
+	}
 	st, err := openAnyStore(cmd)
 	if err != nil {
 		return err
@@ -96,16 +101,15 @@ func runWhatChanged(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	rptA, err := buildReport(ctx, st, scanA)
+	rptA, _, err := loadStoredReport(ctx, st, scanA)
 	if err != nil {
 		return fmt.Errorf("build scan-a report: %w", err)
 	}
-	rptB, err := buildReport(ctx, st, scanB)
+	rptB, _, err := loadStoredReport(ctx, st, scanB)
 	if err != nil {
 		return fmt.Errorf("build scan-b report: %w", err)
 	}
 
-	severity, _ := cmd.Flags().GetString("severity")
 	diff := computeWhatChanged(rptA, rptB, scanA, scanB, severity)
 	window, err := driftWindow(ctx, st, scanA, scanB, rptA, rptB)
 	if err != nil {
@@ -117,45 +121,30 @@ func runWhatChanged(cmd *cobra.Command, args []string) error {
 	return writeWhatChanged(cmd.OutOrStdout(), diff, jsonOut)
 }
 
-// resolveScans returns the two scan IDs to diff. When args has two IDs
-// they're used in (older, newer) order; the function does NOT reorder,
-// the caller is in charge. With one arg, the second is "latest".
-// With zero, it pairs the latest two scans.
+// resolveScans returns the two scan IDs to diff, in the order given: the caller is in charge of
+// putting the older scan first. With one ref the second is latest. With none it pairs the
+// previous and latest scans.
 func resolveScans(ctx context.Context, st store.Store, args []string) (string, string, error) {
+	var refs [2]string
 	switch len(args) {
 	case 2:
-		return args[0], args[1], nil
+		refs = [2]string{args[0], args[1]}
 	case 1:
-		latest, err := latestScanID(ctx, st)
-		if err != nil {
-			return "", "", err
-		}
-		return args[0], latest, nil
+		refs = [2]string{args[0], "latest"}
 	case 0:
-		scans, err := st.ListScans(ctx, 2)
-		if err != nil {
-			return "", "", fmt.Errorf("list scans: %w", err)
-		}
-		if len(scans) < 2 {
-			return "", "", fmt.Errorf("need at least 2 scans to diff; found %d", len(scans))
-		}
-		// ListScans returns newest first, so scans[1] is older.
-		return scans[1].ID, scans[0].ID, nil
+		refs = [2]string{"previous", "latest"}
+	default:
+		return "", "", fmt.Errorf("expected 0, 1, or 2 scan ids; got %d", len(args))
 	}
-	return "", "", fmt.Errorf("expected 0, 1, or 2 scan ids; got %d", len(args))
-}
-
-// latestScanID returns the most recent scan ID. Wraps the limit=1 call
-// so resolveScans stays readable.
-func latestScanID(ctx context.Context, st store.Store) (string, error) {
-	scans, err := st.ListScans(ctx, 1)
+	a, err := resolveScanRef(ctx, st, refs[0])
 	if err != nil {
-		return "", fmt.Errorf("list scans: %w", err)
+		return "", "", err
 	}
-	if len(scans) == 0 {
-		return "", fmt.Errorf("no scans in store")
+	b, err := resolveScanRef(ctx, st, refs[1])
+	if err != nil {
+		return "", "", err
 	}
-	return scans[0].ID, nil
+	return a, b, nil
 }
 
 // driftWindow returns the scans from scanA to scanB, oldest first, with the
@@ -192,26 +181,13 @@ func driftWindow(ctx context.Context, st store.Store, scanA, scanB string, rptA,
 	window := make([]report.ScanReport, 0, len(ids)+2)
 	window = append(window, ends[0])
 	for _, id := range ids {
-		r, err := buildReport(ctx, st, id)
+		r, _, err := loadStoredReport(ctx, st, id)
 		if err != nil {
 			return nil, err
 		}
 		window = append(window, report.ScanReport{ID: id, Report: r})
 	}
 	return append(window, ends[1]), nil
-}
-
-// buildReport rebuilds the report for one scan ID.
-func buildReport(ctx context.Context, st store.Store, scanID string) (*report.Report, error) {
-	scan, err := st.GetScan(ctx, scanID)
-	if err != nil {
-		return nil, fmt.Errorf("get scan %s: %w", scanID, err)
-	}
-	results, err := st.GetScanResults(ctx, scanID)
-	if err != nil {
-		return nil, fmt.Errorf("get scan results %s: %w", scanID, err)
-	}
-	return report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp}), nil
 }
 
 // computeWhatChanged returns the structured diff. Findings are matched across
@@ -259,19 +235,9 @@ func indexFindings(in []report.Finding, minSeverity string) map[string]report.Fi
 	return out
 }
 
-// sortFindings sorts in place: critical first, then by cluster, then title.
+// sortFindings sorts in place: critical first, then by cluster, title, and rule.
 func sortFindings(f []report.Finding) {
-	sevRank := map[string]int{"critical": 0, "warning": 1, "info": 2}
-	sort.SliceStable(f, func(i, j int) bool {
-		ri, rj := sevRank[f[i].Severity], sevRank[f[j].Severity]
-		if ri != rj {
-			return ri < rj
-		}
-		if f[i].Cluster != f[j].Cluster {
-			return f[i].Cluster < f[j].Cluster
-		}
-		return f[i].Title < f[j].Title
-	})
+	slices.SortStableFunc(f, compare.FindingOrder)
 }
 
 // clusterScoreDelta returns one record per cluster whose score moved.

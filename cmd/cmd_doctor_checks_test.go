@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	admissionv1 "k8s.io/api/admissionregistration/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/dcadolph/fleetsweeper/internal/kube"
 
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -153,22 +160,94 @@ func TestDoctorCheckDatabase(t *testing.T) {
 	}
 }
 
-// TestFmtStatus verifies the badge strings and the unknown-status passthrough.
-func TestFmtStatus(t *testing.T) {
+// newInClusterCmd returns a command carrying the in-cluster check flags.
+func newInClusterCmd(release string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("kubeconfig", "unused", "")
+	cmd.Flags().String("namespace", "fleetsweeper", "")
+	cmd.Flags().String("release", release, "")
+	return cmd
+}
+
+// TestDoctorInClusterChecks verifies the lease and webhook checks use the release names.
+func TestDoctorInClusterChecks(t *testing.T) {
 	t.Parallel()
+	holder := "pod-0"
+	lease := func(name string, h *string) *coordinationv1.Lease {
+		return &coordinationv1.Lease{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "fleetsweeper"},
+			Spec:       coordinationv1.LeaseSpec{HolderIdentity: h},
+		}
+	}
+	type vwc = admissionv1.ValidatingWebhookConfiguration
+	webhook := func(name string, hook admissionv1.ValidatingWebhook) *vwc {
+		return &vwc{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Webhooks:   []admissionv1.ValidatingWebhook{hook},
+		}
+	}
+	svcHook := admissionv1.ValidatingWebhook{
+		Name: "v.fleetsweeper.io",
+		ClientConfig: admissionv1.WebhookClientConfig{
+			Service: &admissionv1.ServiceReference{Name: "fleetsweeper-admission"},
+		},
+	}
+	bareHook := admissionv1.ValidatingWebhook{Name: "v.fleetsweeper.io"}
+
 	tests := []struct {
-		In    Status
-		WantS string
+		Check      func(context.Context, *cobra.Command, doctorClientFunc) CheckResult
+		Release    string
+		WantStatus Status
+		Objects    []any
 	}{
-		{In: StatusOK, WantS: "ok"},           // Test 0: OK badge.
-		{In: StatusWarn, WantS: "warn"},       // Test 1: Warn badge.
-		{In: StatusFail, WantS: "fail"},       // Test 2: Fail badge.
-		{In: StatusSkip, WantS: "skip"},       // Test 3: Skip badge.
-		{In: Status("other"), WantS: "other"}, // Test 4: Unknown passes through.
+		{ // Test 0: Held lease named for the release is OK.
+			Check: doctorCheckLeaderLease, Release: "fleetsweeper", WantStatus: StatusOK,
+			Objects: []any{lease("fleetsweeper", &holder)},
+		},
+		{ // Test 1: Missing lease warns.
+			Check: doctorCheckLeaderLease, Release: "fleetsweeper", WantStatus: StatusWarn,
+		},
+		{ // Test 2: Lease named for a custom release is found.
+			Check: doctorCheckLeaderLease, Release: "prod", WantStatus: StatusOK,
+			Objects: []any{lease("prod", &holder)},
+		},
+		{ // Test 3: Webhook configuration named for the release is OK.
+			Check: doctorCheckAdmissionWebhook, Release: "fleetsweeper", WantStatus: StatusOK,
+			Objects: []any{webhook("fleetsweeper-admission", svcHook)},
+		},
+		{ // Test 4: Webhook with no CA and no Service fails.
+			Check: doctorCheckAdmissionWebhook, Release: "fleetsweeper", WantStatus: StatusFail,
+			Objects: []any{webhook("fleetsweeper-admission", bareHook)},
+		},
+		{ // Test 5: Missing webhook configuration warns.
+			Check: doctorCheckAdmissionWebhook, Release: "fleetsweeper", WantStatus: StatusWarn,
+		},
 	}
 	for testNum, test := range tests {
-		if got := fmtStatus(test.In); got != test.WantS {
-			t.Errorf("test %d: got %q, want %q", testNum, got, test.WantS)
-		}
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cs := fake.NewSimpleClientset()
+			for _, obj := range test.Objects {
+				var err error
+				switch o := obj.(type) {
+				case *coordinationv1.Lease:
+					_, err = cs.CoordinationV1().Leases(o.Namespace).Create(
+						context.Background(), o, metav1.CreateOptions{})
+				case *admissionv1.ValidatingWebhookConfiguration:
+					_, err = cs.AdmissionregistrationV1().ValidatingWebhookConfigurations().Create(
+						context.Background(), o, metav1.CreateOptions{})
+				}
+				if err != nil {
+					t.Fatalf("seed: %v", err)
+				}
+			}
+			newClient := func(context.Context, string) (*kube.Client, error) {
+				return kube.NewTestClientWithClientset("test", cs), nil
+			}
+			got := test.Check(context.Background(), newInClusterCmd(test.Release), newClient)
+			if got.Status != test.WantStatus {
+				t.Errorf("got %s (%s), want %s", got.Status, got.Detail, test.WantStatus)
+			}
+		})
 	}
 }
