@@ -412,7 +412,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "image-audit", Affected: []string{"ns"},
 			Remediation: &Remediation{Command: "kubectl --context a -n ns get pods,events --sort-by=.lastTimestamp"},
 		}},
-	}, { // Test 23: Numeric, string, set, and unknown-scanner outliers state the gap.
+	}, { // Test 23: Each outlier kind, an unknown scanner, and a numeric string state the gap.
 		Name:     "fleet outliers",
 		Generate: outlierFindings,
 		Report: &Report{Outliers: []OutlierResult{
@@ -422,7 +422,11 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 				Scope: "fleet", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c", Field: "names", Value: "missing 2: [a b]", FleetNorm: "5 consensus items", Scanner: "crds", Severity: SeverityInfo,
 				Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"}, SampleSize: 10, Threshold: 0.6},
-			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel", Severity: SeverityInfo},
+			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel",
+				Severity: SeverityInfo, Kind: NormKindNumeric, Median: 2.5},
+			{Cluster: "c", Field: "minor", Value: "30", FleetNorm: "31", Scanner: "version",
+				Severity: SeverityWarning, Scope: "fleet", Kind: NormKindString, Mode: "31",
+				ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
 		}},
 		WantResult: []Finding{{
 			Rule: "security/outlier-enforced-count", Title: "c deviates from fleet norm on enforced_count",
@@ -449,7 +453,19 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Description: "c reports count=9 while the fleet norm is 2.5 (scanner: ).",
 			Severity:    SeverityInfo, Cluster: "c", Scanner: "novel", Affected: []string{"count"},
 			Remediation: &Remediation{Command: "# count is 9 here, 6.5 above the fleet median of 2.5\nkubectl --context c get all -A"},
-			Norm:        &NormBasis{Field: "count", Value: "9"},
+			Norm:        &NormBasis{Field: "count", Kind: NormKindNumeric, Median: 2.5, Value: "9"},
+		}, {
+			Rule: "version/outlier-minor", Title: "c deviates from fleet norm on minor",
+			Description: "c reports minor=30 while the fleet norm is 31 " +
+				"(scanner: Kubernetes Version).",
+			Severity: SeverityWarning, Cluster: "c", Scanner: "version",
+			Affected: []string{"minor"},
+			Remediation: &Remediation{
+				Command: "# minor is \"30\" here, the fleet norm is \"31\"\n" +
+					"kubectl --context c version",
+			},
+			Norm: &NormBasis{Scope: "fleet", Field: "minor", Kind: NormKindString, Mode: "31",
+				ModeShare: 0.9, SampleSize: 10, Threshold: 0.6, Value: "30"},
 		}},
 	}, { // Test 24: A cohort outlier names its cohort as the norm's scope.
 		Name:     "cohort outliers",

@@ -207,18 +207,21 @@ func normGap(o OutlierResult, scope string) string {
 		return fmt.Sprintf("%s is %s here, %s", o.Field, o.Value,
 			exactNormPhrase(o.ModeShare, o.SampleSize, o.FleetNorm, "the "+scope))
 	}
-	v, errV := strconv.ParseFloat(o.Value, 64)
-	n, errN := strconv.ParseFloat(o.FleetNorm, 64)
-	if errV == nil && errN == nil {
+	switch o.Kind {
+	case NormKindNumeric:
+		v, err := strconv.ParseFloat(o.Value, 64)
+		if err != nil {
+			break
+		}
 		dir := "above"
-		if v < n {
+		if v < o.Median {
 			dir = "below"
 		}
 		return fmt.Sprintf("%s is %s here, %s %s the %s median of %s",
-			o.Field, o.Value, formatNum(math.Abs(v-n)), dir, scope, o.FleetNorm)
-	}
-	if strings.HasPrefix(o.Value, "missing ") {
-		return fmt.Sprintf("%s is %s of the %s's %s", o.Field, o.Value, scope, o.FleetNorm)
+			o.Field, o.Value, formatNum(math.Abs(v-o.Median)), dir, scope, formatNum(o.Median))
+	case NormKindSet:
+		return fmt.Sprintf("%s is missing %d: %v of the %s's %d consensus items",
+			o.Field, len(o.Missing), o.Missing, scope, len(o.Consensus))
 	}
 	return fmt.Sprintf("%s is %q here, the %s norm is %q", o.Field, o.Value, scope, o.FleetNorm)
 }
