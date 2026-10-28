@@ -14,6 +14,55 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.13.0
+
+No schema migration. Findings, counts, and some outputs change on the first
+scan after the upgrade, because drift detection got stricter about what it
+calls drift.
+
+- **Favorable outliers are info, not warnings.** A cluster on the better side
+  of the norm for a field with a known direction (e.g. fewer restarts) is
+  titled "is better than" the norm, graded info, and the finding suggests a
+  cohort tag if the difference is intended.
+
+- **Zero-spread fields can flag exact outliers.** A numeric field where most
+  clusters report the same value used to flag nothing. It now flags every
+  cluster off that value once at least 60% of the fleet holds it exactly, and
+  the finding says "k of n clusters report exactly" the norm.
+
+- **One fact raises one finding.** When an absolute rule and a norm finding
+  describe the same field on the same clusters, only one is kept. Expect fewer
+  findings and a different Fleet Score on fleets that saw duplicates.
+
+- **Severity counts come from findings.** The summary's critical and warning
+  counts are the number of findings at that severity. The per-section
+  divergence `severity` field is removed from the report and the API.
+
+- **Two-member tagged cohorts hold their outliers** when both members agree,
+  the same way larger cohorts do.
+
+- **Held outliers are not exported.** The Outliers page folds held rows,
+  `/api/outliers` returns only findings with a norm, and the Prometheus
+  outlier series skip outliers a cohort explains. Expect fewer series.
+
+- **The events scanner drops `total_events` and `normal_events`.** Both were
+  always zero.
+
+- **Webhook dedup keys on the finding fingerprint.** The first alert for each
+  open finding may be sent once more after the upgrade. A failed delivery is
+  no longer recorded as sent, so it is retried on the next scan.
+
+- **PolicyReport `rule` is the finding's rule** (e.g.
+  `image-audit/digest-pinning`), not a name taken from the title. Policy
+  engine filters keyed on the old rule names need updating.
+
+- **Stricter CLI input.** Enum flags reject unknown values (e.g. `scan -o
+  yaml` exits 1 and lists the valid values), `--log-level` rejects unknown
+  levels, and `--scanners` names an unknown scanner before connecting. Every
+  command honors a PostgreSQL `--db` DSN, `watch --db` saves its scans, and
+  `remediate` without `--push` never contacts GitHub. `--probe-registries` is
+  defined on `scan`, `serve`, and `watch`.
+
 ## v0.12.0
 
 No schema migration. One flag is renamed.
