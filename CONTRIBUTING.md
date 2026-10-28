@@ -65,7 +65,15 @@ genuinely page-worthy conditions.
 - Test the happy path, every error path, and edge cases (nil, empty, boundary
   values).
 - Integration tests that need a real cluster live under
-  `internal/integration/` with the `//go:build integration` tag.
+  `internal/integration/` with the `//go:build integration` tag. They need
+  Docker and kind v0.33.0, and create and delete their own clusters.
+  `TestMockFleet` stands up five clusters (four norm, one outlier on an older
+  node image), scans them twice through the built binary, and checks findings,
+  cohorts, drift, and a signed export. `TestOperatorEndToEnd` runs the
+  ClusterScan controller against one cluster. The package takes about three
+  and a half minutes on a laptop:
+  `go test -tags=integration -timeout=20m ./internal/integration/`.
+  Set `FLEET_KIND_LOGS` to a directory to keep kind logs from a failed run.
 - The dashboard smoke test lives in `internal/browser/` with the
   `//go:build browser` tag. It starts the demo server in-process, loads every
   route in headless Chrome, fails on any console error or uncaught rejection,

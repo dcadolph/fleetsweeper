@@ -14,6 +14,20 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.12.0
+
+No schema migration and no flag changes.
+
+- **Cluster-admin bindings are judged by the binding.** rbac-audit used to
+  treat any binding to a role labeled `kubernetes.io/bootstrapping` as system.
+  `cluster-admin` carries that label on every real cluster, so no binding to
+  it was ever counted. A binding is now system only when the binding itself
+  carries the label or its name starts with `system:` or `kubeadm:`. A binding
+  that grants to `system:unauthenticated` or `system:anonymous` is never
+  system. Fleets that bind `cluster-admin` by hand will see new
+  `rbac-audit/cluster-admin-binding` findings after the first scan. That is
+  the rule working, not a regression.
+
 ## v0.11.0
 
 No schema migration and no flag changes.

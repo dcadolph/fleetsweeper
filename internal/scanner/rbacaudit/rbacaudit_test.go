@@ -38,6 +38,21 @@ func crb(name, roleRef string, subjects ...rbacv1.Subject) *rbacv1.ClusterRoleBi
 	}
 }
 
+// labeled returns obj with the bootstrapping label set, as Kubernetes sets it on built-in objects.
+func labeled[T interface{ SetLabels(map[string]string) }](obj T) T {
+	obj.SetLabels(map[string]string{systemBindingLabel: "rbac-defaults"})
+	return obj
+}
+
+// rb builds a RoleBinding in namespace ns to roleRef with the given subjects.
+func rb(ns, name, roleRef string, subjects ...rbacv1.Subject) *rbacv1.RoleBinding {
+	return &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		RoleRef:    rbacv1.RoleRef{Kind: "ClusterRole", Name: roleRef},
+		Subjects:   subjects,
+	}
+}
+
 // pod builds a Pod whose automount preference is set by mount.
 func pod(name string, mount *bool) *corev1.Pod {
 	return &corev1.Pod{
@@ -52,6 +67,13 @@ func TestNewScanner(t *testing.T) {
 	falseVal := false
 	userAlice := rbacv1.Subject{Kind: "User", Name: "alice"}
 	defaultSA := rbacv1.Subject{Kind: "ServiceAccount", Namespace: "default", Name: "default"}
+	masters := rbacv1.Subject{Kind: "Group", Name: "system:masters"}
+	unauthenticated := rbacv1.Subject{Kind: "Group", Name: "system:unauthenticated"}
+	anonymous := rbacv1.Subject{Kind: "User", Name: "system:anonymous"}
+	clusterAdmin := labeled(&rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-admin"},
+		Rules:      []rbacv1.PolicyRule{{Verbs: []string{"*"}, Resources: []string{"*"}, APIGroups: []string{"*"}}},
+	})
 
 	tests := []struct {
 		Name                     string
@@ -94,6 +116,56 @@ func TestNewScanner(t *testing.T) {
 			pod("opted-out", &falseVal),
 		},
 		WantAutomountTokenPods: 2,
+	}, { // Test 5: A bootstrapping label on the role does not make a user binding system.
+		Name: "labeled cluster-admin role",
+		Objects: []runtime.Object{
+			clusterAdmin,
+			crb("grant-admin", "cluster-admin", userAlice),
+		},
+		WantWildcardRules:        1,
+		WantClusterAdminBindings: 1,
+		WantRiskBindings:         1,
+	}, { // Test 6: The built-in cluster-admin binding carries its own label and is system.
+		Name: "labeled binding excluded",
+		Objects: []runtime.Object{
+			clusterAdmin,
+			labeled(crb("cluster-admin", "cluster-admin", masters)),
+		},
+		WantWildcardRules: 1,
+	}, { // Test 7: kubeadm: prefixed binding to cluster-admin is not flagged.
+		Name: "kubeadm binding excluded",
+		Objects: []runtime.Object{
+			clusterAdmin,
+			crb("kubeadm:cluster-admins", "cluster-admin", rbacv1.Subject{Kind: "Group", Name: "kubeadm:cluster-admins"}),
+		},
+		WantWildcardRules: 1,
+	}, { // Test 8: A system: prefix does not hide a grant to unauthenticated callers.
+		Name: "system prefix to unauthenticated",
+		Objects: []runtime.Object{
+			clusterAdmin,
+			crb("system:open", "cluster-admin", unauthenticated),
+		},
+		WantWildcardRules:        1,
+		WantClusterAdminBindings: 1,
+		WantRiskBindings:         1,
+	}, { // Test 9: A bootstrapping label does not hide a grant to anonymous callers.
+		Name: "labeled binding to anonymous",
+		Objects: []runtime.Object{
+			clusterAdmin,
+			labeled(crb("open-door", "cluster-admin", anonymous)),
+		},
+		WantWildcardRules:        1,
+		WantClusterAdminBindings: 1,
+		WantRiskBindings:         1,
+	}, { // Test 10: A namespaced user binding to the labeled cluster-admin role is flagged.
+		Name: "role binding to cluster-admin",
+		Objects: []runtime.Object{
+			clusterAdmin,
+			rb("team-a", "team-admin", "cluster-admin", userAlice),
+		},
+		WantWildcardRules:        1,
+		WantClusterAdminBindings: 1,
+		WantRiskBindings:         1,
 	}}
 
 	for testNum, test := range tests {
@@ -238,7 +310,7 @@ func TestScanRequiredReadFails(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		Resource string
-	}{{ // Test 0: Cluster roles denied, so no binding can be classed as system.
+	}{{ // Test 0: Cluster roles denied, so wildcard rules cannot be counted.
 		Resource: "clusterroles",
 	}, { // Test 1: Cluster role bindings denied.
 		Resource: "clusterrolebindings",

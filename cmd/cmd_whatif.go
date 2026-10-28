@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,9 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dcadolph/fleetsweeper/internal/cohort"
 	"github.com/dcadolph/fleetsweeper/internal/report"
-	"github.com/dcadolph/fleetsweeper/internal/store"
+	"github.com/dcadolph/fleetsweeper/internal/server"
 )
 
 // whatifCmd projects how the fleet norm and score move if one cluster's field
@@ -72,36 +70,18 @@ func runWhatif(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("get scan results %s: %w", scanID, err)
 	}
-	tags, err := storeCohortTags(ctx, st)
+	opts, err := server.StoreReportOptions(ctx, st)
 	if err != nil {
-		return err
+		return fmt.Errorf("load report options: %w", err)
 	}
+	opts.Timestamp = scan.Timestamp
 
 	fix := report.Fix{Cluster: cluster, Scanner: scannerName, Field: fieldName, Kind: kind, Scope: scope}
-	out, err := report.WhatIf(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp, ClusterTags: tags}, fix)
+	out, err := report.WhatIf(scan.Clusters, results, opts, fix)
 	if err != nil {
 		return err
 	}
 	return writeWhatif(cmd.OutOrStdout(), out, jsonOut)
-}
-
-// storeCohortTags returns each cluster's cohort tag from the store, so a
-// projection groups cohorts the way the server does.
-func storeCohortTags(ctx context.Context, st store.Store) (map[string]string, error) {
-	all, err := st.ListClusterTags(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list cluster tags: %w", err)
-	}
-	var tags map[string]string
-	for cluster, kv := range all {
-		if v := kv[cohort.DefaultTagKey]; v != "" {
-			if tags == nil {
-				tags = make(map[string]string)
-			}
-			tags[cluster] = v
-		}
-	}
-	return tags, nil
 }
 
 // writeWhatif renders a what-if outcome to w as JSON or text.

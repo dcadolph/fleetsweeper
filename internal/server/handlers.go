@@ -624,7 +624,7 @@ func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tags, err := projectCohortTags(r.Context(), s, cohortTagKey)
+	tags, err := projectCohortTags(r.Context(), s.store, cohortTagKey)
 	if err != nil {
 		s.writeStoreError(w, err, "cohorts: list tags", "cluster tags not found")
 		return
@@ -654,8 +654,8 @@ const cohortTagKey = "cohort"
 // projectCohortTags pulls every cluster's value for the given tag key from the
 // store. A store error is returned rather than hidden, because silently falling
 // back to automatic cohorts would answer with a different partition.
-func projectCohortTags(ctx context.Context, s *Server, key string) (map[string]string, error) {
-	all, err := s.store.ListClusterTags(ctx)
+func projectCohortTags(ctx context.Context, st store.Store, key string) (map[string]string, error) {
+	all, err := st.ListClusterTags(ctx)
 	if err != nil {
 		return nil, err
 	}
