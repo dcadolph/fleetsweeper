@@ -244,3 +244,54 @@ func TestScanListErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestEndpointsReadFailure verifies a failed endpoints read leaves the webhook uncounted and
+// degrades the result, while a missing Endpoints object counts as unhealthy.
+func TestEndpointsReadFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Name          string
+		FailGet       error
+		WantState     scanner.State
+		WantUnhealthy int
+	}{{ // Test 0: Endpoints read times out; the webhook is not counted unhealthy.
+		Name:          "timeout",
+		FailGet:       context.DeadlineExceeded,
+		WantState:     scanner.StateDegraded,
+		WantUnhealthy: 0,
+	}, { // Test 1: Endpoints are NotFound; the webhook is unhealthy and the read succeeded.
+		Name:          "not found",
+		WantState:     scanner.StateOK,
+		WantUnhealthy: 1,
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+
+			cs := fakeclientset.NewSimpleClientset(mutating(serviceRef(nil), nil))
+			if test.FailGet != nil {
+				cs.PrependReactor("get", "endpoints", func(clienttesting.Action) (bool, runtime.Object, error) {
+					return true, nil, test.FailGet
+				})
+			}
+			client := kube.NewTestClientWithClientset("test", cs)
+
+			result, err := NewScanner().Scan(context.Background(), client)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(test.WantState, result.State); diff != "" {
+				t.Errorf("state mismatch (-want +got):\n%s", diff)
+			}
+			data, ok := result.Data.(Data)
+			if !ok {
+				t.Fatalf("expected Data type, got %T", result.Data)
+			}
+			if diff := cmp.Diff(test.WantUnhealthy, data.UnhealthyWebhooks); diff != "" {
+				t.Errorf("unhealthy mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

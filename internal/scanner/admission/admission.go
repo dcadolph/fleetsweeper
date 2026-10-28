@@ -15,7 +15,7 @@ import (
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
-	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
@@ -49,6 +49,8 @@ type Webhook struct {
 	CABundleNotAfter time.Time `json:"ca_bundle_not_after"`
 	// CABundleDaysRemaining is the days until the earliest cert expires; -1 when unknown.
 	CABundleDaysRemaining int `json:"ca_bundle_days_remaining"`
+	// EndpointsUnknown is true when the endpoints read failed, so EndpointsHealthy is not known.
+	EndpointsUnknown bool `json:"endpoints_unknown,omitempty"`
 }
 
 // Data holds admission webhook audit results for one cluster.
@@ -82,7 +84,7 @@ func NewScanner() scanner.Scanner {
 			for i := range mwh {
 				cfg := &mwh[i]
 				for _, wh := range cfg.Webhooks {
-					data.Webhooks = append(data.Webhooks, buildWebhook(ctx, client, cfg.Name, "Mutating", wh.Name, wh.ClientConfig, wh.FailurePolicy, now))
+					data.Webhooks = append(data.Webhooks, buildWebhook(ctx, client, cfg.Name, "Mutating", wh.Name, wh.ClientConfig, wh.FailurePolicy, now, &cov))
 				}
 			}
 		}
@@ -95,14 +97,14 @@ func NewScanner() scanner.Scanner {
 			for i := range vwh {
 				cfg := &vwh[i]
 				for _, wh := range cfg.Webhooks {
-					data.Webhooks = append(data.Webhooks, buildValidatingWebhook(ctx, client, cfg.Name, wh, now))
+					data.Webhooks = append(data.Webhooks, buildValidatingWebhook(ctx, client, cfg.Name, wh, now, &cov))
 				}
 			}
 		}
 
 		data.TotalWebhooks = len(data.Webhooks)
 		for _, w := range data.Webhooks {
-			if w.Service != "" && !w.EndpointsHealthy {
+			if w.Service != "" && !w.EndpointsUnknown && !w.EndpointsHealthy {
 				data.UnhealthyWebhooks++
 			}
 			if w.CABundleDaysRemaining >= 0 && w.CABundleDaysRemaining < caExpirySoonDays {
@@ -124,9 +126,14 @@ func NewScanner() scanner.Scanner {
 	})
 }
 
-// buildWebhook resolves a mutating webhook into the audit-friendly Webhook
-// struct, including endpoint health and CA bundle expiry.
-func buildWebhook(ctx context.Context, client *kube.Client, cfgName, kind, name string, cc admissionregv1.WebhookClientConfig, failurePolicy *admissionregv1.FailurePolicyType, now time.Time) Webhook {
+// buildWebhook resolves a webhook of either kind into the audit-friendly Webhook
+// struct, including endpoint health and CA bundle expiry. A failed endpoints read is recorded
+// on cov and leaves the webhook health unknown.
+func buildWebhook(
+	ctx context.Context, client *kube.Client, cfgName, kind, name string,
+	cc admissionregv1.WebhookClientConfig, failurePolicy *admissionregv1.FailurePolicyType,
+	now time.Time, cov *scanner.Coverage,
+) Webhook {
 	w := Webhook{
 		Configuration:         cfgName,
 		Webhook:               name,
@@ -138,7 +145,11 @@ func buildWebhook(ctx context.Context, client *kube.Client, cfgName, kind, name 
 	}
 	if cc.Service != nil {
 		w.Service = fmt.Sprintf("%s/%s", cc.Service.Namespace, cc.Service.Name)
-		w.EndpointsHealthy = endpointsHealthy(ctx, client, cc.Service.Namespace, cc.Service.Name)
+		healthy, err := endpointsHealthy(ctx, client, cc.Service.Namespace, cc.Service.Name)
+		if !cov.Observe("endpoints "+w.Service, err) {
+			w.EndpointsUnknown = true
+		}
+		w.EndpointsHealthy = healthy
 	}
 	if cc.URL != nil {
 		w.URL = *cc.URL
@@ -151,25 +162,31 @@ func buildWebhook(ctx context.Context, client *kube.Client, cfgName, kind, name 
 }
 
 // buildValidatingWebhook is the validating-webhook counterpart of buildWebhook.
-func buildValidatingWebhook(ctx context.Context, client *kube.Client, cfgName string, wh admissionregv1.ValidatingWebhook, now time.Time) Webhook {
-	return buildWebhook(ctx, client, cfgName, "Validating", wh.Name, wh.ClientConfig, wh.FailurePolicy, now)
+func buildValidatingWebhook(
+	ctx context.Context, client *kube.Client, cfgName string, wh admissionregv1.ValidatingWebhook,
+	now time.Time, cov *scanner.Coverage,
+) Webhook {
+	return buildWebhook(ctx, client, cfgName, "Validating", wh.Name, wh.ClientConfig,
+		wh.FailurePolicy, now, cov)
 }
 
-// endpointsHealthy reports whether the named Service in namespace has at
-// least one ready endpoint. URL-based webhooks always return false because
-// we cannot safely probe arbitrary external endpoints during a scan.
-func endpointsHealthy(ctx context.Context, client *kube.Client, namespace, name string) bool {
+// endpointsHealthy reports whether the named Service in namespace has at least one ready
+// endpoint. A missing Endpoints object is unhealthy with no error. Any other read error is
+// returned and the health is unknown.
+func endpointsHealthy(ctx context.Context, client *kube.Client, namespace, name string) (bool, error) {
 	ep, err := client.Clientset().CoreV1().Endpoints(namespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, sub := range ep.Subsets {
 		if len(sub.Addresses) > 0 {
-			return true
+			return true, nil
 		}
 	}
-	_ = corev1.SchemeGroupVersion
-	return false
+	return false, nil
 }
 
 // earliestExpiry returns the earliest NotAfter across all certificates in a
