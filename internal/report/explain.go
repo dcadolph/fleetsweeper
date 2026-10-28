@@ -32,7 +32,7 @@ func applyCohortNorms(r *Report, cohortDists []Distribution) {
 	for _, d := range cohortDists {
 		for _, v := range d.Values {
 			k := key{d.Scope, d.Scanner, d.Field, v.Cluster}
-			inNorm[k], cohortZ[k] = withinNorm(d, v), v.Z
+			inNorm[k], cohortZ[k] = withinNorm(d, v), valueMass(d, v)
 		}
 	}
 	explained := map[key]string{}
@@ -50,7 +50,7 @@ func applyCohortNorms(r *Report, cohortDists []Distribution) {
 				return z
 			}
 		}
-		return v.Z
+		return valueMass(d, v)
 	}
 	for di := range r.Distributions {
 		d := &r.Distributions[di]
@@ -62,7 +62,7 @@ func applyCohortNorms(r *Report, cohortDists []Distribution) {
 			if c, ok := explained[key{NormScopeFleet, d.Scanner, d.Field, d.Values[vi].Cluster}]; ok {
 				d.Values[vi].Explained = c
 			}
-			mass += math.Min(math.Abs(normZ(*d, d.Values[vi])), maxMassZ)
+			mass += normZ(*d, d.Values[vi])
 		}
 		d.Mass = mass
 	}

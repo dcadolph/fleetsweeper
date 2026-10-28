@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // Remediation describes the concrete action an operator can take to resolve a
@@ -54,8 +56,8 @@ type Finding struct {
 	// Remediation is the suggested fix. Empty when no automated suggestion fits.
 	Remediation *Remediation `json:"remediation,omitempty"`
 	// Norm is the fleet or cohort norm a fleet-relative finding was measured
-	// against. It is nil on absolute-rule findings, which is how a reader
-	// tells the two classes apart.
+	// against. An absolute-rule finding carries one only when it absorbed the
+	// norm finding on the field it counts, and is nil otherwise.
 	Norm *NormBasis `json:"norm,omitempty"`
 	// Marks names the clusters a fleet-scoped finding holds responsible, each
 	// with the severity it sets on that cluster's status. Empty on cluster
@@ -176,6 +178,7 @@ func GenerateFindings(r *Report) []Finding {
 	findings = append(findings, admissionFindings(r)...)
 	findings = append(findings, clusterInfoFindings(r)...)
 	findings = append(findings, compositeBadDeployFindings(r)...)
+	findings = dropRedundant(findings, scopeMembers(r))
 
 	severityOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	sort.SliceStable(findings, func(i, j int) bool {
@@ -183,6 +186,175 @@ func GenerateFindings(r *Report) []Finding {
 	})
 
 	return StampFingerprints(findings)
+}
+
+// clusterRule keys a finding by its cluster and rule.
+type clusterRule struct {
+	// Cluster is the finding's cluster.
+	Cluster string
+	// Rule is the finding's rule.
+	Rule string
+}
+
+// clusterField keys a norm finding by its cluster and the field its norm describes.
+type clusterField struct {
+	// Cluster is the finding's cluster.
+	Cluster string
+	// Field is the scanner field the norm describes.
+	Field FieldRef
+}
+
+// scopedField keys a norm finding by its cluster, the field its norm describes, and the scope
+// the norm was computed over.
+type scopedField struct {
+	// Cluster is the finding's cluster.
+	Cluster string
+	// Field is the scanner field the norm describes.
+	Field FieldRef
+	// Scope is the norm's scope, "fleet" or a cohort name.
+	Scope string
+}
+
+// scopeMembers lists the clusters each norm scope was computed over: the fleet under
+// NormScopeFleet and every cohort under its name.
+func scopeMembers(r *Report) map[string][]string {
+	members := map[string][]string{NormScopeFleet: r.Clusters}
+	for _, c := range r.Cohorts {
+		members[c.Name] = c.Clusters
+	}
+	return members
+}
+
+// dropRedundant removes a norm finding whose fact another finding on the same cluster already
+// states at an equal or higher severity, so one fact is counted once. A norm finding on a field
+// is dropped when the absolute rule that counts the field fired on the cluster and singles it
+// out: within the norm's scope the rule fired on no cluster that holds the norm, so "the rule
+// fired" and "off the norm" name the same clusters. The absolute finding takes the norm when it
+// has none. A rule that fires on norm clusters too, such as a namespace-without-policy count on
+// a fleet where every cluster has one, states a fact the fleet shares, not the deviation, and
+// drops nothing. A norm finding is also dropped when a field it restates (its RedundantWith) is
+// stated by a norm finding or by a singling absolute rule counting that field. When the restated
+// field's only statement is a norm finding of lower severity, that finding is dropped instead.
+// members lists the clusters of each scope, from scopeMembers. Every judgment reads the
+// original list, so the order of the findings does not matter.
+func dropRedundant(findings []Finding, members map[string][]string) []Finding {
+	absolute := make(map[clusterRule]int)
+	firedOn := make(map[string][]string)
+	norm := make(map[clusterField]int)
+	normIn := make(map[scopedField]bool)
+	isNorm := make([]bool, len(findings))
+	for i, f := range findings {
+		isNorm[i] = f.Norm != nil
+		if !isNorm[i] {
+			key := clusterRule{f.Cluster, f.Rule}
+			if _, ok := absolute[key]; !ok {
+				absolute[key] = i
+				firedOn[f.Rule] = append(firedOn[f.Rule], f.Cluster)
+			}
+			continue
+		}
+		field := ref(f.Scanner, f.Norm.Field)
+		norm[clusterField{f.Cluster, field}] = i
+		normIn[scopedField{f.Cluster, field, f.Norm.Scope}] = true
+	}
+	singles := func(rule string, field FieldRef, scope string) bool {
+		population, ok := members[scope]
+		if !ok {
+			return false
+		}
+		for _, cluster := range firedOn[rule] {
+			if !slices.Contains(population, cluster) {
+				continue
+			}
+			if !normIn[scopedField{cluster, field, scope}] {
+				return false
+			}
+		}
+		return true
+	}
+	counting := func(cluster string, field FieldRef, scope string) (int, bool) {
+		spec, ok := lookupField(field.Scanner, field.Field)
+		if !ok || spec.CountedBy == "" {
+			return 0, false
+		}
+		j, ok := absolute[clusterRule{cluster, spec.CountedBy}]
+		if !ok || !singles(spec.CountedBy, field, scope) {
+			return 0, false
+		}
+		return j, true
+	}
+
+	drop := make([]bool, len(findings))
+	for i, f := range findings {
+		if !isNorm[i] {
+			continue
+		}
+		j, ok := counting(f.Cluster, ref(f.Scanner, f.Norm.Field), f.Norm.Scope)
+		if !ok || util.SeverityRank(findings[j].Severity) < util.SeverityRank(f.Severity) {
+			continue
+		}
+		drop[i] = true
+		if findings[j].Norm == nil {
+			findings[j].Norm = f.Norm
+			findings[j].Description = strings.TrimSpace(
+				findings[j].Description + " " + normSentence(f.Cluster, f.Norm))
+		}
+	}
+	for i, f := range findings {
+		if !isNorm[i] || drop[i] {
+			continue
+		}
+		spec, _ := lookupField(f.Scanner, f.Norm.Field)
+		rank := util.SeverityRank(f.Severity)
+		for _, target := range spec.RedundantWith {
+			if j, ok := counting(f.Cluster, target, f.Norm.Scope); ok &&
+				util.SeverityRank(findings[j].Severity) >= rank {
+				drop[i] = true
+				break
+			}
+			j, ok := norm[clusterField{f.Cluster, target}]
+			if !ok {
+				continue
+			}
+			if util.SeverityRank(findings[j].Severity) >= rank {
+				drop[i] = true
+				break
+			}
+			if _, counted := counting(f.Cluster, target, f.Norm.Scope); !counted {
+				drop[j] = true
+			}
+		}
+	}
+
+	kept := findings[:0]
+	for i, f := range findings {
+		if !drop[i] {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+// normSentence states the norm n of a finding on cluster as a sentence, e.g.
+// "memory_pressure_nodes is 2 on prod-1, where every other cluster in the fleet reports
+// exactly 0."
+func normSentence(cluster string, n *NormBasis) string {
+	scope := scopeNoun(n.Scope)
+	switch {
+	case n.Kind == NormKindNumeric && n.Exact:
+		return fmt.Sprintf("%s is %s on %s, where %s.", n.Field, n.Value, cluster,
+			exactNormPhrase(n.ModeShare, n.SampleSize, formatNum(n.Median), scope))
+	case n.Kind == NormKindNumeric:
+		return fmt.Sprintf("%s is %s on %s, against a median of %s across %d clusters in %s.",
+			n.Field, n.Value, cluster, formatNum(n.Median), n.SampleSize, scope)
+	case n.Kind == NormKindString:
+		return fmt.Sprintf("%s is %q on %s, against %q held by %.0f%% of %s.",
+			n.Field, n.Value, cluster, n.Mode, n.ModeShare*100, scope)
+	case n.Kind == NormKindSet:
+		return fmt.Sprintf("%s on %s lacks %d of the %d members %s holds in common.",
+			n.Field, cluster, len(n.Missing), len(n.Consensus), scope)
+	}
+	return ""
 }
 
 // outlierFindings converts OutlierResults into human-readable findings, each

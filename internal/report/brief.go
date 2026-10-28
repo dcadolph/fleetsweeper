@@ -88,7 +88,7 @@ func normLine(findings []Finding) string {
 			continue
 		}
 		if best == nil || util.SeverityRank(f.Severity) > util.SeverityRank(best.Severity) ||
-			(f.Severity == best.Severity && math.Abs(f.Norm.Z) > math.Abs(best.Norm.Z)) {
+			(f.Severity == best.Severity && normStrength(f.Norm) > normStrength(best.Norm)) {
 			best = f
 		}
 	}
@@ -96,26 +96,35 @@ func normLine(findings []Finding) string {
 		return ""
 	}
 	n := best.Norm
-	field := best.Rule
-	if len(best.Affected) > 0 {
-		field = best.Affected[0]
-	}
+	field := n.Field
 	scope := "a fleet"
 	if n.Scope != NormScopeFleet {
 		scope = fmt.Sprintf("the cohort %q", n.Scope)
 	}
-	switch n.Kind {
-	case NormKindNumeric:
+	switch {
+	case n.Kind == NormKindNumeric && n.Exact:
+		return fmt.Sprintf("Largest deviation: %s %s is %s, where %s.", best.Cluster, field, n.Value,
+			exactNormPhrase(n.ModeShare, n.SampleSize, formatNum(n.Median), scopeNoun(n.Scope)))
+	case n.Kind == NormKindNumeric:
 		return fmt.Sprintf("Largest deviation: %s %s is %s vs %s median of %s across %d clusters.",
 			best.Cluster, field, n.Value, scope, formatNum(n.Median), n.SampleSize)
-	case NormKindString:
+	case n.Kind == NormKindString:
 		return fmt.Sprintf("Largest deviation: %s %s is %q vs %s mode of %q held by %.0f%% of %d clusters.",
 			best.Cluster, field, n.Value, scope, n.Mode, n.ModeShare*100, n.SampleSize)
-	case NormKindSet:
+	case n.Kind == NormKindSet:
 		return fmt.Sprintf("Largest deviation: %s %s lacks %d of the %d members %s holds in common across %d clusters.",
 			best.Cluster, field, len(n.Missing), len(n.Consensus), scopeNoun(n.Scope), n.SampleSize)
 	}
 	return ""
+}
+
+// normStrength orders norms of equal severity for the brief: an exact norm, a flat field
+// with a cluster off it, ranks above any z-score.
+func normStrength(n *NormBasis) float64 {
+	if n.Exact {
+		return math.Inf(1)
+	}
+	return math.Abs(n.Z)
 }
 
 // scopeNoun names a norm scope as the subject of a sentence.

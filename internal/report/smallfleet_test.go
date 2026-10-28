@@ -62,7 +62,7 @@ func TestSmallFleetBuild(t *testing.T) {
 		Name: "5 clusters two deviants", Scanner: "novel",
 		Vals: []any{10, 11, 10, 40, 50},
 	}, { // Test 3: A critical field is capped at warning under a limited sample.
-		Name: "severity cap", Scanner: "security",
+		Name: "severity cap", Scanner: "node-health",
 		Vals:         []any{10, 11, 10, 11, 40},
 		WantClusters: []string{"c04"}, WantLimited: true, WantSeverity: SeverityWarning, WantFindingCount: 1,
 	}, { // Test 4: Two clusters emit nothing and explain why.
@@ -73,8 +73,8 @@ func TestSmallFleetBuild(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
 			field := "count"
-			if test.Scanner == "security" {
-				field = "unenforced_count"
+			if test.Scanner == "node-health" {
+				field = "unhealthy_nodes"
 			}
 			clusters, results := fieldFleet(test.Scanner, field, test.Vals...)
 			r := Build(clusters, results)
@@ -177,11 +177,11 @@ func TestMajorityNumericOutlier(t *testing.T) {
 			Cluster: "c02", Value: "30", FleetNorm: "11", Deviation: 12.8155,
 			Kind: NormKindNumeric, Median: 11, MAD: 1, SampleSize: 3, Threshold: 3.5, Z: 12.8155,
 		},
-	}, { // Test 1: Identical peers make any difference count, with z capped.
+	}, { // Test 1: Identical peers make any difference count, as an exact norm with no z.
 		Name: "zero MAD peers", Vals: []any{10, 10, 10, 10, 11},
 		WantResult: &OutlierResult{
-			Cluster: "c04", Value: "11", FleetNorm: "10", Deviation: maxReportedDeviation,
-			Kind: NormKindNumeric, Median: 10, MAD: 0, SampleSize: 5, Threshold: 3.5, Z: maxReportedDeviation,
+			Cluster: "c04", Value: "11", FleetNorm: "10", Kind: NormKindNumeric, Median: 10,
+			ModeShare: 0.8, SampleSize: 5, Threshold: 3.5, Exact: true,
 		},
 	}, { // Test 2: A low deviant gets a negative z: peers 50 50 51 51 give
 		// median 50.5, MAD 0.5, z = 0.6745 * -48.5 / 0.5 = -65.4265.

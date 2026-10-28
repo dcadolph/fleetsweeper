@@ -129,6 +129,22 @@ var fieldSpecs = []fieldSpec{
 		CountedBy: "events/warning-volume",
 	},
 
+	{
+		FieldRef:  ref("certs", "critical"),
+		Polarity:  UpIsBad,
+		CountedBy: "certs/expiring-7d",
+	},
+	{
+		FieldRef:  ref("certs", "warning"),
+		Polarity:  UpIsBad,
+		CountedBy: "certs/expiring-30d",
+	},
+	{
+		FieldRef:      ref("certs", "soonest_days"),
+		Polarity:      DownIsBad,
+		RedundantWith: []FieldRef{ref("certs", "warning"), ref("certs", "critical")},
+	},
+
 	{FieldRef: ref("security", "enforced_count"), Severity: SeverityCritical, Polarity: DownIsBad},
 	{
 		FieldRef:  ref("security", "unenforced_count"),

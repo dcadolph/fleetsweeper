@@ -95,9 +95,9 @@ func stepGained(l report.Ledger) string {
 	return ""
 }
 
-// TestDemoDrift verifies the demo's two planted changes lead the drift ledger: the memory
-// incident on prod-us-east-1 and the RBAC step on the stepping cluster, whose flag is stamped by
-// the scan of the step.
+// TestDemoDrift verifies the demo's three planted changes lead the drift ledger: the memory
+// incident on prod-us-east-1, the certificate on site-paris-12 that ran close before renewing,
+// and the RBAC step on the stepping cluster, whose flag is stamped by the scan of the step.
 func TestDemoDrift(t *testing.T) {
 	t.Parallel()
 	h := demoTestServer(t).Handler()
@@ -105,11 +105,12 @@ func TestDemoDrift(t *testing.T) {
 	if code := serve(t, h, http.MethodGet, "/api/drift?scans=24", "", "", &l); code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
-	if len(l.Scans) != 24 || len(l.Clusters) < 2 {
+	if len(l.Scans) != 24 || len(l.Clusters) < 3 {
 		t.Fatalf("ledger: %d scans, %d rows", len(l.Scans), len(l.Clusters))
 	}
-	top := []string{l.Clusters[0].Cluster, l.Clusters[1].Cluster}
-	if diff := cmp.Diff([]string{"prod-us-east-1", demoStepCluster}, top, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+	top := []string{l.Clusters[0].Cluster, l.Clusters[1].Cluster, l.Clusters[2].Cluster}
+	want := []string{"prod-us-east-1", "site-paris-12", demoStepCluster}
+	if diff := cmp.Diff(want, top, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 		t.Errorf("leading rows mismatch (-want +got):\n%s", diff)
 	}
 	if want, got := demoScanIDAt(demoScans-demoScans/3), stepGained(l); got != want {

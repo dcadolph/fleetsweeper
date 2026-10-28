@@ -20,7 +20,9 @@ axis.
 - A ringed dot is the cluster the page is about.
 
 When the MAD is zero, because most clusters hold the exact same value, the
-strip draws the dots and the median with no band, and nothing is flagged.
+norm is exact: the strip draws the dots and the median with no band, states
+the share holding the median, and flags every cluster off it when that share
+is at least 60%.
 
 String fields have no axis. Their strip names the most common value, the
 share of clusters holding it, and the clusters that differ. Set fields name
@@ -41,7 +43,9 @@ strip is the one that decides whether it raises a finding.
 
 Deviation mass is how far a cluster sits from its norm across every field:
 the sum over the fleet distributions of the cluster's `|z|`, each capped at 10
-so one extreme field cannot drown the rest. For a cluster in a tagged cohort,
+so one extreme field cannot drown the rest. A cluster off an exact norm adds
+the full 10 for that field, so a flat field with one deviant ranks above a
+noisy field with none. For a cluster in a tagged cohort,
 each field's z comes from the cohort's distribution where the cohort has one.
 The dashboard ranks clusters by it, the drift ledger tracks how it moves
 between scans, and the globe sizes markers by it.

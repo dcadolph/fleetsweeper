@@ -20,10 +20,9 @@ const minMADSample = 8
 // version distribution incorrectly flagged 2/3 of the fleet as outliers.
 const minStringModeMass = 0.6
 
-// maxReportedDeviation caps the modified z-score a finding reports. A MAD that
-// is negligibly small next to the spread can drive the score to infinity for a
-// far-off cluster; the cluster is still a real outlier, so it is flagged with a
-// capped, finite, JSON-safe deviation rather than an infinity.
+// maxReportedDeviation is the finite stand-in cappedZ uses for an infinite z-score, so a
+// score from a MAD negligibly small next to the spread stays JSON-safe. A MAD of exactly zero
+// never reaches it: such a field is judged by exactOutliers instead.
 const maxReportedDeviation = 1e6
 
 // minSetConsensusShare is the share of the population an item must appear in
@@ -51,6 +50,8 @@ const NormScopeFleet = "fleet"
 type NormBasis struct {
 	// Scope is "fleet" or the name of the cohort the norm was computed over.
 	Scope string `json:"scope"`
+	// Field is the scanner field the norm describes.
+	Field string `json:"field"`
 	// Kind is "numeric", "string", or "set".
 	Kind string `json:"kind"`
 	// Median is the population median of a numeric field.
@@ -59,7 +60,8 @@ type NormBasis struct {
 	MAD float64 `json:"mad"`
 	// Mode is the most common value of a string field.
 	Mode string `json:"mode,omitempty"`
-	// ModeShare is the fraction of the population holding Mode.
+	// ModeShare is the fraction of the population holding Mode, or holding Median for an exact
+	// numeric norm.
 	ModeShare float64 `json:"mode_share,omitempty"`
 	// Consensus lists the members of a set field present in at least
 	// Threshold of the population, sorted.
@@ -78,6 +80,10 @@ type NormBasis struct {
 	Z float64 `json:"z"`
 	// LimitedSample marks a norm drawn from a population too small for MAD.
 	LimitedSample bool `json:"limited_sample"`
+	// Exact marks a numeric norm with zero spread, judged like a string: at least
+	// minStringModeMass of the population holds Median exactly and any other value is off it.
+	// An exact norm carries no z-score and no band.
+	Exact bool `json:"exact,omitempty"`
 	// NoWhatIf explains why no what-if can project a fix toward this norm.
 	// Empty when one can.
 	NoWhatIf string `json:"no_what_if,omitempty"`
@@ -126,6 +132,10 @@ type OutlierResult struct {
 	ExplainedBy string `json:"explained_by,omitempty"`
 	// LimitedSample marks a norm drawn from a population too small for MAD.
 	LimitedSample bool `json:"limited_sample"`
+	// Exact marks an outlier against a numeric norm with zero spread, judged like a string: at least
+	// minStringModeMass of the population holds Median exactly and any other value is off it.
+	// An exact norm carries no z-score and no band.
+	Exact bool `json:"exact,omitempty"`
 	// Favorable marks a numeric outlier on the better side of a field with a polarity. It is
 	// reported at info severity.
 	Favorable bool `json:"favorable,omitempty"`
@@ -136,6 +146,7 @@ type OutlierResult struct {
 func (o OutlierResult) Basis() *NormBasis {
 	return &NormBasis{
 		Scope:         o.Scope,
+		Field:         o.Field,
 		Kind:          o.Kind,
 		Median:        o.Median,
 		MAD:           o.MAD,
@@ -148,6 +159,7 @@ func (o OutlierResult) Basis() *NormBasis {
 		Value:         o.Value,
 		Z:             o.Z,
 		LimitedSample: o.LimitedSample,
+		Exact:         o.Exact,
 		NoWhatIf:      WhatIfRefusal(o.Scanner, o.Field),
 	}
 }
@@ -280,22 +292,15 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 	}
 
 	if mad == 0 {
-		return nil, dist
+		return exactOutliers(order, clusterVals, median, field, scannerName, dist), dist
 	}
 	dist.Band = threshold * mad / madScale
 
 	var outliers []OutlierResult
 	for c, v := range clusterVals {
-		zScore := madScale * (v - median) / mad
+		zScore := cappedZ(madScale * (v - median) / mad)
 		absZ := math.Abs(zScore)
 		if absZ > threshold {
-			// A near-zero MAD can drive the score to infinity for a far value.
-			// The cluster is still a real outlier, so cap the reported deviation
-			// to keep the finding finite and JSON-safe.
-			if math.IsInf(absZ, 0) {
-				absZ = maxReportedDeviation
-				zScore = math.Copysign(maxReportedDeviation, zScore)
-			}
 			sev, favorable := numericSeverity(scannerName, field, v-median)
 			outliers = append(outliers, OutlierResult{
 				Cluster:    c,
@@ -316,8 +321,55 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		}
 	}
 	markOutliers(dist, outliers, false)
-	dist.Mass = massOf(dist.Values)
+	dist.Mass = massOf(*dist)
 	return outliers, dist
+}
+
+// exactOutliers judges a numeric field whose MAD is zero like a string field: when at least
+// minStringModeMass of the population holds the median exactly, every cluster off it is an
+// outlier with an exact norm and no z-score. Below that share nothing is flagged. It marks
+// dist as exact and sets its share and mass.
+func exactOutliers(order []string, clusterVals map[string]float64, median float64, field,
+	scannerName string, dist *Distribution) []OutlierResult {
+	atMedian := 0
+	for _, c := range order {
+		if clusterVals[c] == median {
+			atMedian++
+		}
+	}
+	share := float64(atMedian) / float64(len(order))
+	dist.Exact = true
+	dist.ModeShare = share
+	dist.Threshold = minStringModeMass
+	if share < minStringModeMass {
+		return nil
+	}
+	var outliers []OutlierResult
+	for _, c := range order {
+		v := clusterVals[c]
+		if v == median {
+			continue
+		}
+		sev, favorable := numericSeverity(scannerName, field, v-median)
+		outliers = append(outliers, OutlierResult{
+			Cluster:    c,
+			Field:      field,
+			Value:      formatNum(v),
+			FleetNorm:  formatNum(median),
+			Scanner:    scannerName,
+			Severity:   sev,
+			Favorable:  favorable,
+			Kind:       NormKindNumeric,
+			Median:     median,
+			ModeShare:  share,
+			SampleSize: len(order),
+			Threshold:  minStringModeMass,
+			Exact:      true,
+		})
+	}
+	markOutliers(dist, outliers, false)
+	dist.Mass = massOf(*dist)
+	return outliers
 }
 
 // cappedZ returns z with an infinite value replaced by the signed

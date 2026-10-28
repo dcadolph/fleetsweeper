@@ -48,13 +48,16 @@ kubectl --context edge-nyc-42 get namespaces -L pod-security.kubernetes.io/enfor
 
 Every fleet-relative finding (fleet outlier, cohort outlier, set outlier)
 carries a `norm` object stating what it was measured against, so a reader can
-check the claim without rerunning the statistics. Absolute-rule findings such
-as `node-health/not-ready` carry no `norm`. That is how the two classes are
-told apart.
+check the claim without rerunning the statistics. An absolute-rule finding
+such as `node-health/not-ready` carries a `norm` only when it absorbed a norm
+finding on the field it counts (see One fact, one finding). The rule tells the
+two classes apart: fleet-relative rules are `outlier-<field>`,
+`cohort-outlier-<field>`, or one of the named set and vulnerability rules.
 
 | Field            | Meaning                                                                                        |
 | ---------------- | ---------------------------------------------------------------------------------------------- |
 | `scope`          | `fleet`, or the name of the cohort the norm was computed over.                                 |
+| `field`          | The scanner field the norm describes.                                                          |
 | `kind`           | `numeric`, `string`, or `set`.                                                                 |
 | `median`, `mad`  | Population median and median absolute deviation of a numeric field.                            |
 | `z`              | This cluster's signed modified z-score, `0.6745 * (value - median) / mad`.                     |
@@ -68,7 +71,7 @@ told apart.
 
 ```json
 "norm": {
-  "scope": "fleet", "kind": "numeric", "median": 12, "mad": 1.5,
+  "scope": "fleet", "field": "enforced_count", "kind": "numeric", "median": 12, "mad": 1.5,
   "sample_size": 26, "threshold": 3.5, "value": "30", "z": 8.09,
   "limited_sample": false
 }
@@ -105,6 +108,38 @@ an entry names a scanner or field that does not exist, so a misspelled field
 cannot silently fall back to info. A field the registry does not declare is
 still measured and reported at info severity, because a difference nobody
 wrote a rule for is still worth seeing.
+
+## One fact, one finding
+
+Some fields restate others: `version/minor`, `deprecated-apis/server_version`,
+and `cluster-info/kubelet_versions` all repeat `version/git_version`, and
+`node-health/unhealthy_nodes` is the sum of the pressure and not-ready counts.
+Some fields are what an absolute rule counts: `node-health/memory-pressure`
+fires on the nodes behind `memory_pressure_nodes`. Without care, one memory
+pressure node would raise three findings and cost the score three times.
+
+The registry declares both relations, and the report keeps one finding per
+fact. A norm finding on a cluster is dropped when:
+
+- the absolute rule counting its field fired on that cluster at an equal or
+  higher severity and singles the cluster out: within the norm's scope (the
+  fleet, or the cohort) the rule fired on no cluster that holds the norm. The
+  absolute finding takes the dropped `norm` and adds a sentence to its
+  description, e.g. "memory_pressure_nodes is 2 on prod-us-east-1, where every
+  other cluster in the fleet reports exactly 0." A rule that fires on norm
+  clusters too states a fact the fleet shares, not the deviation. On a fleet
+  where every cluster has a namespace without a network policy,
+  `network-policies/no-policy` fires everywhere and the cluster with far more
+  such namespaces keeps its norm finding beside it, since fixing the excess
+  resolves the norm finding while the absolute one stays.
+- a field it restates is stated on that cluster, by a norm finding or by a
+  singling absolute rule counting that field, at an equal or higher severity.
+  When the restated field's only statement is a norm finding of lower
+  severity, that finding is dropped instead and the stronger one stays.
+
+Findings on different clusters never drop each other, and distinct facts on
+one cluster (privileged containers and host network pods) stay separate.
+Incidents still group related findings across scanners for reading.
 
 ## Example findings
 

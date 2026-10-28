@@ -29,11 +29,11 @@ export async function renderOutliers() {
     h += '<div class="empty">No outliers detected. Fleet is consistent.</div>';
   } else {
     h += '<div class="tw"><table><thead><tr><th scope="col">Severity</th><th scope="col">Cluster</th><th scope="col">Scanner</th><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Fleet norm</th>' +
-      '<th scope="col" data-tip="Modified z-score (standard deviations from median)">Deviation</th></tr></thead><tbody>';
+      '<th scope="col" data-tip="Modified z-score from the median. Exact means the field is flat across the fleet and this cluster is off it.">Deviation</th></tr></thead><tbody>';
     data.outliers.forEach((o) => {
       h += `<tr><td class="c-${sevTone(o.severity)}">${esc(o.severity)}</td><td class="fw-500"><a href="${esc(clusterHref(o.cluster))}">${esc(o.cluster)}</a></td>` +
         `<td>${esc(o.scanner)}</td><td>${esc(o.field)}</td><td class="mono">${esc(o.value)}</td><td class="mono">${esc(o.fleet_norm)}</td>` +
-        `<td class="mono">${o.deviation ? fixed(o.deviation, 1) : ''}</td></tr>`;
+        `<td class="mono">${o.exact ? 'exact' : o.deviation ? fixed(o.deviation, 1) : ''}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }

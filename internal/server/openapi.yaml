@@ -133,14 +133,19 @@ components:
     NormBasis:
       type: object
       description: >-
-        The norm a fleet-relative finding was measured against. Absent on
-        absolute-rule findings. Which fields apply depends on kind.
-      required: [scope, kind, median, mad, sample_size, threshold, value, z, limited_sample]
+        The norm a fleet-relative finding was measured against. An absolute-rule
+        finding carries one only when it absorbed a norm finding on the field it
+        counts. Which fields apply depends on kind.
+      required: [scope, field, kind, median, mad, sample_size, threshold, value, z, limited_sample]
       properties:
         scope:
           type: string
           description: '"fleet" or the name of the cohort the norm was computed over.'
           example: fleet
+        field:
+          type: string
+          description: The scanner field the norm describes.
+          example: enforced_count
         kind: {type: string, enum: [numeric, string, set]}
         median: {type: number, description: Population median of a numeric field.}
         mad: {type: number, description: Median absolute deviation of a numeric field.}

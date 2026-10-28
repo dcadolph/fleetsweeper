@@ -11,7 +11,10 @@ floored at zero:
 
 1. **Findings.** 6 points per critical finding (capped at 36), 1.5 per
    warning (capped at 24), 0.25 per info (capped at 5). The caps keep a
-   single noisy category from collapsing the score on volume alone.
+   single noisy category from collapsing the score on volume alone. One
+   fact is charged once: a norm finding that restates another finding on
+   the same cluster is dropped before the count (see
+   [One fact, one finding](findings.md#one-fact-one-finding)).
 2. **Unhealthy clusters.** Up to 20 points scaled by the fraction of
    clusters in critical status, plus up to 10 points scaled by the
    fraction in degraded or strained status. Scaling by fraction keeps the
