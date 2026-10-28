@@ -64,26 +64,6 @@ type FleetTrend struct {
 	RSquared float64 `json:"r_squared,omitempty"`
 }
 
-// trendFields defines which (scanner, field) pairs we track trends for and
-// whether "up" is good or bad.
-var trendFields = []struct {
-	Scanner string
-	Field   string
-	UpIsBad bool
-}{
-	{"metrics", "avg_cpu_percent", true},
-	{"metrics", "avg_memory_percent", true},
-	{"metrics", "max_cpu_percent", true},
-	{"metrics", "max_memory_percent", true},
-	{"node-health", "unhealthy_nodes", true},
-	{"node-health", "memory_pressure_nodes", true},
-	{"node-health", "not_ready_nodes", true},
-	{"events", "warning_events", true},
-	{"security", "unenforced_count", true},
-	{"network-policies", "namespaces_without_policies", true},
-	{"resources", "unschedulable_nodes", true},
-}
-
 // ScanMeta identifies a scan for trend analysis without depending on the store package.
 type ScanMeta struct {
 	// ID is the scan identifier.

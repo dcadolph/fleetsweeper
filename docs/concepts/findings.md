@@ -92,6 +92,18 @@ be worth an SRE's attention, not a daily false positive.
 - **Maximum CPU and memory percentages** are warning, since natural
   per-cluster variation should not page an SRE.
 
+## Where a field's meaning is declared
+
+One registry declares what each scanner field means to the report: its
+severity, which direction is worse, which other field it restates, the
+absolute rule that counts it, whether it is tracked for trends, and, for set
+fields, the object list it is derived from. The severity, trend, set
+projection, and availability tables are built from it, and a test fails when
+an entry names a scanner or field that does not exist, so a misspelled field
+cannot silently fall back to info. A field the registry does not declare is
+still measured and reported at info severity, because a difference nobody
+wrote a rule for is still worth seeing.
+
 ## Example findings
 
 | Severity | Finding                                                       | Remediation                                                                                            |

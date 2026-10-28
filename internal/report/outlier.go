@@ -501,27 +501,6 @@ type setProjection struct {
 	Build func(member string) map[string]any
 }
 
-// setProjections maps a scanner to the set field derived from its object
-// array: CRDs by name, services by namespace and name, and the ingress
-// classes a cluster's ingresses use.
-var setProjections = map[string]setProjection{
-	"crds": {From: "crds", To: "crd_names", Member: memberOf("name"), Build: memberObject("name")},
-	"services": {
-		From: "services", To: "service_names",
-		Member: memberOf("namespace", "name"), Build: memberObject("namespace", "name"),
-	},
-	"ingresses": {From: "ingresses", To: "ingress_classes", Member: memberOf("ingress_class_name"), SkipEmpty: true},
-}
-
-// availabilityGated lists scanners whose counts measure nothing on a cluster
-// where the scanned feature is not installed. Their numeric fields are left
-// out of the population there, so a cluster without a vulnerability scanner is
-// not read as one with zero vulnerabilities.
-var availabilityGated = map[string]struct{}{
-	"vulnerabilities": {},
-	"policy-reports":  {},
-}
-
 // memberOf returns a Member func that joins the string values of keys with
 // "/", or returns "" when any of them is missing or empty.
 func memberOf(keys ...string) func(map[string]any) string {
