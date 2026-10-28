@@ -481,6 +481,24 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Remediation: &Remediation{Command: "# crd_count is 9 here, 7 above the cohort \"edge\" median of 2\nkubectl --context b get crds"},
 			Norm:        &NormBasis{Scope: "edge", Field: "crd_count", Kind: NormKindNumeric, Median: 2, MAD: 1, SampleSize: 8, Threshold: 3.5, Value: "9", Z: 4.72},
 		}},
+	}, { // Test 25: Twelve privileged pods list ten names and a suffix.
+		Name:     "workload security capped",
+		Generate: workloadSecFindings,
+		Report: testReport(map[string]map[string]any{"workload-security": {"a": map[string]any{
+			"privileged_containers": 12, "total_pods": 12,
+			"high_risk_pods": cappedPods(12),
+		}}}),
+		WantResult: []Finding{{
+			Rule: "workload-security/privileged", Title: "a has 12 privileged container(s)",
+			Description: "Privileged containers have full host access. Review whether these workloads genuinely require it. Total pods: 12.",
+			Severity:    SeverityCritical, Cluster: "a", Scanner: "workload-security",
+			Affected: []string{
+				"ns/p00/c", "ns/p01/c", "ns/p02/c", "ns/p03/c", "ns/p04/c",
+				"ns/p05/c", "ns/p06/c", "ns/p07/c", "ns/p08/c", "ns/p09/c",
+				"...and 2 more",
+			},
+			Remediation: &Remediation{Command: privilegedCommand},
+		}},
 	}}
 
 	for testNum, test := range tests {
@@ -489,6 +507,53 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			got := test.Generate(test.Report)
 			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("findings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// cappedPods returns n privileged high-risk pod payloads named p00, p01, and so on.
+func cappedPods(n int) []any {
+	pods := make([]any, 0, n)
+	for i := range n {
+		pods = append(pods, map[string]any{
+			"namespace": "ns", "pod": fmt.Sprintf("p%02d", i), "container": "c",
+			"risks": []any{"privileged"},
+		})
+	}
+	return pods
+}
+
+// TestCapList checks the Affected list cap and its suffix.
+func TestCapList(t *testing.T) {
+	t.Parallel()
+
+	numbered := func(n int) []string {
+		out := make([]string, 0, n)
+		for i := range n {
+			out = append(out, fmt.Sprintf("i%02d", i))
+		}
+		return out
+	}
+	tests := []struct {
+		WantResult []string
+		In         []string
+	}{{ // Test 0: Empty input stays empty.
+		In: nil, WantResult: nil,
+	}, { // Test 1: Exactly ten items pass through.
+		In: numbered(10), WantResult: numbered(10),
+	}, { // Test 2: Eleven items keep ten and report one more.
+		In: numbered(11), WantResult: append(numbered(10), "...and 1 more"),
+	}, { // Test 3: Twenty-five items keep ten and report fifteen more.
+		In: numbered(25), WantResult: append(numbered(10), "...and 15 more"),
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := capList(test.In)
+			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("capList mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

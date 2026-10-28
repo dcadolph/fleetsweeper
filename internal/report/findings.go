@@ -1230,27 +1230,22 @@ func highRiskPods(r *Report, cluster string) []highRiskPod {
 	return out
 }
 
+// maxAffected is the most Affected entries a finding lists before the "and N more" suffix.
+const maxAffected = 10
+
 // filterRiskNames returns the names of pods carrying the given risk tag, capped
-// at 10 entries with an "and N more" suffix when truncated.
+// at maxAffected entries with an "and N more" suffix when truncated.
 func filterRiskNames(pods []highRiskPod, tag string) []string {
-	var out []string
-	extra := 0
+	var matches []string
 	for _, p := range pods {
 		for _, r := range p.Risks {
 			if strings.HasPrefix(r, tag) {
-				if len(out) < 10 {
-					out = append(out, p.Name)
-				} else {
-					extra++
-				}
+				matches = append(matches, p.Name)
 				break
 			}
 		}
 	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("...and %d more", extra))
-	}
-	return out
+	return capList(matches)
 }
 
 // dedup returns s with duplicates removed, preserving order.
@@ -1374,23 +1369,15 @@ func riskBindings(r *Report, cluster string) []riskBinding {
 }
 
 // filterBindingsByRisk returns the names of bindings tagged with the named
-// risk, capped at 10 entries.
+// risk, capped at maxAffected entries.
 func filterBindingsByRisk(bs []riskBinding, risk string) []string {
-	var out []string
-	extra := 0
+	var matches []string
 	for _, b := range bs {
 		if slices.Contains(b.Risks, risk) {
-			if len(out) < 10 {
-				out = append(out, b.Name)
-			} else {
-				extra++
-			}
+			matches = append(matches, b.Name)
 		}
 	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("...and %d more", extra))
-	}
-	return out
+	return capList(matches)
 }
 
 // imageAuditFindings names the offending images so operators can pin or
@@ -1491,23 +1478,15 @@ func imageRisks(r *Report, cluster string) []imageRisk {
 }
 
 // filterImagesByRisk returns "image @ location" strings for images with the
-// given risk tag, capped at 10 entries.
+// given risk tag, capped at maxAffected entries.
 func filterImagesByRisk(images []imageRisk, risk string) []string {
-	var out []string
-	extra := 0
+	var matches []string
 	for _, ir := range images {
 		if slices.Contains(ir.Risks, risk) {
-			if len(out) < 10 {
-				out = append(out, fmt.Sprintf("%s @ %s", ir.Image, ir.Where))
-			} else {
-				extra++
-			}
+			matches = append(matches, fmt.Sprintf("%s @ %s", ir.Image, ir.Where))
 		}
 	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("...and %d more", extra))
-	}
-	return out
+	return capList(matches)
 }
 
 // certFindings reports TLS certificates expiring soon. Each finding names the
@@ -2024,16 +2003,15 @@ func namespacesWithWorkloadRisk(r *Report, cluster string) map[string]struct{} {
 	return out
 }
 
-// capList returns the slice capped at ten items with an "and N more" suffix when
+// capList returns the slice capped at maxAffected items with an "and N more" suffix when
 // truncated. Used to keep finding output readable on wide fleets.
 func capList(items []string) []string {
-	const limit = 10
-	if len(items) <= limit {
+	if len(items) <= maxAffected {
 		return items
 	}
-	out := make([]string, 0, limit+1)
-	out = append(out, items[:limit]...)
-	out = append(out, fmt.Sprintf("...and %d more", len(items)-limit))
+	out := make([]string, 0, maxAffected+1)
+	out = append(out, items[:maxAffected]...)
+	out = append(out, fmt.Sprintf("...and %d more", len(items)-maxAffected))
 	return out
 }
 
