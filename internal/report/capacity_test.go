@@ -111,3 +111,74 @@ func TestCapacityHealthyRaisesNoFinding(t *testing.T) {
 		t.Errorf("findings mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// TestAnalyzeCapacity verifies status assignment and event signal detection
+// from report sections.
+func TestAnalyzeCapacity(t *testing.T) {
+	t.Parallel()
+	oom := map[string]any{"top_warning_reasons": []any{map[string]any{"reason": "OOMKilling"}}}
+	sched := map[string]any{
+		"top_warning_reasons": []any{map[string]any{"reason": "FailedScheduling"}},
+	}
+	tests := []struct {
+		Sections        map[string]map[string]any
+		WantStatus      string
+		WantOOM         bool
+		WantSchedFailed bool
+	}{{ // Test 0: OOMKilling with memory pressure is critical.
+		Sections: map[string]map[string]any{
+			"events":      {"c1": oom},
+			"node-health": {"c1": map[string]any{"memory_pressure_nodes": 1}},
+		},
+		WantStatus: capacityCritical, WantOOM: true,
+	}, { // Test 1: FailedScheduling alone is strained.
+		Sections:   map[string]map[string]any{"events": {"c1": sched}},
+		WantStatus: capacityStrained, WantSchedFailed: true,
+	}, { // Test 2: Memory at 75 percent is busy.
+		Sections: map[string]map[string]any{
+			"metrics": {"c1": map[string]any{"avg_memory_percent": 75.0}},
+		},
+		WantStatus: capacityBusy,
+	}, { // Test 3: A quiet cluster is healthy.
+		Sections: map[string]map[string]any{
+			"metrics": {"c1": map[string]any{"avg_memory_percent": 30.0}},
+		},
+		WantStatus: capacityHealthy,
+	}, { // Test 4: Events for another cluster leave this one healthy.
+		Sections: map[string]map[string]any{
+			"metrics": {"c1": map[string]any{"avg_memory_percent": 30.0}},
+			"events":  {"c2": oom},
+		},
+		WantStatus: capacityHealthy,
+	}, { // Test 5: Event data that is not an object is ignored.
+		Sections:   map[string]map[string]any{"events": {"c1": "bad"}},
+		WantStatus: capacityHealthy,
+	}, { // Test 6: Event data without warning reasons is ignored.
+		Sections:   map[string]map[string]any{"events": {"c1": map[string]any{}}},
+		WantStatus: capacityHealthy,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := AnalyzeCapacity(testReport(test.Sections), nil)
+			var ca CapacityAnalysis
+			for _, a := range got {
+				if a.Cluster == "c1" {
+					ca = a
+				}
+			}
+			if ca.Cluster != "c1" {
+				t.Fatalf("no analysis for c1 in %d results", len(got))
+			}
+			if diff := cmp.Diff(test.WantStatus, ca.Status); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantOOM, ca.HasOOMEvents); diff != "" {
+				t.Errorf("oom mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantSchedFailed, ca.HasSchedulingFailures); diff != "" {
+				t.Errorf("scheduling mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

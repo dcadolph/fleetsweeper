@@ -743,7 +743,7 @@ func capacityFindings(r *Report) []Finding {
 	var findings []Finding
 	for _, ca := range r.Capacity {
 		switch ca.Status {
-		case "critical":
+		case capacityCritical:
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-critical",
 				Title:       fmt.Sprintf("%s is in critical state", ca.Cluster),
@@ -752,7 +752,7 @@ func capacityFindings(r *Report) []Finding {
 				Cluster:     ca.Cluster,
 				Scanner:     "metrics",
 			})
-		case "strained", "degraded":
+		case capacityStrained:
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-degraded",
 				Title:       fmt.Sprintf("%s is degraded", ca.Cluster),
@@ -761,7 +761,7 @@ func capacityFindings(r *Report) []Finding {
 				Cluster:     ca.Cluster,
 				Scanner:     "metrics",
 			})
-		case "busy":
+		case capacityBusy:
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-busy",
 				Title:       fmt.Sprintf("%s is busy but healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
