@@ -297,8 +297,13 @@ func fitDirection(points []TrendPoint, upIsBad bool) trendFit {
 		slopeStdErr = math.Sqrt(varRes / (sumXX - sumX*sumX/n))
 	}
 	tStat := 0.0
-	if slopeStdErr > 0 {
+	switch {
+	case slopeStdErr > 0:
 		tStat = slope / slopeStdErr
+	case slope != 0:
+		// A zero standard error with a nonzero slope is a perfect linear fit,
+		// the most significant trend there is.
+		tStat = math.Copysign(math.Inf(1), slope)
 	}
 
 	if math.Abs(relativeSlopePerScan) < 0.05 || rSquared < minTrendR2 || math.Abs(tStat) < minTrendT {

@@ -101,6 +101,20 @@ func TestFitDirection(t *testing.T) {
 			WantDirection:  TrendStable,
 			WantConfidence: "low",
 		},
+		{ // Test 7: A perfectly linear rise is worsening and high.
+			Name:           "perfect fit rising",
+			Points:         testTrendPoints(1, 2, 3, 4, 5, 6),
+			UpIsBad:        true,
+			WantDirection:  TrendWorsening,
+			WantConfidence: "high",
+		},
+		{ // Test 8: A perfectly linear fall is improving and high.
+			Name:           "perfect fit falling",
+			Points:         testTrendPoints(6, 5, 4, 3, 2, 1),
+			UpIsBad:        true,
+			WantDirection:  TrendImproving,
+			WantConfidence: "high",
+		},
 	}
 
 	for testNum, test := range tests {
