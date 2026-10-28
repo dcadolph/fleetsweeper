@@ -51,7 +51,7 @@ func TestExplainByCohort(t *testing.T) {
 			}
 			var flagged []string
 			for _, f := range r.Findings {
-				if f.Rule == "security/outlier-enforced-count" {
+				if f.Rule == "security/outlier-unenforced-count" {
 					flagged = append(flagged, f.Cluster)
 				}
 			}

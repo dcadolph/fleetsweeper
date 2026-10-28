@@ -188,10 +188,25 @@ func normRemediation(o OutlierResult, scope string) *Remediation {
 	}
 }
 
+// exactNormPhrase states an exact numeric norm as who holds it: "every other cluster in
+// <scope> reports exactly <norm>" when one cluster differs, or "<k> of <n> clusters in
+// <scope> report exactly <norm>" otherwise.
+func exactNormPhrase(share float64, n int, norm, scope string) string {
+	k := int(math.Round(share * float64(n)))
+	if k == n-1 {
+		return fmt.Sprintf("every other cluster in %s reports exactly %s", scope, norm)
+	}
+	return fmt.Sprintf("%d of %d clusters in %s report exactly %s", k, n, scope, norm)
+}
+
 // normGap describes how far an outlier sits from the norm of scope. Numeric
 // fields state the signed distance from the median, set fields the missing
 // consensus members, and string fields the norm value.
 func normGap(o OutlierResult, scope string) string {
+	if o.Exact {
+		return fmt.Sprintf("%s is %s here, %s", o.Field, o.Value,
+			exactNormPhrase(o.ModeShare, o.SampleSize, o.FleetNorm, "the "+scope))
+	}
 	v, errV := strconv.ParseFloat(o.Value, 64)
 	n, errN := strconv.ParseFloat(o.FleetNorm, 64)
 	if errV == nil && errN == nil {

@@ -122,6 +122,8 @@ type Finding struct {
 type NormBasis struct {
 	// Scope is "fleet" or the name of the cohort the norm was computed over.
 	Scope string `json:"scope"`
+	// Field is the scanner field the norm describes.
+	Field string `json:"field"`
 	// Kind is "numeric", "string", or "set".
 	Kind string `json:"kind"`
 	// Median is the population median of a numeric field.

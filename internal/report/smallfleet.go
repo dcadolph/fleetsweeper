@@ -3,6 +3,7 @@ package report
 import (
 	"fmt"
 	"math"
+	"strconv"
 )
 
 // minMajoritySample is the smallest population the leave-one-out majority
@@ -48,7 +49,7 @@ func detectMajorityOutliers(r *Report, threshold float64, scope string) ([]Outli
 				if o != nil {
 					markOutliers(dist, []OutlierResult{*o}, true)
 				}
-				dist.Mass = massOf(dist.Values)
+				dist.Mass = massOf(*dist)
 				dists = append(dists, *dist)
 			}
 			if o == nil {
@@ -59,6 +60,10 @@ func detectMajorityOutliers(r *Report, threshold float64, scope string) ([]Outli
 			o.Scope = scope
 			o.LimitedSample = true
 			o.Severity = classifySeverity(scannerName, field)
+			if o.Kind == NormKindNumeric {
+				v, _ := strconv.ParseFloat(o.Value, 64)
+				o.Severity, o.Favorable = numericSeverity(scannerName, field, v-o.Median)
+			}
 			if o.Severity == SeverityCritical {
 				o.Severity = SeverityWarning
 			}
@@ -94,11 +99,20 @@ func majorityNumericDistribution(clusters []string, flat map[string]map[string]a
 		Kind: NormKindNumeric, Values: values, Median: m, MAD: d, Threshold: threshold,
 		SampleSize: len(vals), LimitedSample: true,
 	}
-	if d != 0 {
-		dist.Band = threshold * d / madScale
-		for i, v := range vals {
-			dist.Values[i].Z = cappedZ(madScale * (v - m) / d)
+	if d == 0 {
+		atMedian := 0
+		for _, v := range vals {
+			if v == m {
+				atMedian++
+			}
 		}
+		dist.Exact = true
+		dist.ModeShare = float64(atMedian) / float64(len(vals))
+		return dist
+	}
+	dist.Band = threshold * d / madScale
+	for i, v := range vals {
+		dist.Values[i].Z = cappedZ(madScale * (v - m) / d)
 	}
 	return dist
 }
@@ -161,11 +175,12 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 			continue
 		}
 		var z float64
+		exact := false
 		switch {
 		case v == m:
 			continue
 		case d == 0:
-			z = math.Copysign(maxReportedDeviation, v-m)
+			exact = true
 		default:
 			z = madScale * (v - m) / d
 			if math.Abs(z) <= threshold {
@@ -186,6 +201,10 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 			SampleSize: len(vals),
 			Threshold:  threshold,
 			Z:          z,
+			Exact:      exact,
+		}
+		if exact {
+			found.ModeShare = float64(len(vals)-1) / float64(len(vals))
 		}
 	}
 	return found

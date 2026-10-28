@@ -28,12 +28,31 @@ A cluster is an outlier when its modified z-score exceeds the threshold:
 
 The constant 0.6745 scales the MAD so the score of a normal population
 matches its ordinary z-score. The default threshold is 3.5, and the
-`?threshold=` query parameter on `/api/outliers` overrides it. When the MAD
-is zero (most clusters hold the exact same value) the field is skipped,
-since any spread at all would score as infinite.
+`?threshold=` query parameter on `/api/outliers` overrides it.
+
+When the MAD is zero, most clusters hold the exact same value and a z-score
+would be infinite for any other. Such a field is judged like a string field
+instead: when at least 60% of the population holds the median exactly, every
+cluster off it is an outlier. Its norm is marked `exact`, carries no z-score
+and no band, and is worded as who holds it, e.g. "every other cluster in the
+fleet reports exactly 0". Below 60% nothing is flagged. This is what catches
+the security and health counts that are zero almost everywhere and nonzero on
+the broken cluster.
 
 MAD is preferred over standard deviation because one badly misconfigured
 cluster does not widen the band that is supposed to catch it.
+
+### Which side of the norm
+
+Some numeric fields have a worse direction: more privileged containers, more
+cluster-admin bindings, or more nodes not ready is worse, and fewer enforced
+namespaces or ready nodes is worse. A numeric outlier on the better side of
+such a field is reported at info severity, marked `favorable`, and titled
+"better than the fleet norm", so a cluster that differs for the better stays
+visible without costing more than an info finding. If it differs by design,
+tag it into a cohort. Fields with no worse direction, such as namespace,
+service, or node counts, keep their severity on both sides, because there
+the difference itself is the fact.
 
 ## String fields: mode share
 
@@ -58,7 +77,8 @@ so a different rule runs for populations of 3 to 7. For each cluster `c`:
 2. The others agree when every one of them is within `d` of `m`.
 3. `c` stands apart when the others agree and its modified z-score against
    them, `0.6745 * (x - m) / d`, exceeds the threshold. When `d` is zero,
-   any difference counts, and the score is reported as one million.
+   any difference counts, and the outlier is reported as an exact norm with
+   no z-score.
 
 A finding is emitted only when exactly one cluster stands apart. Two
 deviants in a population of five produce nothing, because there is no

@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -218,10 +219,15 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 			Deviation: 19.22, Scanner: "metrics", Severity: SeverityInfo,
 			Kind: NormKindNumeric, Median: 11.5, MAD: 1.0, SampleSize: 8, Threshold: 3.5, Z: 19.22,
 		}},
-	}, { // Test 7: 49 identical and 1 different has MAD 0, so nothing emits.
-		Name:      "zero MAD guard",
+	}, { // Test 7: 49 identical and 1 different has MAD 0, so the one off the median is exact.
+		Name:      "zero MAD exact",
 		Values:    join(repeat(float64(5), 49), floats(500)),
 		Threshold: 3.5,
+		WantResults: []OutlierResult{{
+			Cluster: "c49", Field: "f", Value: "500", FleetNorm: "5", Scanner: "metrics",
+			Severity: SeverityInfo, Kind: NormKindNumeric, Median: 5, ModeShare: 0.98,
+			SampleSize: 50, Threshold: minStringModeMass, Exact: true,
+		}},
 	}, { // Test 8: Even n averages the middle pair, 20 vs median 5.5 is flagged.
 		Name:      "even n median",
 		Values:    floats(4, 4, 5, 5, 6, 6, 7, 20),
@@ -231,6 +237,19 @@ func TestDetectNumericOutliersGolden(t *testing.T) {
 			Deviation: 0.6745 * 14.5 / 1.0, Scanner: "metrics", Severity: SeverityInfo,
 			Kind: NormKindNumeric, Median: 5.5, MAD: 1.0, SampleSize: 8, Threshold: 3.5, Z: 0.6745 * 14.5 / 1.0,
 		}},
+	}, { // Test 9: Nine zeros and one 3 flag the 3 as exact.
+		Name:      "nine zeros one three",
+		Values:    join(repeat(float64(0), 9), floats(3)),
+		Threshold: 3.5,
+		WantResults: []OutlierResult{{
+			Cluster: "c09", Field: "f", Value: "3", FleetNorm: "0", Scanner: "metrics",
+			Severity: SeverityInfo, Kind: NormKindNumeric, ModeShare: 0.9, SampleSize: 10,
+			Threshold: minStringModeMass, Exact: true,
+		}},
+	}, { // Test 10: Six ones and five zeros hold the median 1 at 6/11, under 0.6, so nothing flags.
+		Name:      "six and five",
+		Values:    join(repeat(float64(0), 5), repeat(float64(1), 6)),
+		Threshold: 3.5,
 	}}
 
 	for testNum, test := range tests {
@@ -384,6 +403,230 @@ func TestDetectSetOutliersGolden(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantResults, got, opts...); diff != "" {
 				t.Errorf("results mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestDetectStringOutliersSkipsAbsent verifies a cluster that lacks a string field, or reports
+// it as null, is left out of the population instead of counted as the value "<nil>".
+func TestDetectStringOutliersSkipsAbsent(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Last           map[string]any
+		Other          bool
+		WantClusters   []string
+		WantSampleSize int
+	}{{ // Test 0: Nine at baseline and one without the field flag nothing.
+		Last: map[string]any{},
+	}, { // Test 1: Nine at baseline and one null flag nothing.
+		Last: map[string]any{"f": nil},
+	}, { // Test 2: A real deviant is flagged against the nine clusters that report the field.
+		Last: map[string]any{}, Other: true, WantClusters: []string{"c08"}, WantSampleSize: 9,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters := make([]string, 0, 10)
+			flat := map[string]map[string]any{}
+			for i := range 9 {
+				c := fmt.Sprintf("c%02d", i)
+				clusters = append(clusters, c)
+				flat[c] = map[string]any{"f": "baseline"}
+			}
+			if test.Other {
+				flat["c08"]["f"] = "other"
+			}
+			clusters = append(clusters, "c09")
+			flat["c09"] = test.Last
+			got, dist := detectStringOutliers(clusters, flat, "f", "version")
+			gotClusters := make([]string, 0, len(got))
+			for _, o := range got {
+				gotClusters = append(gotClusters, o.Cluster)
+			}
+			if diff := cmp.Diff(test.WantClusters, gotClusters, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("outliers mismatch (-want +got):\n%s", diff)
+			}
+			var gotSize int
+			if dist != nil {
+				gotSize = dist.SampleSize
+			}
+			if diff := cmp.Diff(test.WantSampleSize, gotSize); diff != "" {
+				t.Errorf("sample size mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNumericSeverityDirection verifies a numeric outlier on the better side of a field with
+// a polarity is info and favorable, on the worse side keeps the field's severity, and on a
+// field with no polarity keeps it in both directions, for the MAD and majority detectors.
+func TestNumericSeverityDirection(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner       string
+		Field         string
+		WantSeverity  string
+		WantTitle     string
+		WantNote      string
+		Vals          []any
+		WantFavorable bool
+	}{{ // Test 0: Fewer privileged containers than a fleet of nine is info and favorable.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals:         []any{5, 6, 7, 6, 5, 7, 6, 6, 0},
+		WantSeverity: SeverityInfo, WantFavorable: true,
+		WantTitle: "c08 is better than the fleet norm on privileged_containers",
+		WantNote:  "Lower is better for this field",
+	}, { // Test 1: More unhealthy nodes than a fleet of nine is critical.
+		Scanner: "node-health", Field: "unhealthy_nodes",
+		Vals:         []any{5, 6, 7, 6, 5, 7, 6, 6, 30},
+		WantSeverity: SeverityCritical,
+		WantTitle:    "c08 deviates from fleet norm on unhealthy_nodes",
+	}, { // Test 2: A namespace count far below the fleet is a warning.
+		Scanner: "namespaces", Field: "count",
+		Vals:         []any{20, 22, 24, 24, 24, 26, 26, 28, 2},
+		WantSeverity: SeverityWarning,
+		WantTitle:    "c08 deviates from fleet norm on count",
+	}, { // Test 3: A namespace count far above the fleet is a warning.
+		Scanner: "namespaces", Field: "count",
+		Vals:         []any{20, 22, 24, 24, 24, 26, 26, 28, 80},
+		WantSeverity: SeverityWarning,
+		WantTitle:    "c08 deviates from fleet norm on count",
+	}, { // Test 4: More enforced namespaces in a fleet of five is info and favorable.
+		Scanner: "security", Field: "enforced_count",
+		Vals:         []any{10, 11, 10, 11, 40},
+		WantSeverity: SeverityInfo, WantFavorable: true,
+		WantTitle: "c04 is better than the fleet norm on enforced_count",
+		WantNote:  "Higher is better for this field",
+	}, { // Test 5: Fewer enforced namespaces in a fleet of five is critical capped at warning.
+		Scanner: "security", Field: "enforced_count",
+		Vals:         []any{10, 11, 10, 11, 1},
+		WantSeverity: SeverityWarning,
+		WantTitle:    "c04 deviates from fleet norm on enforced_count",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := fieldFleet(test.Scanner, test.Field, test.Vals...)
+			r := Build(clusters, results)
+			if len(r.Outliers) != 1 {
+				t.Fatalf("want one outlier, got %+v", r.Outliers)
+			}
+			o := r.Outliers[0]
+			if diff := cmp.Diff(test.WantSeverity+fmt.Sprint(test.WantFavorable),
+				o.Severity+fmt.Sprint(o.Favorable)); diff != "" {
+				t.Errorf("severity and favorable mismatch (-want +got):\n%s", diff)
+			}
+			got := outlierRuleFindings(r, fieldRule(test.Scanner, ruleOutlierPrefix, test.Field))
+			if len(got) != 1 {
+				t.Fatalf("want one outlier finding, got %+v", got)
+			}
+			if diff := cmp.Diff(test.WantTitle, got[0].Title); diff != "" {
+				t.Errorf("title mismatch (-want +got):\n%s", diff)
+			}
+			if got[0].Severity != test.WantSeverity {
+				t.Errorf("finding severity = %s, want %s", got[0].Severity, test.WantSeverity)
+			}
+			if hasNote := strings.Contains(got[0].Description, "is better for this field"); hasNote !=
+				(test.WantNote != "") || !strings.Contains(got[0].Description, test.WantNote) {
+				t.Errorf("description %q, want note %q", got[0].Description, test.WantNote)
+			}
+		})
+	}
+}
+
+// TestExactNorms verifies a zero-MAD numeric field is judged by mode share through Build:
+// direction-aware severity, an exact distribution with no band, the remediation wording, and
+// the majority path with no sentinel.
+func TestExactNorms(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner       string
+		Field         string
+		WantCluster   string
+		WantSeverity  string
+		WantGap       string
+		Vals          []any
+		WantShare     float64
+		WantFavorable bool
+	}{{ // Test 0: Twelve privileged containers in a fleet of zeros is critical and exact.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals:        []any{0, 0, 0, 0, 0, 0, 0, 0, 12},
+		WantCluster: "c08", WantSeverity: SeverityCritical, WantShare: 8.0 / 9,
+		WantGap: "privileged_containers is 12 here, every other cluster in the fleet reports exactly 0",
+	}, { // Test 1: Zero privileged containers in a fleet of sixes is info and favorable.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals:        []any{6, 6, 6, 6, 6, 6, 6, 6, 0},
+		WantCluster: "c08", WantSeverity: SeverityInfo, WantShare: 8.0 / 9, WantFavorable: true,
+		WantGap: "privileged_containers is 0 here, every other cluster in the fleet reports exactly 6",
+	}, { // Test 2: A fleet of five with four 2s and one 7 is exact through the majority diff.
+		Scanner: "novel", Field: "count",
+		Vals:        []any{2, 2, 7, 2, 2},
+		WantCluster: "c02", WantSeverity: SeverityInfo, WantShare: 0.8,
+		WantGap: "count is 7 here, every other cluster in the fleet reports exactly 2",
+	}, { // Test 3: One not-ready node in a fleet of ten zeros is critical and exact.
+		Scanner: "node-health", Field: "not_ready_nodes",
+		Vals:        []any{0, 0, 0, 0, 0, 0, 0, 0, 1, 0},
+		WantCluster: "c08", WantSeverity: SeverityCritical, WantShare: 0.9,
+		WantGap: "not_ready_nodes is 1 here, every other cluster in the fleet reports exactly 0",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := fieldFleet(test.Scanner, test.Field, test.Vals...)
+			r := Build(clusters, results)
+			if len(r.Outliers) != 1 {
+				t.Fatalf("want one outlier, got %+v", r.Outliers)
+			}
+			o := r.Outliers[0]
+			got := fmt.Sprint(o.Cluster, " ", o.Severity, " ", o.Favorable, " ", o.Exact, " ", o.Z, " ",
+				o.Deviation)
+			want := fmt.Sprint(test.WantCluster, " ", test.WantSeverity, " ", test.WantFavorable,
+				" true 0 0")
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("outlier mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantShare, o.ModeShare, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
+				t.Errorf("share mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantGap, normGap(o, NormScopeFleet)); diff != "" {
+				t.Errorf("gap mismatch (-want +got):\n%s", diff)
+			}
+			var dist *Distribution
+			for i := range r.Distributions {
+				if r.Distributions[i].Field == test.Field && r.Distributions[i].Scope == NormScopeFleet {
+					dist = &r.Distributions[i]
+				}
+			}
+			if dist == nil || !dist.Exact || dist.Band != 0 {
+				t.Fatalf("want an exact fleet distribution with no band, got %+v", dist)
+			}
+			for _, f := range r.Findings {
+				if f.Norm != nil && f.Cluster == test.WantCluster && !f.Norm.Exact {
+					t.Errorf("finding %s norm is not exact: %+v", f.Rule, f.Norm)
+				}
+			}
+		})
+	}
+}
+
+// TestExactNormPhrase verifies an exact norm is worded as who holds it.
+func TestExactNormPhrase(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		WantResult string
+		Share      float64
+		N          int
+	}{{ // Test 0: One cluster off the norm reads as every other cluster.
+		Share: 0.9, N: 10, WantResult: "every other cluster in the fleet reports exactly 0",
+	}, { // Test 1: Two clusters off the norm state the count.
+		Share: 0.8, N: 10, WantResult: "8 of 10 clusters in the fleet report exactly 0",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if diff := cmp.Diff(test.WantResult, exactNormPhrase(test.Share, test.N, "0", "the fleet")); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

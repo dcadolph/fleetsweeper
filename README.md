@@ -61,9 +61,11 @@ What moves the result:
   a stricter leave-one-out rule that flags at most one cluster per field and
   caps it at warning. Under 3 clusters nothing is flagged, and the report
   says why.
-- **Agreement.** A field where nearly every cluster holds the same value
-  (MAD of zero) or no value reaches 60% is skipped. There is no norm to
-  break.
+- **Agreement.** A number most clusters share exactly (MAD of zero) is
+  judged like a string. Once one value holds at least 60% of the fleet,
+  every cluster off it is flagged, and the finding reads "every other
+  cluster in the fleet reports exactly 0" instead of quoting a score. A
+  field where no value reaches 60% is skipped. There is no norm to break.
 - **Cohorts.** A cluster that matches its own tagged cohort (edge sites,
   say) is not charged for differing from the rest of the fleet.
 - **Sensitivity.** `scan --outlier-threshold` and `?threshold=` on
@@ -72,8 +74,11 @@ What moves the result:
 **2. Turn what was found into a score.** A flagged field becomes a finding.
 Its severity comes from which field drifted, not from how far. Privileged
 containers or cluster-admin bindings are critical, node counts are a
-warning, and most other fields are info. The Fleet Score starts at 100 and
-subtracts:
+warning, and most other fields are info. Direction counts too. A cluster
+on the better side of a field where only one direction is bad (fewer
+privileged containers than the fleet) is info, titled better than the
+norm. A finding that restates another one on the same cluster is dropped,
+so one fact is charged once. The Fleet Score starts at 100 and subtracts:
 
 | Cost                                   | Points                             |
 |----------------------------------------|------------------------------------|
