@@ -172,49 +172,56 @@ func (o OutlierResult) Basis() *NormBasis {
 // flag more outliers. The function only emits findings when the sample is
 // large enough to be statistically meaningful (see minMADSample).
 func DetectOutliers(r *Report, threshold float64) []OutlierResult {
-	outliers, _ := detectOutliers(r, threshold, NormScopeFleet)
+	outliers, _ := detectOutliers(r.Clusters, r.Sections, threshold, NormScopeFleet)
 	return outliers
 }
 
-// detectOutliers runs DetectOutliers over r, returning the distribution behind
-// every field it evaluated as well, and stamps every result and distribution
-// with the scope its norm was computed over.
-func detectOutliers(r *Report, threshold float64, scope string) ([]OutlierResult, []Distribution) {
-	var outliers []OutlierResult
-	var dists []Distribution
-
-	for scannerName, sec := range r.Sections {
-		if sec.Uniform || len(sec.PerCluster) < minMADSample {
+// walkFields flattens every non-uniform section that holds at least minPerCluster clusters over
+// clusters, applies the set projections and availability gate, and calls visit once per field
+// the detectors compare, with the flattened values for that section.
+func walkFields(clusters []string, sections map[string]*SectionReport, minPerCluster int,
+	visit func(scannerName, field string, flat map[string]map[string]any)) {
+	for scannerName, sec := range sections {
+		if sec.Uniform || len(sec.PerCluster) < minPerCluster {
 			continue
 		}
-
-		flat := flattenSection(r.Clusters, sec)
+		flat := flattenSection(clusters, sec)
 		prepareFlat(scannerName, flat)
-		fields := collectFields(flat)
-
-		for _, field := range fields {
+		for _, field := range collectFields(flat) {
 			if _, skip := skipFields[field]; skip {
 				continue
 			}
-
-			var found []OutlierResult
-			var dist *Distribution
-			switch {
-			case isNumericInFlat(r.Clusters, flat, field):
-				found, dist = detectNumericOutliers(r.Clusters, flat, field, scannerName, threshold)
-			case isArrayInFlat(r.Clusters, flat, field):
-				found, dist = detectSetOutliers(r.Clusters, flat, field, scannerName)
-			default:
-				found, dist = detectStringOutliers(r.Clusters, flat, field, scannerName)
-			}
-			outliers = append(outliers, found...)
-			if dist != nil {
-				dist.Scanner = scannerName
-				dist.Field = field
-				dists = append(dists, *dist)
-			}
+			visit(scannerName, field, flat)
 		}
 	}
+}
+
+// detectOutliers runs the MAD, set, and mode detectors over clusters, returning the
+// distribution behind every field it evaluated as well, and stamps every result and
+// distribution with the scope its norm was computed over.
+func detectOutliers(clusters []string, sections map[string]*SectionReport,
+	threshold float64, scope string) ([]OutlierResult, []Distribution) {
+	var outliers []OutlierResult
+	var dists []Distribution
+	visit := func(scannerName, field string, flat map[string]map[string]any) {
+		var found []OutlierResult
+		var dist *Distribution
+		switch {
+		case isNumericInFlat(clusters, flat, field):
+			found, dist = detectNumericOutliers(clusters, flat, field, scannerName, threshold)
+		case isArrayInFlat(clusters, flat, field):
+			found, dist = detectSetOutliers(clusters, flat, field, scannerName)
+		default:
+			found, dist = detectStringOutliers(clusters, flat, field, scannerName)
+		}
+		outliers = append(outliers, found...)
+		if dist != nil {
+			dist.Scanner = scannerName
+			dist.Field = field
+			dists = append(dists, *dist)
+		}
+	}
+	walkFields(clusters, sections, minMADSample, visit)
 
 	for i := range outliers {
 		outliers[i].Scope = scope
