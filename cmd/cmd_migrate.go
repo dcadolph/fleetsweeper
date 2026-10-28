@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -124,6 +123,8 @@ type migrationCounts struct {
 	Acks int
 	// APIKeys is the number of api_key rows copied.
 	APIKeys int
+	// APIKeysSkipped is the number of api keys the destination already held.
+	APIKeysSkipped int
 	// Audit is the number of audit_log rows copied.
 	Audit int
 	// Tags is the number of cluster tag pairs copied.
@@ -156,7 +157,10 @@ func refuseIfDestinationNotEmpty(ctx context.Context, dst store.Store) error {
 		return errors.New("destination already has data; pass --force to allow overwrite (data is merged, not replaced)")
 	}
 	keys, err := dst.ListAPIKeys(ctx)
-	if err == nil && len(keys) > 0 {
+	if err != nil {
+		return fmt.Errorf("inspect destination api keys: %w", err)
+	}
+	if len(keys) > 0 {
 		return errors.New("destination already has api keys; pass --force to allow overwrite")
 	}
 	return nil
@@ -246,14 +250,15 @@ func copyAPIKeys(ctx context.Context, src, dst store.Store, c *migrationCounts, 
 	}
 	for _, k := range keys {
 		if err := dst.SaveAPIKey(ctx, k); err != nil {
-			if strings.Contains(err.Error(), "duplicate") {
+			if errors.Is(err, store.ErrDuplicate) {
+				c.APIKeysSkipped++
 				continue
 			}
 			return fmt.Errorf("write api key %s: %w", k.ID, err)
 		}
 		c.APIKeys++
 	}
-	fmt.Fprintf(out, "  api keys:  %d copied\n", c.APIKeys)
+	fmt.Fprintf(out, "  api keys:  %d copied, %d already present\n", c.APIKeys, c.APIKeysSkipped)
 	return nil
 }
 

@@ -60,14 +60,14 @@ type AuditListOptions struct {
 
 // SaveAuditEntry inserts one audit entry. ID and Timestamp default to fresh
 // values when unset, so callers can supply just the request-level fields.
-func (s *SQLite) SaveAuditEntry(ctx context.Context, rec AuditEntry) error {
+func (s *sqlStore) SaveAuditEntry(ctx context.Context, rec AuditEntry) error {
 	if rec.ID == "" {
 		rec.ID = generateID()
 	}
 	if rec.Timestamp.IsZero() {
 		rec.Timestamp = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.exec(ctx, `
 INSERT INTO audit_log (id, timestamp, actor_id, actor_name, actor_role, method, path, status, remote_addr, user_agent, duration_ms, error)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		rec.ID, rec.Timestamp.UTC().Format(sortableTime),
@@ -84,8 +84,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
 // PruneAuditEntries deletes audit_log rows older than cutoff. Returns the
 // number of rows removed. Idempotent; safe to call from a periodic ticker.
-func (s *SQLite) PruneAuditEntries(ctx context.Context, cutoff time.Time) (int, error) {
-	res, err := s.db.ExecContext(ctx,
+func (s *sqlStore) PruneAuditEntries(ctx context.Context, cutoff time.Time) (int, error) {
+	res, err := s.exec(ctx,
 		"DELETE FROM audit_log WHERE timestamp < ?",
 		cutoff.UTC().Format(sortableTime))
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *SQLite) PruneAuditEntries(ctx context.Context, cutoff time.Time) (int, 
 }
 
 // ListAuditEntries returns audit entries matching opts, newest first.
-func (s *SQLite) ListAuditEntries(ctx context.Context, opts AuditListOptions) ([]AuditEntry, error) {
+func (s *sqlStore) ListAuditEntries(ctx context.Context, opts AuditListOptions) ([]AuditEntry, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = 100
 	}
@@ -121,7 +121,7 @@ func (s *SQLite) ListAuditEntries(ctx context.Context, opts AuditListOptions) ([
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	args = append(args, opts.Limit)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.query(ctx, `
 SELECT id, timestamp, actor_id, actor_name, actor_role, method, path, status, remote_addr, user_agent, duration_ms, error
 FROM audit_log`+where+` ORDER BY timestamp DESC LIMIT ?`, args...)
 	if err != nil {

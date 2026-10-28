@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,5 +139,52 @@ func TestMigrateSQLiteToSQLite(t *testing.T) {
 	}
 	if diff := cmp.Diff([]store.AlertRecord{wantAlert}, alerts, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("alerts mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestMigrateSkipsExistingAPIKey verifies a forced migrate into a destination that already holds
+// the source's api key skips that key and succeeds.
+func TestMigrateSkipsExistingAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.db")
+	dst := filepath.Join(dir, "dst.db")
+	ctx := context.Background()
+	key := store.APIKeyRecord{
+		ID: "key-1", TokenHash: "hash-1", Name: "ci", Role: store.RoleAdmin,
+		CreatedAt: time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC),
+	}
+	for _, path := range []string{src, dst} {
+		s, err := store.NewSQLite(path)
+		if err != nil {
+			t.Fatalf("open %s: %v", path, err)
+		}
+		if err := s.SaveAPIKey(ctx, key); err != nil {
+			t.Fatalf("seed key in %s: %v", path, err)
+		}
+		s.Close()
+	}
+
+	defer lockRootCmd(t)()
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"migrate", "--from=" + src, "--to=" + dst, "--force=true", "--verify=true"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("migrate: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "api keys:  0 copied, 1 already present") {
+		t.Errorf("output does not report the skipped key:\n%s", buf.String())
+	}
+	ds, err := store.NewSQLite(dst)
+	if err != nil {
+		t.Fatalf("open dst: %v", err)
+	}
+	defer ds.Close()
+	keys, err := ds.ListAPIKeys(ctx)
+	if err != nil {
+		t.Fatalf("list keys: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Errorf("dst keys: want 1, got %d", len(keys))
 	}
 }

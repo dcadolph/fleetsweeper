@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 // pgMigrations holds the Postgres-flavored DDL for each schema version.
@@ -178,6 +179,10 @@ var postgresDialect = dialect{
 	Lock: func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", pgMigrationLockKey)
 		return err
+	},
+	IsUnique: func(err error) bool {
+		msg := err.Error()
+		return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique")
 	},
 }
 
