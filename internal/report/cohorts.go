@@ -23,6 +23,7 @@ type CohortSummary struct {
 
 // cohortSectionLookup adapts the report's section map to cohort.SectionLookup.
 type cohortSectionLookup struct {
+	// sections maps scanner name to its section report.
 	sections map[string]*SectionReport
 }
 
@@ -59,10 +60,9 @@ func buildCohorts(r *Report, tags map[string]string, threshold float64) ([]Cohor
 		var found []Distribution
 		switch {
 		case len(g.Clusters) >= minMADSample:
-			summary.Outliers, found = detectCohortOutliers(r, g.Name, g.Clusters, threshold)
+			summary.Outliers, found = detectOutliers(g.Clusters, r.Sections, threshold, g.Name)
 		case len(g.Clusters) >= minMajoritySample:
-			sub := &Report{Clusters: g.Clusters, Sections: r.Sections}
-			summary.Outliers, found = detectMajorityOutliers(sub, threshold, g.Name)
+			summary.Outliers, found = detectMajorityOutliers(g.Clusters, r.Sections, threshold, g.Name)
 		}
 		dists = append(dists, found...)
 		out = append(out, summary)
@@ -87,17 +87,4 @@ func CohortMapFor(r *Report) cohort.Map {
 		groups = append(groups, cohort.Cohort{Name: c.Name, Source: cohort.Source(c.Source), Clusters: c.Clusters})
 	}
 	return cohort.BuildMap(profiles, groups, cohortMapPeers)
-}
-
-// detectCohortOutliers runs the same MAD-based numeric/string/set detection
-// the fleet view uses, but scoped to the given cluster subset. The returned
-// outliers compare each cluster against the cohort's own median or mode,
-// which is what surfaces drift that is invisible at fleet scale. Each result's
-// Scope is the cohort name.
-func detectCohortOutliers(r *Report, name string, members []string, threshold float64) ([]OutlierResult, []Distribution) {
-	subReport := &Report{
-		Clusters: members,
-		Sections: r.Sections,
-	}
-	return detectOutliers(subReport, threshold, name)
 }

@@ -199,7 +199,7 @@ func toResult(f report.Finding, ts time.Time) Result {
 		Source:    Source,
 		Policy:    f.Scanner,
 		Rule:      ruleFromTitle(f.Title),
-		Category:  categoryForScanner(f.Scanner),
+		Category:  report.CategoryOf(f.Scanner),
 		Severity:  severityMap(f.Severity),
 		Result:    resultMap(f.Severity),
 		Message:   f.Title,
@@ -256,27 +256,6 @@ func resultMap(sev string) string {
 	default:
 		return "warn"
 	}
-}
-
-// categoryForScanner returns a coarse category label for grouping in policy
-// dashboards. Maps Fleetsweeper scanner names onto the same buckets the
-// HTML report uses on the Categories section.
-func categoryForScanner(scanner string) string {
-	switch scanner {
-	case "security", "workload-security", "rbac-audit", "rbac", "network-policies":
-		return "Security & Access"
-	case "node-health", "metrics", "resources", "resource-quotas":
-		return "Health & Resources"
-	case "version", "namespaces", "crds", "clusterinfo":
-		return "Cluster Info"
-	case "services", "ingresses", "image-audit":
-		return "Workloads"
-	case "events":
-		return "Events"
-	case "certs", "admission", "deprecated-apis":
-		return "Cluster Configuration"
-	}
-	return "Other"
 }
 
 // ruleFromTitle extracts a short rule name from a finding title. Used to

@@ -2,10 +2,12 @@ package compare
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
@@ -241,5 +243,48 @@ func TestDriftLinesLimit(t *testing.T) {
 	want := []string{"c0 deviation 0.0 -> 1.0 (+1.0)", "c1 deviation 0.0 -> 1.0 (+1.0)", "... and 2 more"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("lines mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFindingOrder verifies severity-descending order with a full tie-break.
+func TestFindingOrder(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		In        []report.Finding
+		WantOrder []string
+	}{{ // Test 0: Unknown severity sorts after info.
+		In: []report.Finding{
+			{Title: "d", Severity: "debug", Cluster: "a"},
+			{Title: "i", Severity: "info", Cluster: "a"},
+			{Title: "w", Severity: "warning", Cluster: "a"},
+			{Title: "c", Severity: "critical", Cluster: "a"},
+		},
+		WantOrder: []string{"c", "w", "i", "d"},
+	}, { // Test 1: Ties break by cluster, title, then rule.
+		In: []report.Finding{
+			{Title: "t", Severity: "info", Cluster: "b", Rule: "r"},
+			{Title: "u", Severity: "info", Cluster: "a", Rule: "r"},
+			{Title: "t", Severity: "info", Cluster: "a", Rule: "z"},
+			{Title: "t", Severity: "info", Cluster: "a", Rule: "y"},
+		},
+		WantOrder: []string{"t/a/y", "t/a/z", "u/a/r", "t/b/r"},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			in := slices.Clone(test.In)
+			slices.SortStableFunc(in, FindingOrder)
+			var got []string
+			for _, f := range in {
+				if test.WantOrder[0] == "c" {
+					got = append(got, f.Title)
+					continue
+				}
+				got = append(got, f.Title+"/"+f.Cluster+"/"+f.Rule)
+			}
+			if diff := cmp.Diff(test.WantOrder, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("order mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

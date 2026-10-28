@@ -2,9 +2,14 @@ package report
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // TrendDirection indicates whether a metric is improving, worsening, or stable.
@@ -64,32 +69,33 @@ type FleetTrend struct {
 	RSquared float64 `json:"r_squared,omitempty"`
 }
 
-// trendFields defines which (scanner, field) pairs we track trends for and
-// whether "up" is good or bad.
-var trendFields = []struct {
-	Scanner string
-	Field   string
-	UpIsBad bool
-}{
-	{"metrics", "avg_cpu_percent", true},
-	{"metrics", "avg_memory_percent", true},
-	{"metrics", "max_cpu_percent", true},
-	{"metrics", "max_memory_percent", true},
-	{"node-health", "unhealthy_nodes", true},
-	{"node-health", "memory_pressure_nodes", true},
-	{"node-health", "not_ready_nodes", true},
-	{"events", "warning_events", true},
-	{"security", "unenforced_count", true},
-	{"network-policies", "namespaces_without_policies", true},
-	{"resources", "unschedulable_nodes", true},
-}
-
 // ScanMeta identifies a scan for trend analysis without depending on the store package.
 type ScanMeta struct {
 	// ID is the scan identifier.
 	ID string
 	// Timestamp is when the scan ran.
 	Timestamp time.Time
+}
+
+// FieldMaps converts each scanner result's Data into a generic field map.
+// Scanners that fail to convert are omitted from the returned map and named in the joined error.
+func FieldMaps(results map[string]scanner.Result) (map[string]map[string]any, error) {
+	out := make(map[string]map[string]any, len(results))
+	var errs []error
+	for name, result := range results {
+		b, err := json.Marshal(result.Data)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("scanner %s: marshal data: %w", name, err))
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			errs = append(errs, fmt.Errorf("scanner %s: unmarshal data: %w", name, err))
+			continue
+		}
+		out[name] = m
+	}
+	return out, errors.Join(errs...)
 }
 
 // ComputeClusterTrends builds trends for a single cluster from historical scan
@@ -108,7 +114,7 @@ func ComputeClusterTrends(cluster string, scans []ScanMeta, resultsByScan map[st
 			if !ok {
 				continue
 			}
-			v, ok := toOptionalFloat64(scannerData[tf.Field])
+			v, ok := util.Float64(scannerData[tf.Field])
 			if !ok {
 				continue
 			}
@@ -211,9 +217,8 @@ func computeUniquenessOverTime(scans []ScanMeta, allResults map[string]map[strin
 }
 
 // minTrendSample is the minimum number of points required before a direction
-// is reported. Below this the linear fit is meaningless and the audit found
-// the prior threshold of 2 was producing routine "worsening" calls from
-// single-deploy noise.
+// is reported. Below this the linear fit is meaningless and single-deploy noise
+// produces routine "worsening" calls.
 const minTrendSample = 5
 
 // minTrendR2 is the minimum coefficient of determination required for a
@@ -297,8 +302,13 @@ func fitDirection(points []TrendPoint, upIsBad bool) trendFit {
 		slopeStdErr = math.Sqrt(varRes / (sumXX - sumX*sumX/n))
 	}
 	tStat := 0.0
-	if slopeStdErr > 0 {
+	switch {
+	case slopeStdErr > 0:
 		tStat = slope / slopeStdErr
+	case slope != 0:
+		// A zero standard error with a nonzero slope is a perfect linear fit,
+		// the most significant trend there is.
+		tStat = math.Copysign(math.Inf(1), slope)
 	}
 
 	if math.Abs(relativeSlopePerScan) < 0.05 || rSquared < minTrendR2 || math.Abs(tStat) < minTrendT {

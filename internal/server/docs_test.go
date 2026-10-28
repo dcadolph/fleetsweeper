@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"os"
 	"regexp"
 	"sort"
@@ -81,5 +82,70 @@ func TestDocsAPIRoutes(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantRoot, gotRoot); diff != "" {
 		t.Errorf("api.md root routes mismatch (-server +docs):\n%s", diff)
+	}
+}
+
+// docsMetricPattern matches one backticked fleetsweeper metric name in a doc table cell.
+var docsMetricPattern = regexp.MustCompile("`(fleetsweeper_[a-z0-9_]+)`")
+
+// typeLinePattern matches a Prometheus TYPE comment for a fleetsweeper family.
+var typeLinePattern = regexp.MustCompile(`(?m)^# TYPE (fleetsweeper_[a-z0-9_]+) `)
+
+// TestDocsPrometheusMetrics verifies the prometheus.md metric table lists every family the
+// server emits and nothing the server does not emit.
+func TestDocsPrometheusMetrics(t *testing.T) {
+	t.Parallel()
+	srv := newDemoServer(t)
+
+	var buf bytes.Buffer
+	srv.writeMetrics(t.Context(), &buf)
+	got := map[string]bool{}
+	for _, m := range typeLinePattern.FindAllStringSubmatch(buf.String(), -1) {
+		got[m[1]] = true
+	}
+
+	// Families the demo seed does not trigger, each emitted only under the named condition.
+	for _, name := range []string{
+		// Emitted only when the server has admission metrics configured.
+		"fleetsweeper_admission_decisions_total",
+		"fleetsweeper_admission_check_failures_total",
+		// Emitted only once a scan has run since startup.
+		"fleetsweeper_last_scan_duration_seconds",
+		// Emitted only when the policy-reports scanner returned data.
+		"fleetsweeper_policy_results_total",
+	} {
+		got[name] = true
+	}
+
+	raw, err := os.ReadFile("../../docs/integrations/prometheus.md")
+	if err != nil {
+		t.Fatalf("read prometheus.md: %v", err)
+	}
+	doc := string(raw)
+	start := strings.Index(doc, "| Metric |")
+	end := strings.Index(doc, "## Starter dashboards")
+	if start < 0 || end < start {
+		t.Fatal("prometheus.md metric table not found")
+	}
+	want := map[string]bool{}
+	for _, line := range strings.Split(doc[start:end], "\n") {
+		cells := strings.Split(line, "|")
+		if len(cells) < 3 {
+			continue
+		}
+		for _, m := range docsMetricPattern.FindAllStringSubmatch(cells[1], -1) {
+			want[m[1]] = true
+		}
+	}
+
+	for name := range got {
+		if !want[name] {
+			t.Errorf("%s is emitted by the server but missing from prometheus.md", name)
+		}
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("%s is listed in prometheus.md but missing from the server", name)
+		}
 	}
 }

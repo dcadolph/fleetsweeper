@@ -3,6 +3,10 @@ package cohort
 import (
 	"encoding/json"
 	"math"
+	"strconv"
+	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // featureSpec defines one dimension of the cluster feature vector. Each spec
@@ -26,17 +30,17 @@ type featureSpec struct {
 // vectors. Adding a dimension here is the supported extension point.
 func featureSpecs() []featureSpec {
 	return []featureSpec{
-		{name: "node_count", scanner: "resources", field: "node_count", extract: numericExtractor},
-		{name: "namespace_count", scanner: "namespaces", field: "count", extract: numericExtractor},
-		{name: "service_count", scanner: "services", field: "count", extract: numericExtractor},
-		{name: "ingress_count", scanner: "ingresses", field: "count", extract: numericExtractor},
-		{name: "cluster_role_count", scanner: "rbac", field: "cluster_role_count", extract: numericExtractor},
-		{name: "crd_count", scanner: "crds", field: "count", extract: numericExtractor},
-		{name: "avg_cpu_percent", scanner: "metrics", field: "avg_cpu_percent", extract: numericExtractor},
-		{name: "avg_memory_percent", scanner: "metrics", field: "avg_memory_percent", extract: numericExtractor},
-		{name: "enforced_count", scanner: "security", field: "enforced_count", extract: numericExtractor},
-		{name: "network_policy_count", scanner: "network-policies", field: "count", extract: numericExtractor},
-		{name: "quota_count", scanner: "resource-quotas", field: "quota_count", extract: numericExtractor},
+		{name: "node_count", scanner: "resources", field: "node_count", extract: util.Float64},
+		{name: "namespace_count", scanner: "namespaces", field: "count", extract: util.Float64},
+		{name: "service_count", scanner: "services", field: "count", extract: util.Float64},
+		{name: "ingress_count", scanner: "ingresses", field: "count", extract: util.Float64},
+		{name: "cluster_role_count", scanner: "rbac", field: "cluster_role_count", extract: util.Float64},
+		{name: "crd_count", scanner: "crds", field: "count", extract: util.Float64},
+		{name: "avg_cpu_percent", scanner: "metrics", field: "avg_cpu_percent", extract: util.Float64},
+		{name: "avg_memory_percent", scanner: "metrics", field: "avg_memory_percent", extract: util.Float64},
+		{name: "enforced_count", scanner: "security", field: "enforced_count", extract: util.Float64},
+		{name: "network_policy_count", scanner: "network-policies", field: "count", extract: util.Float64},
+		{name: "quota_count", scanner: "resource-quotas", field: "quota_count", extract: util.Float64},
 		{name: "minor_version", scanner: "version", field: "minor", extract: minorVersionExtractor},
 	}
 }
@@ -118,49 +122,22 @@ func extractField(data any, field string, extract func(any) (float64, bool)) (fl
 	return extract(m[field])
 }
 
-// numericExtractor pulls a number out of a JSON-decoded any. Accepts the
-// shapes json.Unmarshal produces (float64 for all JSON numbers) plus the int
-// variants that show up when callers hand-build maps.
-func numericExtractor(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case float32:
-		return float64(n), true
-	case int:
-		return float64(n), true
-	case int32:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	default:
-		return 0, false
-	}
-}
-
 // minorVersionExtractor parses a Kubernetes minor version that may arrive as
 // "31", "31+", or as a number. Trailing "+" is stripped because GKE and EKS
 // append it to indicate vendor patches.
 func minorVersionExtractor(v any) (float64, bool) {
-	if n, ok := numericExtractor(v); ok {
+	if n, ok := util.Float64(v); ok {
 		return n, true
 	}
 	s, ok := v.(string)
-	if !ok || s == "" {
+	if !ok {
 		return 0, false
 	}
-	// Strip trailing "+".
-	for len(s) > 0 && s[len(s)-1] == '+' {
-		s = s[:len(s)-1]
+	n, err := strconv.ParseUint(strings.TrimRight(s, "+"), 10, 64)
+	if err != nil {
+		return 0, false
 	}
-	var out float64
-	for _, ch := range s {
-		if ch < '0' || ch > '9' {
-			return 0, false
-		}
-		out = out*10 + float64(ch-'0')
-	}
-	return out, true
+	return float64(n), true
 }
 
 // imputeMissing fills missing feature values with the fleet median for that
@@ -180,7 +157,7 @@ func imputeMissing(raw [][]float64, present [][]bool) {
 		if len(observed) == 0 {
 			continue
 		}
-		med := median(observed)
+		med := util.Median(observed)
 		for row := range raw {
 			if !present[row][col] {
 				raw[row][col] = med
@@ -220,25 +197,4 @@ func normalize(raw [][]float64) {
 			raw[row][col] = (raw[row][col] - minV) / span
 		}
 	}
-}
-
-// median returns the median of vals. Caller-owned: vals is sorted in place.
-func median(vals []float64) float64 {
-	if len(vals) == 0 {
-		return 0
-	}
-	sorted := make([]float64, len(vals))
-	copy(sorted, vals)
-	// Insertion sort is fast enough for the per-feature column sizes seen
-	// here (fleets larger than a few hundred clusters would warrant sort.Float64s).
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && sorted[j-1] > sorted[j]; j-- {
-			sorted[j-1], sorted[j] = sorted[j], sorted[j-1]
-		}
-	}
-	n := len(sorted)
-	if n%2 == 1 {
-		return sorted[n/2]
-	}
-	return (sorted[n/2-1] + sorted[n/2]) / 2
 }

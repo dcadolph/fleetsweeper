@@ -13,7 +13,7 @@ import (
 )
 
 // enforcedFleet returns clusters c00 onward with the given
-// security/enforced_count values.
+// security/unenforced_count values.
 func enforcedFleet(values ...float64) ([]string, map[string]map[string]scanner.Result) {
 	clusters := make([]string, 0, len(values))
 	results := make(map[string]map[string]scanner.Result, len(values))
@@ -21,7 +21,7 @@ func enforcedFleet(values ...float64) ([]string, map[string]map[string]scanner.R
 		c := fmt.Sprintf("c%02d", i)
 		clusters = append(clusters, c)
 		results[c] = map[string]scanner.Result{
-			"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}},
+			"security": {Scanner: "security", Data: map[string]any{"unenforced_count": v}},
 		}
 	}
 	return clusters, results
@@ -41,13 +41,13 @@ func TestWhatIfNumeric(t *testing.T) {
 		WantCleared     []string
 	}{{ // Test 0: Ten clusters, c09 the sole deviant; the 5th and 6th values tie, so the median holds at 12.
 		Values: []float64{10, 11, 11, 12, 12, 12, 13, 13, 14, 40},
-		Fix:    Fix{Cluster: "c09", Scanner: "security", Field: "enforced_count"},
+		Fix:    Fix{Cluster: "c09", Scanner: "security", Field: "unenforced_count"},
 		// Before: deviations 2 1 1 0 0 0 1 1 2 28, MAD 1. After: 2 1 1 0 0 0 0 1 1 2, MAD 1.
 		WantMedian: [2]float64{12, 12}, WantMAD: [2]float64{1, 1},
 		WantCleared: []string{"c09"},
 	}, { // Test 1: Ten clusters, setting c09 to the median 11.5 moves it to 11.25 and flags c08 at 14.
 		Values: []float64{10, 11, 11, 11, 11, 12, 12, 13, 14, 60},
-		Fix:    Fix{Cluster: "c09", Scanner: "security", Field: "enforced_count", Kind: FixMedian},
+		Fix:    Fix{Cluster: "c09", Scanner: "security", Field: "unenforced_count", Kind: FixMedian},
 		// Before: deviations 1.5 .5 .5 .5 .5 .5 .5 1.5 2.5 48.5, MAD .5.
 		// After: 10 11 11 11 11 11.5 12 12 13 14, median 11.25, deviations sorted
 		// .25 .25 .25 .25 .25 .75 .75 1.25 1.75 2.75, MAD (.25+.75)/2 = .5.
@@ -56,7 +56,7 @@ func TestWhatIfNumeric(t *testing.T) {
 		WantNewOutliers: []string{"c08"}, WantCleared: []string{"c09"},
 	}, { // Test 2: Nine clusters, removing deviant c08 moves the median from 12 to 11.5 and flags c07 at 18.
 		Values: []float64{10, 11, 11, 11, 12, 14, 15, 18, 40},
-		Fix:    Fix{Cluster: "c08", Scanner: "security", Field: "enforced_count", Kind: FixRemove},
+		Fix:    Fix{Cluster: "c08", Scanner: "security", Field: "unenforced_count", Kind: FixRemove},
 		// Before: deviations 2 1 1 1 0 2 3 6 28, MAD 2, c07 z 2.02. After: eight
 		// clusters, median 11.5, MAD 1, c07 z = 0.6745 * 6.5 = 4.38.
 		WantMedian: [2]float64{12, 11.5}, WantMAD: [2]float64{2, 1},
@@ -66,7 +66,7 @@ func TestWhatIfNumeric(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			clusters, results := enforcedFleet(test.Values...)
-			original := results[test.Fix.Cluster]["security"].Data.(map[string]any)["enforced_count"]
+			original := results[test.Fix.Cluster]["security"].Data.(map[string]any)["unenforced_count"]
 			out, err := WhatIf(clusters, results, BuildOptions{}, test.Fix)
 			if err != nil {
 				t.Fatalf("what-if: %v", err)
@@ -90,8 +90,8 @@ func TestWhatIfNumeric(t *testing.T) {
 			if len(test.WantNewOutliers) == 0 && out.ScoreAfter <= out.ScoreBefore {
 				t.Errorf("score: want a rise from fixing the sole deviant, got %d -> %d", out.ScoreBefore, out.ScoreAfter)
 			}
-			if v := results[test.Fix.Cluster]["security"].Data.(map[string]any)["enforced_count"]; v != original {
-				t.Errorf("caller's results were modified: enforced_count %v is now %v", original, v)
+			if v := results[test.Fix.Cluster]["security"].Data.(map[string]any)["unenforced_count"]; v != original {
+				t.Errorf("caller's results were modified: unenforced_count %v is now %v", original, v)
 			}
 			if len(clusters) != len(test.Values) {
 				t.Errorf("caller's cluster list was modified: %v", clusters)
@@ -162,10 +162,10 @@ func TestWhatIfRefusals(t *testing.T) {
 	}{{ // Test 0: A field with no distribution.
 		Clusters: clusters, Results: results, Fix: Fix{Cluster: "c00", Scanner: "security", Field: "nope"},
 	}, { // Test 1: A cluster outside the population.
-		Clusters: clusters, Results: results, Fix: Fix{Cluster: "zz", Scanner: "security", Field: "enforced_count"},
+		Clusters: clusters, Results: results, Fix: Fix{Cluster: "zz", Scanner: "security", Field: "unenforced_count"},
 	}, { // Test 2: A mode fix on a numeric field.
 		Clusters: clusters, Results: results,
-		Fix: Fix{Cluster: "c05", Scanner: "security", Field: "enforced_count", Kind: FixMode},
+		Fix: Fix{Cluster: "c05", Scanner: "security", Field: "unenforced_count", Kind: FixMode},
 	}, { // Test 3: Adding an ingress class would invent an ingress.
 		Clusters: ingClusters, Results: ingResults, Fix: Fix{Cluster: "i09", Scanner: "ingresses", Field: "ingress_classes"},
 	}}
@@ -197,7 +197,7 @@ func TestWhatIfRefusalReason(t *testing.T) {
 	}, { // Test 3: A numeric field on a projected scanner.
 		Scanner: "ingresses", Field: "count",
 	}, { // Test 4: A scanner with no projection.
-		Scanner: "security", Field: "enforced_count",
+		Scanner: "security", Field: "unenforced_count",
 	}}
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
@@ -271,7 +271,7 @@ func TestWhatIfDefaultScope(t *testing.T) {
 					tags[c] = map[bool]string{true: "big", false: "small"}[i < 10]
 				}
 			}
-			out, err := WhatIf(clusters, results, BuildOptions{ClusterTags: tags}, Fix{Cluster: "c05", Scanner: "security", Field: "enforced_count"})
+			out, err := WhatIf(clusters, results, BuildOptions{ClusterTags: tags}, Fix{Cluster: "c05", Scanner: "security", Field: "unenforced_count"})
 			if err != nil {
 				t.Fatalf("what-if: %v", err)
 			}

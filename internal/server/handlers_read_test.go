@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
@@ -280,26 +282,70 @@ func TestHandleGetClusterTrends_Seeded(t *testing.T) {
 	}
 }
 
-// TestHandleGetOutliers_Seeded covers the stored-scan outlier path and the
-// custom threshold query parameter.
+// TestHandleGetOutliers_Seeded covers the demo-seeded outlier path: findings are limited to
+// those the outlier detectors raised and the threshold query parameter reaches the detectors.
 func TestHandleGetOutliers_Seeded(t *testing.T) {
 	t.Parallel()
-	srv, ss := testServer(t)
-	id := seedScan(t, ss, "east", "west", "south")
+	tests := []struct {
+		Check func(t *testing.T, got outliersPayload)
+		Query string
+	}{{ // Test 0: Every finding is outlier-derived and at least one exists.
+		Query: "?threshold=2.5",
+		Check: func(t *testing.T, got outliersPayload) {
+			if len(got.Findings) == 0 {
+				t.Fatal("want findings above zero, got none")
+			}
+			for _, f := range got.Findings {
+				if f.Norm == nil {
+					t.Errorf("finding %s/%s has no norm", f.Scanner, f.Rule)
+				}
+			}
+		},
+	}, { // Test 1: Every z-score outlier carries the requested threshold.
+		Query: "?threshold=2.5",
+		Check: func(t *testing.T, got outliersPayload) {
+			numeric := 0
+			for _, o := range got.Outliers {
+				if o.Kind != report.NormKindNumeric || o.Exact {
+					continue
+				}
+				numeric++
+				if o.Threshold != 2.5 {
+					t.Errorf("outlier %s threshold = %v, want 2.5", o.Field, o.Threshold)
+				}
+			}
+			if numeric == 0 {
+				t.Fatal("want numeric outliers above zero, got none")
+			}
+		},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv := newDemoServer(t)
+			req := httptest.NewRequest(http.MethodGet, "/api/outliers"+test.Query, nil)
+			w := httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+			}
+			var got outliersPayload
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode: %v body=%s", err, w.Body.String())
+			}
+			test.Check(t, got)
+		})
+	}
+}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/outliers?threshold=2.5", nil)
-	w := httptest.NewRecorder()
-	srv.mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
-	}
-	obj := decodeObj(t, w)
-	if obj["scan_id"] != id {
-		t.Errorf("scan_id mismatch: %v want %s", obj["scan_id"], id)
-	}
-	if _, ok := obj["outliers"]; !ok {
-		t.Error("missing outliers key")
-	}
+// outliersPayload is the decoded body of GET /api/outliers.
+type outliersPayload struct {
+	// ScanID is the scan the analysis ran against.
+	ScanID string `json:"scan_id"`
+	// Outliers are the detector results.
+	Outliers []report.OutlierResult `json:"outliers"`
+	// Findings are the findings the detectors raised.
+	Findings []report.Finding `json:"findings"`
 }
 
 // TestHandleGetOutliers_NoScans verifies the empty-store 404 path.
@@ -359,6 +405,159 @@ func TestHandleGetCapacity_Seeded(t *testing.T) {
 	}
 	if _, ok := obj["capacity"]; !ok {
 		t.Error("missing capacity key")
+	}
+}
+
+// TestHandleGetThreshold_Invalid verifies a bad threshold is a 400 on every endpoint that
+// takes one.
+func TestHandleGetThreshold_Invalid(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Path       string
+		WantStatus int
+	}{{ // Test 0: Non-numeric outlier threshold.
+		Path: "/api/outliers?threshold=abc", WantStatus: http.StatusBadRequest,
+	}, { // Test 1: Negative outlier threshold.
+		Path: "/api/outliers?threshold=-1", WantStatus: http.StatusBadRequest,
+	}, { // Test 2: Zero outlier threshold.
+		Path: "/api/outliers?threshold=0", WantStatus: http.StatusBadRequest,
+	}, { // Test 3: Non-numeric cohort threshold.
+		Path: "/api/cohorts?threshold=abc", WantStatus: http.StatusBadRequest,
+	}, { // Test 4: Negative cohort threshold.
+		Path: "/api/cohorts?threshold=-1", WantStatus: http.StatusBadRequest,
+	}, { // Test 5: Valid cohort threshold.
+		Path: "/api/cohorts?threshold=2.5", WantStatus: http.StatusOK,
+	}, { // Test 6: Absent outlier threshold.
+		Path: "/api/outliers", WantStatus: http.StatusOK,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv := newDemoServer(t)
+			w := httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, test.Path, nil))
+			if w.Code != test.WantStatus {
+				t.Fatalf("status = %d, want %d body=%s", w.Code, test.WantStatus, w.Body.String())
+			}
+			if test.WantStatus != http.StatusBadRequest {
+				return
+			}
+			want := "threshold must be a positive number"
+			if got := decodeObj(t, w)["error"]; got != want {
+				t.Errorf("error = %v, want %q", got, want)
+			}
+		})
+	}
+}
+
+// cohortsPayload is the decoded body of GET /api/cohorts and of a scan report.
+type cohortsPayload struct {
+	// ScanID is the scan the cohorts came from.
+	ScanID string `json:"scan_id"`
+	// Cohorts are the cohort summaries.
+	Cohorts []report.CohortSummary `json:"cohorts"`
+}
+
+// TestHandleGetCohorts_SharedReport verifies the cohorts endpoint serves the same cohorts as the
+// scan report and reuses the cached report on a repeat request.
+func TestHandleGetCohorts_SharedReport(t *testing.T) {
+	t.Parallel()
+	srv := newDemoServer(t)
+	get := func(path string) cohortsPayload {
+		t.Helper()
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: want 200, got %d body=%s", path, w.Code, w.Body.String())
+		}
+		var got cohortsPayload
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatalf("%s: decode: %v", path, err)
+		}
+		return got
+	}
+	size := func() int {
+		srv.reports.mu.Lock()
+		defer srv.reports.mu.Unlock()
+		return len(srv.reports.entries)
+	}
+
+	first := get("/api/cohorts")
+	if len(first.Cohorts) == 0 {
+		t.Fatal("want cohorts above zero, got none")
+	}
+	afterFirst := size()
+	if afterFirst == 0 {
+		t.Fatal("want a cache entry after the first request, got none")
+	}
+	get("/api/cohorts")
+	if got := size(); got != afterFirst {
+		t.Errorf("cache entries = %d after repeat request, want %d", got, afterFirst)
+	}
+	fromReport := get("/api/scans/" + first.ScanID + "/report")
+	if diff := cmp.Diff(fromReport.Cohorts, first.Cohorts, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("cohorts differ from scan report (-report +cohorts):\n%s", diff)
+	}
+}
+
+// TestHandleGetOutliers_AckDoesNotTouchCache verifies concurrent outlier requests mark acks on
+// their own copy of the findings, so the shared cached report is never written.
+func TestHandleGetOutliers_AckDoesNotTouchCache(t *testing.T) {
+	t.Parallel()
+	srv := newDemoServer(t)
+	fetch := func() outliersPayload {
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/outliers", nil))
+		if w.Code != http.StatusOK {
+			t.Errorf("want 200, got %d body=%s", w.Code, w.Body.String())
+			return outliersPayload{}
+		}
+		var got outliersPayload
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		return got
+	}
+	first := fetch()
+	if len(first.Findings) == 0 {
+		t.Fatal("want findings above zero, got none")
+	}
+	f := first.Findings[0]
+	body := `{"cluster":"` + f.Cluster + `","scanner":"` + f.Scanner + `","title":"` + f.Title + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/findings/"+f.Fingerprint+"/ack",
+		strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("ack: want 201, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got := fetch()
+			acked := 0
+			for _, g := range got.Findings {
+				if g.Acked {
+					acked++
+				}
+			}
+			if acked == 0 {
+				t.Error("want an acked finding after the ack, got none")
+			}
+		}()
+	}
+	wg.Wait()
+	srv.reports.mu.Lock()
+	defer srv.reports.mu.Unlock()
+	for key, rpt := range srv.reports.entries {
+		for _, g := range rpt.Findings {
+			if g.Acked {
+				t.Errorf("cached report %q holds an acked finding %s", key, g.Fingerprint)
+			}
+		}
 	}
 }
 

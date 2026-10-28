@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/nodehealth"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -93,24 +94,32 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
 			"unenforced_count": 6, "namespace_count": 10,
+			"namespaces": []any{
+				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "prod", "enforce": "restricted"},
+			},
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 6 namespace(s) without Pod Security enforcement",
 			Description: "6 of 10 namespaces (60%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
-			Severity:    SeverityCritical, Cluster: "a", Scanner: "security",
-			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Severity:    SeverityCritical, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 3: Exactly half unenforced stays a warning.
 		Name:     "psa half",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
 			"unenforced_count": 5, "namespace_count": 10,
+			"namespaces": []any{
+				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "prod", "enforce": "restricted"},
+			},
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 5 namespace(s) without Pod Security enforcement",
 			Description: "5 of 10 namespaces (50%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
-			Severity:    SeverityWarning, Cluster: "a", Scanner: "security",
-			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Severity:    SeverityWarning, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 4: A missing namespace total never reports a share over 100%.
 		Name:     "psa no total",
@@ -325,7 +334,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Description: "When failurePolicy=Fail, every API request matching these webhooks will be rejected. Even with failurePolicy=Ignore, mutations and validations are silently skipped.",
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "admission",
 			Affected:    []string{"cfg/wh (service ns/svc, failurePolicy=Fail)"},
-			Remediation: &Remediation{Command: "kubectl --context a get pods -A -l app=<webhook-service-app>"},
+			Remediation: &Remediation{Command: "kubectl --context a -n ns get endpoints svc"},
 		}, {
 			Rule: "admission/ca-expiring", Title: "a has 1 admission webhook(s) with CA bundles expiring soon",
 			Description: "When a webhook CA bundle expires, the apiserver refuses to talk to the webhook. Renew or rotate before the listed deadlines.",
@@ -417,7 +426,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "image-audit", Affected: []string{"ns"},
 			Remediation: &Remediation{Command: "kubectl --context a -n ns get pods,events --sort-by=.lastTimestamp"},
 		}},
-	}, { // Test 23: Numeric, string, set, and unknown-scanner outliers state the gap.
+	}, { // Test 23: Each outlier kind, an unknown scanner, and a numeric string state the gap.
 		Name:     "fleet outliers",
 		Generate: outlierFindings,
 		Report: &Report{Outliers: []OutlierResult{
@@ -427,7 +436,11 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 				Scope: "fleet", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c", Field: "names", Value: "missing 2: [a b]", FleetNorm: "5 consensus items", Scanner: "crds", Severity: SeverityInfo,
 				Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"}, SampleSize: 10, Threshold: 0.6},
-			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel", Severity: SeverityInfo},
+			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel",
+				Severity: SeverityInfo, Kind: NormKindNumeric, Median: 2.5},
+			{Cluster: "c", Field: "minor", Value: "30", FleetNorm: "31", Scanner: "version",
+				Severity: SeverityWarning, Scope: "fleet", Kind: NormKindString, Mode: "31",
+				ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
 		}},
 		WantResult: []Finding{{
 			Rule: "security/outlier-enforced-count", Title: "c deviates from fleet norm on enforced_count",
@@ -435,26 +448,38 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityCritical, Cluster: "c", Scanner: "security", Affected: []string{"enforced_count"},
 			Remediation: &Remediation{Command: "# enforced_count is 4 here, 8 below the fleet median of 12\n" +
 				"kubectl --context c get namespaces -L pod-security.kubernetes.io/enforce"},
-			Norm: &NormBasis{Scope: "fleet", Kind: NormKindNumeric, Median: 12, MAD: 1.079, SampleSize: 9, Threshold: 3.5, Value: "4", Z: -5},
+			Norm: &NormBasis{Scope: "fleet", Field: "enforced_count", Kind: NormKindNumeric, Median: 12, MAD: 1.079, SampleSize: 9, Threshold: 3.5, Value: "4", Z: -5},
 		}, {
 			Rule: "version/outlier-git-version", Title: "c deviates from fleet norm on git_version",
 			Description: "c reports git_version=v1.29.0 while the fleet norm is v1.31.0 (scanner: Kubernetes Version).",
 			Severity:    SeverityWarning, Cluster: "c", Scanner: "version", Affected: []string{"git_version"},
 			Remediation: &Remediation{Command: "# git_version is \"v1.29.0\" here, the fleet norm is \"v1.31.0\"\nkubectl --context c version"},
-			Norm:        &NormBasis{Scope: "fleet", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6, Value: "v1.29.0"},
+			Norm:        &NormBasis{Scope: "fleet", Field: "git_version", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6, Value: "v1.29.0"},
 		}, {
 			Rule: "crds/outlier-names", Title: "c deviates from fleet norm on names",
 			Description: "c reports names=missing 2: [a b] while the fleet norm is 5 consensus items (scanner: Custom Resource Definitions).",
 			Severity:    SeverityInfo, Cluster: "c", Scanner: "crds", Affected: []string{"names"},
 			Remediation: &Remediation{Command: "# names is missing 2: [a b] of the fleet's 5 consensus items\nkubectl --context c get crds"},
-			Norm: &NormBasis{Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"},
+			Norm: &NormBasis{Scope: "fleet", Field: "names", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"},
 				SampleSize: 10, Threshold: 0.6, Value: "missing 2: [a b]"},
 		}, {
 			Rule: "novel/outlier-count", Title: "c deviates from fleet norm on count",
 			Description: "c reports count=9 while the fleet norm is 2.5 (scanner: ).",
 			Severity:    SeverityInfo, Cluster: "c", Scanner: "novel", Affected: []string{"count"},
 			Remediation: &Remediation{Command: "# count is 9 here, 6.5 above the fleet median of 2.5\nkubectl --context c get all -A"},
-			Norm:        &NormBasis{Value: "9"},
+			Norm:        &NormBasis{Field: "count", Kind: NormKindNumeric, Median: 2.5, Value: "9"},
+		}, {
+			Rule: "version/outlier-minor", Title: "c deviates from fleet norm on minor",
+			Description: "c reports minor=30 while the fleet norm is 31 " +
+				"(scanner: Kubernetes Version).",
+			Severity: SeverityWarning, Cluster: "c", Scanner: "version",
+			Affected: []string{"minor"},
+			Remediation: &Remediation{
+				Command: "# minor is \"30\" here, the fleet norm is \"31\"\n" +
+					"kubectl --context c version",
+			},
+			Norm: &NormBasis{Scope: "fleet", Field: "minor", Kind: NormKindString, Mode: "31",
+				ModeShare: 0.9, SampleSize: 10, Threshold: 0.6, Value: "30"},
 		}},
 	}, { // Test 24: A cohort outlier names its cohort as the norm's scope.
 		Name:     "cohort outliers",
@@ -468,7 +493,42 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Description: `Within cohort "edge", b reports crd_count=9 while the cohort norm is 2 (scanner: Custom Resource Definitions).`,
 			Severity:    SeverityWarning, Cluster: "b", Scanner: "crds", Affected: []string{"crd_count"},
 			Remediation: &Remediation{Command: "# crd_count is 9 here, 7 above the cohort \"edge\" median of 2\nkubectl --context b get crds"},
-			Norm:        &NormBasis{Scope: "edge", Kind: NormKindNumeric, Median: 2, MAD: 1, SampleSize: 8, Threshold: 3.5, Value: "9", Z: 4.72},
+			Norm:        &NormBasis{Scope: "edge", Field: "crd_count", Kind: NormKindNumeric, Median: 2, MAD: 1, SampleSize: 8, Threshold: 3.5, Value: "9", Z: 4.72},
+		}},
+	}, { // Test 25: Twelve privileged pods list ten names and a suffix.
+		Name:     "workload security capped",
+		Generate: workloadSecFindings,
+		Report: testReport(map[string]map[string]any{"workload-security": {"a": map[string]any{
+			"privileged_containers": 12, "total_pods": 12,
+			"high_risk_pods": cappedPods(12),
+		}}}),
+		WantResult: []Finding{{
+			Rule: "workload-security/privileged", Title: "a has 12 privileged container(s)",
+			Description: "Privileged containers have full host access. Review whether these workloads genuinely require it. Total pods: 12.",
+			Severity:    SeverityCritical, Cluster: "a", Scanner: "workload-security",
+			Affected: []string{
+				"ns/p00/c", "ns/p01/c", "ns/p02/c", "ns/p03/c", "ns/p04/c",
+				"ns/p05/c", "ns/p06/c", "ns/p07/c", "ns/p08/c", "ns/p09/c",
+				"...and 2 more",
+			},
+			Remediation: &Remediation{Command: privilegedCommand},
+		}},
+	}, { // Test 26: Twelve unenforced namespaces label the first ten and list a suffix.
+		Name:     "psa capped",
+		Generate: securityFindings,
+		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
+			"unenforced_count": 12, "namespace_count": 12, "namespaces": unenforcedNamespaceList(12),
+		}}}),
+		WantResult: []Finding{{
+			Rule: "security/psa-unenforced", Title: "a has 12 namespace(s) without Pod Security enforcement",
+			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label. " +
+				"Pods in these namespaces can run with any privileges.",
+			Severity: SeverityCritical, Cluster: "a", Scanner: "security",
+			Affected: []string{
+				"n00", "n01", "n02", "n03", "n04", "n05", "n06", "n07", "n08", "n09", "...and 2 more",
+			},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace " +
+				"n00 n01 n02 n03 n04 n05 n06 n07 n08 n09 pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}}
 
@@ -483,19 +543,66 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 	}
 }
 
+// cappedPods returns n privileged high-risk pod payloads named p00, p01, and so on.
+func cappedPods(n int) []any {
+	pods := make([]any, 0, n)
+	for i := range n {
+		pods = append(pods, map[string]any{
+			"namespace": "ns", "pod": fmt.Sprintf("p%02d", i), "container": "c",
+			"risks": []any{"privileged"},
+		})
+	}
+	return pods
+}
+
+// TestCapList checks the Affected list cap and its suffix.
+func TestCapList(t *testing.T) {
+	t.Parallel()
+
+	numbered := func(n int) []string {
+		out := make([]string, 0, n)
+		for i := range n {
+			out = append(out, fmt.Sprintf("i%02d", i))
+		}
+		return out
+	}
+	tests := []struct {
+		WantResult []string
+		In         []string
+	}{{ // Test 0: Empty input stays empty.
+		In: nil, WantResult: nil,
+	}, { // Test 1: Exactly ten items pass through.
+		In: numbered(10), WantResult: numbered(10),
+	}, { // Test 2: Eleven items keep ten and report one more.
+		In: numbered(11), WantResult: append(numbered(10), "...and 1 more"),
+	}, { // Test 3: Twenty-five items keep ten and report fifteen more.
+		In: numbered(25), WantResult: append(numbered(10), "...and 15 more"),
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := capList(test.In)
+			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("capList mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // normFixture returns a 10-cluster report whose security section holds two
 // numeric fields with one deviant each, an absolute-rule privileged count on
 // the high deviant, and every cluster tagged into one cohort.
 func normFixture() (*Report, map[string]string) {
-	enforced := []float64{20, 22, 24, 24, 24, 26, 26, 28, 30, 80}
+	unenforced := []float64{20, 22, 24, 24, 24, 26, 26, 28, 30, 80}
 	quota := []float64{48, 49, 50, 50, 50, 51, 51, 52, 53, 2}
-	perCluster := make(map[string]any, len(enforced))
-	tags := make(map[string]string, len(enforced))
-	clusters := make([]string, 0, len(enforced))
-	for i := range enforced {
+	perCluster := make(map[string]any, len(unenforced))
+	tags := make(map[string]string, len(unenforced))
+	clusters := make([]string, 0, len(unenforced))
+	for i := range unenforced {
 		c := fmt.Sprintf("c%02d", i)
 		clusters = append(clusters, c)
-		perCluster[c] = map[string]any{"enforced_count": enforced[i], "quota_count": quota[i]}
+		perCluster[c] = map[string]any{"unenforced_count": unenforced[i], "quota_count": quota[i]}
 		tags[c] = "edge"
 	}
 	r := &Report{Clusters: clusters, Sections: map[string]*SectionReport{
@@ -513,24 +620,24 @@ func normFixture() (*Report, map[string]string) {
 func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Parallel()
 
-	// enforced_count: sorted 20 22 24 24 24 26 26 28 30 80, median 25.
+	// unenforced_count: sorted 20 22 24 24 24 26 26 28 30 80, median 25.
 	// Absolute deviations 1 1 1 1 1 3 3 5 5 55, MAD (1+3)/2 = 2.
 	// c09 at 80: z = 0.6745 * 55 / 2 = 18.548750.
 	// quota_count: sorted 2 48 49 50 50 50 51 51 52 53, median 50.
 	// Absolute deviations 0 0 0 1 1 1 2 2 3 48, MAD 1.
 	// c09 at 2: z = 0.6745 * -48 / 1 = -32.376.
 	wantEnforced := &NormBasis{
-		Scope: "fleet", Kind: NormKindNumeric, Median: 25, MAD: 2, SampleSize: 10,
+		Scope: "fleet", Field: "unenforced_count", Kind: NormKindNumeric, Median: 25, MAD: 2, SampleSize: 10,
 		Threshold: 3.5, Value: "80", Z: 18.54875,
 	}
 	wantQuota := &NormBasis{
-		Scope: "fleet", Kind: NormKindNumeric, Median: 50, MAD: 1, SampleSize: 10,
+		Scope: "fleet", Field: "quota_count", Kind: NormKindNumeric, Median: 50, MAD: 1, SampleSize: 10,
 		Threshold: 3.5, Value: "2", Z: -32.376,
 	}
 	approx := cmpopts.EquateApprox(0, 1e-9)
 
 	r, tags := normFixture()
-	r.Outliers = DetectOutliers(r, 3.5)
+	r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
 	r.Cohorts, _ = buildCohorts(r, tags, 3.5)
 	fleet := outlierFindings(r)
 	byRule := map[string]Finding{}
@@ -543,7 +650,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 		Finding  Finding
 		WantNorm *NormBasis
 	}{{ // Test 0: The high deviant reports the hand-computed median, MAD, and z.
-		Name: "fleet high", Finding: byRule["security/outlier-enforced-count"], WantNorm: wantEnforced,
+		Name: "fleet high", Finding: byRule["security/outlier-unenforced-count"], WantNorm: wantEnforced,
 	}, { // Test 1: The low deviant reports a negative z.
 		Name: "fleet low", Finding: byRule["security/outlier-quota-count"], WantNorm: wantQuota,
 	}}
@@ -576,7 +683,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 				want = wantQuota
 			}
 			want = &NormBasis{
-				Scope: "edge", Kind: want.Kind, Median: want.Median, MAD: want.MAD,
+				Scope: "edge", Field: want.Field, Kind: want.Kind, Median: want.Median, MAD: want.MAD,
 				SampleSize: want.SampleSize, Threshold: want.Threshold, Value: want.Value, Z: want.Z,
 			}
 			if diff := cmp.Diff(want, f.Norm, approx); diff != "" {
@@ -589,7 +696,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 		t.Parallel()
 		r, _ := normFixture()
 		var absolute int
-		for _, f := range GenerateFindings(r) {
+		for _, f := range generateFindings(r) {
 			if strings.Contains(f.Rule, "/"+ruleOutlierPrefix) || strings.Contains(f.Rule, "/"+ruleCohortOutlierPrefix) {
 				continue
 			}
@@ -606,14 +713,303 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Run("brief quotes the basis", func(t *testing.T) {
 		t.Parallel()
 		r, _ := normFixture()
-		r.Outliers = DetectOutliers(r, 3.5)
-		r.Findings = GenerateFindings(r)
-		brief := GenerateBrief(r)
-		want := "Largest deviation: c09 enforced_count is 80 vs a fleet median of 25 across 10 clusters."
+		r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
+		r.Findings = generateFindings(r)
+		brief := generateBrief(r)
+		want := "Largest deviation: c09 unenforced_count is 80 vs a fleet median of 25 across 10 clusters."
 		if !slices.Contains(brief.Lines, want) {
 			t.Errorf("brief lines %q do not contain %q", brief.Lines, want)
 		}
 	})
+}
+
+// TestSummaryCountsFindings verifies the summary's critical and warning counts are the
+// finding counts after Build and after Rescore.
+func TestSummaryCountsFindings(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner      string
+		Field        string
+		Vals         []any
+		WantCritical int
+		WantWarning  int
+	}{{ // Test 0: A privileged outlier raises critical findings that the summary counts.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals: []any{0, 0, 0, 0, 0, 0, 0, 0, 30}, WantCritical: 1,
+	}, { // Test 1: Five clusters with a privileged container are five critical findings.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals: []any{0, 0, 0, 0, 1, 1, 1, 1, 1}, WantCritical: 5,
+	}, { // Test 2: A namespace count outlier and the fleet count finding are two warnings.
+		Scanner: "namespaces", Field: "count",
+		Vals: []any{20, 22, 24, 24, 24, 26, 26, 28, 80}, WantWarning: 2,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := fieldFleet(test.Scanner, test.Field, test.Vals...)
+			r := Build(clusters, results)
+			got := []int{r.Summary.CriticalCount, r.Summary.WarningCount}
+			want := []int{
+				countFindingsBySeverity(r.Findings, SeverityCritical),
+				countFindingsBySeverity(r.Findings, SeverityWarning),
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("summary against findings (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff([]int{test.WantCritical, test.WantWarning}, got); diff != "" {
+				t.Errorf("summary counts (-want +got):\n%s", diff)
+			}
+			r.Findings = append(r.Findings, Finding{Severity: SeverityCritical})
+			Rescore(r)
+			if r.Summary.CriticalCount != test.WantCritical+1 {
+				t.Errorf("after Rescore critical_count = %d, want %d", r.Summary.CriticalCount,
+					test.WantCritical+1)
+			}
+		})
+	}
+}
+
+// testNormFinding returns a fleet norm finding on scanner/field for cluster at sev.
+func testNormFinding(cluster, scanner, field, sev string) Finding {
+	return Finding{
+		Rule: outlierRule(scanner, field, false), Severity: sev, Cluster: cluster, Scanner: scanner,
+		Affected: []string{field}, Norm: &NormBasis{Scope: NormScopeFleet, Field: field},
+	}
+}
+
+// testCohortNormFinding returns a norm finding on scanner/field for cluster at sev, computed over
+// cohort scope.
+func testCohortNormFinding(cluster, scanner, field, sev, scope string) Finding {
+	f := testNormFinding(cluster, scanner, field, sev)
+	f.Rule = outlierRule(scanner, field, true)
+	f.Norm.Scope = scope
+	return f
+}
+
+// testMembers returns the fleet scope holding every cluster named in findings.
+func testMembers(findings []Finding) map[string][]string {
+	var clusters []string
+	for _, f := range findings {
+		if !slices.Contains(clusters, f.Cluster) {
+			clusters = append(clusters, f.Cluster)
+		}
+	}
+	return map[string][]string{NormScopeFleet: clusters}
+}
+
+// testAbsoluteFinding returns an absolute-rule finding for cluster at sev.
+func testAbsoluteFinding(cluster, rule, sev string) Finding {
+	scanner, _, _ := strings.Cut(rule, "/")
+	return Finding{Rule: rule, Severity: sev, Cluster: cluster, Scanner: scanner, Description: "Fired."}
+}
+
+// TestDropRedundant verifies one fact yields one finding: a norm finding goes when the absolute
+// rule counting its field fired at an equal or higher severity, or when a field it restates is
+// stated as strongly, and the absolute finding takes the dropped norm.
+func TestDropRedundant(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+	const (
+		crit = SeverityCritical
+		warn = SeverityWarning
+		info = SeverityInfo
+	)
+	tests := []struct {
+		Members    map[string][]string
+		Findings   []Finding
+		WantResult []string
+	}{{ // Test 0: A memory-pressure node drops both norm findings and the absolute takes its norm.
+		Findings: []Finding{
+			testNormFinding("c", "node-health", "memory_pressure_nodes", crit),
+			testNormFinding("c", "node-health", "unhealthy_nodes", crit),
+			testAbsoluteFinding("c", "node-health/memory-pressure", crit),
+		},
+		WantResult: []string{"node-health/memory-pressure memory_pressure_nodes"},
+	}, { // Test 1: The absolute rule listed first gives the same result.
+		Findings: []Finding{
+			testAbsoluteFinding("c", "node-health/memory-pressure", crit),
+			testNormFinding("c", "node-health", "unhealthy_nodes", crit),
+			testNormFinding("c", "node-health", "memory_pressure_nodes", crit),
+		},
+		WantResult: []string{"node-health/memory-pressure memory_pressure_nodes"},
+	}, { // Test 2: Every version restatement goes and git_version stays.
+		Findings: []Finding{
+			testNormFinding("c", "version", "git_version", warn),
+			testNormFinding("c", "version", "minor", warn),
+			testNormFinding("c", "cluster-info", "kubelet_versions", info),
+			testNormFinding("c", "deprecated-apis", "server_version", info),
+		},
+		WantResult: []string{"version/outlier-git-version git_version"},
+	}, { // Test 3: Warning events at info go under the warning-volume rule.
+		Findings: []Finding{
+			testNormFinding("c", "events", "warning_events", info),
+			testAbsoluteFinding("c", "events/warning-volume", warn),
+		},
+		WantResult: []string{"events/warning-volume warning_events"},
+	}, { // Test 4: Deprecated instances at info go under the in-use rule.
+		Findings: []Finding{
+			testNormFinding("c", "deprecated-apis", "total_instances", info),
+			testAbsoluteFinding("c", "deprecated-apis/in-use", warn),
+		},
+		WantResult: []string{"deprecated-apis/in-use total_instances"},
+	}, { // Test 5: Cert counts collapse into the expiring rule and total_certs stays.
+		Findings: []Finding{
+			testNormFinding("c", "certs", "soonest_days", info),
+			testNormFinding("c", "certs", "total_certs", info),
+			testNormFinding("c", "certs", "warning", info),
+			testAbsoluteFinding("c", "certs/expiring-30d", warn),
+		},
+		WantResult: []string{"certs/outlier-total-certs total_certs", "certs/expiring-30d warning"},
+	}, { // Test 6: A restated field stated only at lower severity is the one dropped.
+		Findings: []Finding{
+			testNormFinding("c", "version", "git_version", info),
+			testNormFinding("c", "version", "minor", warn),
+		},
+		WantResult: []string{"version/outlier-minor minor"},
+	}, { // Test 7: An absolute rule below the norm finding's severity drops nothing.
+		Findings: []Finding{
+			testNormFinding("c", "node-health", "memory_pressure_nodes", crit),
+			testAbsoluteFinding("c", "node-health/memory-pressure", warn),
+		},
+		WantResult: []string{
+			"node-health/outlier-memory-pressure-nodes memory_pressure_nodes",
+			"node-health/memory-pressure ",
+		},
+	}, { // Test 8: Findings on different clusters never drop each other.
+		Findings: []Finding{
+			testNormFinding("a", "version", "minor", warn),
+			testNormFinding("b", "version", "git_version", warn),
+			testNormFinding("a", "node-health", "memory_pressure_nodes", crit),
+			testAbsoluteFinding("b", "node-health/memory-pressure", crit),
+		},
+		WantResult: []string{
+			"version/outlier-minor minor",
+			"version/outlier-git-version git_version",
+			"node-health/outlier-memory-pressure-nodes memory_pressure_nodes",
+			"node-health/memory-pressure ",
+		},
+	}, { // Test 9: Undeclared fields and absolute findings alone pass through.
+		Findings: []Finding{
+			testNormFinding("c", "novel", "count", warn),
+			testAbsoluteFinding("c", "workload-security/privileged", crit),
+		},
+		WantResult: []string{"novel/outlier-count count", "workload-security/privileged "},
+	}, { // Test 10: An absolute rule that also fired on a norm cluster states a shared fact, so
+		// the norm finding stays beside it and the absolute takes no norm.
+		Findings: []Finding{
+			testNormFinding("c", "network-policies", "namespaces_without_policies", warn),
+			testAbsoluteFinding("c", "network-policies/no-policy", warn),
+			testAbsoluteFinding("d", "network-policies/no-policy", warn),
+		},
+		WantResult: []string{
+			"network-policies/outlier-namespaces-without-policies namespaces_without_policies",
+			"network-policies/no-policy ",
+			"network-policies/no-policy ",
+		},
+	}, { // Test 11: An absolute rule that fired only on clusters off the norm singles them out.
+		Findings: []Finding{
+			testNormFinding("c", "network-policies", "namespaces_without_policies", warn),
+			testNormFinding("d", "network-policies", "namespaces_without_policies", info),
+			testAbsoluteFinding("c", "network-policies/no-policy", warn),
+			testAbsoluteFinding("d", "network-policies/no-policy", warn),
+			testAbsoluteFinding("e", "rbac-audit/wildcard-rule", warn),
+		},
+		WantResult: []string{
+			"network-policies/no-policy namespaces_without_policies",
+			"network-policies/no-policy namespaces_without_policies",
+			"rbac-audit/wildcard-rule ",
+		},
+	}, { // Test 12: A cohort norm is judged within the cohort, so a norm cluster outside it
+		// that fired the rule does not keep the finding.
+		Members: map[string][]string{NormScopeFleet: {"c", "d", "e"}, "edge": {"c", "d"}},
+		Findings: []Finding{
+			testCohortNormFinding("c", "node-health", "memory_pressure_nodes", crit, "edge"),
+			testAbsoluteFinding("c", "node-health/memory-pressure", crit),
+			testAbsoluteFinding("e", "node-health/memory-pressure", crit),
+		},
+		WantResult: []string{
+			"node-health/memory-pressure memory_pressure_nodes",
+			"node-health/memory-pressure ",
+		},
+	}, { // Test 13: A cohort member holding the cohort norm that fired the rule keeps the finding,
+		// and a fleet norm finding on that member does not count as the cohort's.
+		Members: map[string][]string{NormScopeFleet: {"c", "d", "e"}, "edge": {"c", "d"}},
+		Findings: []Finding{
+			testCohortNormFinding("c", "node-health", "memory_pressure_nodes", crit, "edge"),
+			testNormFinding("d", "node-health", "memory_pressure_nodes", crit),
+			testAbsoluteFinding("c", "node-health/memory-pressure", crit),
+			testAbsoluteFinding("d", "node-health/memory-pressure", crit),
+		},
+		WantResult: []string{
+			"node-health/cohort-outlier-memory-pressure-nodes memory_pressure_nodes",
+			"node-health/outlier-memory-pressure-nodes memory_pressure_nodes",
+			"node-health/memory-pressure ",
+			"node-health/memory-pressure ",
+		},
+	}, { // Test 14: A restated field counted by a rule that fired on a norm cluster is still
+		// stated by its own norm finding, which drops the restatement and stays.
+		Findings: []Finding{
+			testNormFinding("c", "node-health", "memory_pressure_nodes", crit),
+			testNormFinding("c", "node-health", "unhealthy_nodes", crit),
+			testAbsoluteFinding("c", "node-health/memory-pressure", crit),
+			testAbsoluteFinding("d", "node-health/memory-pressure", crit),
+		},
+		WantResult: []string{
+			"node-health/outlier-memory-pressure-nodes memory_pressure_nodes",
+			"node-health/memory-pressure ",
+			"node-health/memory-pressure ",
+		},
+	}, { // Test 15: A norm whose scope is not a known population drops nothing.
+		Members: map[string][]string{NormScopeFleet: {"c"}},
+		Findings: []Finding{
+			testCohortNormFinding("c", "node-health", "memory_pressure_nodes", crit, "gone"),
+			testAbsoluteFinding("c", "node-health/memory-pressure", crit),
+		},
+		WantResult: []string{
+			"node-health/cohort-outlier-memory-pressure-nodes memory_pressure_nodes",
+			"node-health/memory-pressure ",
+		},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			members := test.Members
+			if members == nil {
+				members = testMembers(test.Findings)
+			}
+			var got []string
+			for _, f := range dropRedundant(slices.Clone(test.Findings), members) {
+				field := ""
+				if f.Norm != nil {
+					field = f.Norm.Field
+				}
+				got = append(got, f.Rule+" "+field)
+			}
+			if diff := cmp.Diff(test.WantResult, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestDropRedundantStatesNorm verifies an absolute finding that takes a norm says it in its
+// description.
+func TestDropRedundantStatesNorm(t *testing.T) {
+	t.Parallel()
+	n := testNormFinding("c", "node-health", "memory_pressure_nodes", SeverityCritical)
+	n.Norm = &NormBasis{
+		Scope: NormScopeFleet, Field: "memory_pressure_nodes", Kind: NormKindNumeric,
+		ModeShare: 25.0 / 26, SampleSize: 26, Value: "2", Exact: true,
+	}
+	findings := []Finding{n, testAbsoluteFinding("c", "node-health/memory-pressure", SeverityCritical)}
+	got := dropRedundant(findings, testMembers(findings))
+	want := "Fired. memory_pressure_nodes is 2 on c, where every other cluster in the fleet " +
+		"reports exactly 0."
+	if len(got) != 1 {
+		t.Fatalf("want one finding, got %+v", got)
+	}
+	if diff := cmp.Diff(want, got[0].Description); diff != "" {
+		t.Errorf("mismatch (-want +got):\n%s", diff)
+	}
 }
 
 // TestNormLine verifies the brief's norm line for each kind and scope.
@@ -627,19 +1023,19 @@ func TestNormLine(t *testing.T) {
 		Findings: []Finding{{Severity: SeverityCritical, Cluster: "a", Rule: "node-health/not-ready"}},
 	}, { // Test 1: Severity outranks deviation.
 		Findings: []Finding{
-			{Severity: SeverityInfo, Cluster: "a", Affected: []string{"x"},
-				Norm: &NormBasis{Scope: "fleet", Kind: NormKindNumeric, Median: 1, SampleSize: 9, Value: "90", Z: 90}},
-			{Severity: SeverityWarning, Cluster: "b", Affected: []string{"y"},
-				Norm: &NormBasis{Scope: "fleet", Kind: NormKindNumeric, Median: 12, SampleSize: 26, Value: "30", Z: 4}},
+			{Severity: SeverityInfo, Cluster: "a",
+				Norm: &NormBasis{Scope: "fleet", Field: "x", Kind: NormKindNumeric, Median: 1, SampleSize: 9, Value: "90", Z: 90}},
+			{Severity: SeverityWarning, Cluster: "b",
+				Norm: &NormBasis{Scope: "fleet", Field: "y", Kind: NormKindNumeric, Median: 12, SampleSize: 26, Value: "30", Z: 4}},
 		},
 		WantResult: "Largest deviation: b y is 30 vs a fleet median of 12 across 26 clusters.",
 	}, { // Test 2: A cohort string norm quotes the mode and its share.
-		Findings: []Finding{{Severity: SeverityWarning, Cluster: "a", Affected: []string{"git_version"},
-			Norm: &NormBasis{Scope: "edge", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.875, SampleSize: 8, Value: "v1.29.0"}}},
+		Findings: []Finding{{Severity: SeverityWarning, Cluster: "a",
+			Norm: &NormBasis{Scope: "edge", Field: "git_version", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.875, SampleSize: 8, Value: "v1.29.0"}}},
 		WantResult: `Largest deviation: a git_version is "v1.29.0" vs the cohort "edge" mode of "v1.31.0" held by 88% of 8 clusters.`,
 	}, { // Test 3: A set norm counts the missing consensus members.
-		Findings: []Finding{{Severity: SeverityInfo, Cluster: "a", Affected: []string{"names"},
-			Norm: &NormBasis{Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c"}, Missing: []string{"b"}, SampleSize: 10}}},
+		Findings: []Finding{{Severity: SeverityInfo, Cluster: "a",
+			Norm: &NormBasis{Scope: "fleet", Field: "names", Kind: NormKindSet, Consensus: []string{"a", "b", "c"}, Missing: []string{"b"}, SampleSize: 10}}},
 		WantResult: "Largest deviation: a names lacks 1 of the 3 members the fleet holds in common across 10 clusters.",
 	}}
 	for testNum, test := range tests {
@@ -654,7 +1050,7 @@ func TestNormLine(t *testing.T) {
 
 // TestFingerprintFollowsRule verifies the fingerprint is a hash of cluster,
 // scanner, and rule: a count change in the title keeps it, a different
-// cluster changes it, and GenerateFindings stamps it on every finding.
+// cluster changes it, and generateFindings stamps it on every finding.
 func TestFingerprintFollowsRule(t *testing.T) {
 	t.Parallel()
 
@@ -663,9 +1059,9 @@ func TestFingerprintFollowsRule(t *testing.T) {
 			"privileged_containers": n, "total_pods": 10,
 		}}})
 	}
-	three := GenerateFindings(privileged("a", 3))
-	four := GenerateFindings(privileged("a", 4))
-	other := GenerateFindings(privileged("b", 3))
+	three := generateFindings(privileged("a", 3))
+	four := generateFindings(privileged("a", 4))
+	other := generateFindings(privileged("b", 3))
 	if len(three) != 1 || len(four) != 1 || len(other) != 1 {
 		t.Fatalf("want one finding each, got %d, %d, %d", len(three), len(four), len(other))
 	}
@@ -732,7 +1128,7 @@ func TestRuleTitle(t *testing.T) {
 		if !ok || slug == "" || strings.ContainsAny(slug, "_ ") {
 			t.Errorf("rule %q is not scanner/slug", rule)
 		}
-		if _, known := ScannerLabels[scannerName]; !known && scannerName != "cohort" {
+		if _, known := scannerLabels[scannerName]; !known && scannerName != "cohort" {
 			t.Errorf("rule %q names unknown scanner %q", rule, scannerName)
 		}
 	}
@@ -856,10 +1252,13 @@ func TestSetAndVulnerabilityRules(t *testing.T) { //nolint:funlen // Test functi
 			crd(cm...), crd(cm...), crd(append(cm, "foo.example.com")...), crd(append(cm, "foo.example.com")...),
 			crd("certificates.cert-manager.io"),
 		},
+		// The CRD count is 2 on seven of ten, an exact norm, so c07, c08, and c09 are off it.
 		WantResult: []ruleHit{{
 			Rule: "crds/missing-consensus", Cluster: "c09", Severity: SeverityWarning,
 			Missing: []string{"issuers.cert-manager.io"},
-		}},
+		}, {Rule: "crds/outlier-count", Cluster: "c07", Severity: SeverityInfo},
+			{Rule: "crds/outlier-count", Cluster: "c08", Severity: SeverityInfo},
+			{Rule: "crds/outlier-count", Cluster: "c09", Severity: SeverityInfo}},
 	}, { // Test 1: A cluster missing a service the fleet runs is info.
 		Scanner: "services",
 		Payloads: []map[string]any{
@@ -869,20 +1268,22 @@ func TestSetAndVulnerabilityRules(t *testing.T) { //nolint:funlen // Test functi
 			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes", "monitoring/prometheus"),
 			svc("default/kubernetes", "monitoring/prometheus"), svc("default/kubernetes", "monitoring/prometheus"),
 		},
+		// The service count is 2 on nine of ten, an exact norm, so c03 is off it too.
 		WantResult: []ruleHit{{
 			Rule: "services/missing-consensus", Cluster: "c03", Severity: SeverityInfo,
 			Missing: []string{"monitoring/prometheus"},
-		}},
+		}, {Rule: "services/outlier-count", Cluster: "c03", Severity: SeverityWarning}},
 	}, { // Test 2: A cluster on another ingress class is flagged; one with no ingresses is not.
 		Scanner: "ingresses",
 		Payloads: []map[string]any{
 			ing("nginx"), ing("nginx"), ing("nginx"), ing("nginx"), ing("nginx"),
 			ing("nginx"), ing("nginx"), ing("nginx"), ing("traefik"), ing(),
 		},
+		// The ingress count is 1 on nine of ten, an exact norm, so c09 with none is off it.
 		WantResult: []ruleHit{{
 			Rule: "ingresses/missing-consensus", Cluster: "c08", Severity: SeverityInfo,
 			Missing: []string{"nginx"},
-		}},
+		}, {Rule: "ingresses/outlier-count", Cluster: "c09", Severity: SeverityInfo}},
 	}, { // Test 3: A critical CVE count far above the fleet is a warning, every CVE is an info, and a cluster without the scanner is not a zero.
 		Scanner: "vulnerabilities",
 		Payloads: []map[string]any{
@@ -1055,7 +1456,7 @@ func TestVersionFindingsMarks(t *testing.T) {
 		t.Errorf("mismatch (-want +got):\n%s", diff)
 	}
 	status := map[string]string{}
-	for _, h := range GenerateClusterHealth(r, got) {
+	for _, h := range generateClusterHealth(r, got) {
 		status[h.Name] = h.Status
 	}
 	if diff := cmp.Diff(map[string]string{"a": "healthy", "b": "healthy", "c": "degraded"}, status); diff != "" {
@@ -1094,7 +1495,7 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			got := map[string]string{}
-			for _, h := range GenerateClusterHealth(r, test.Findings) {
+			for _, h := range generateClusterHealth(r, test.Findings) {
 				got[h.Name] = h.Status
 			}
 			if diff := cmp.Diff(test.WantStatus, got); diff != "" {
@@ -1102,4 +1503,79 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNodeHealthFindings verifies pressure findings name the affected nodes.
+func TestNodeHealthFindings(t *testing.T) {
+	t.Parallel()
+	cond := func(typ, status string) nodehealth.NodeCondition {
+		return nodehealth.NodeCondition{Type: typ, Status: status}
+	}
+	tests := []struct {
+		Data             nodehealth.Data
+		WantRule         string
+		WantCommand      string
+		WantAffected     []string
+		WantFindingCount int
+	}{{ // Test 0: A memory-pressure node is named.
+		Data: nodehealth.Data{NodeCount: 2, MemoryPressureNodes: 1, Nodes: []nodehealth.NodeHealth{
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("Ready", "True"), cond("MemoryPressure", "True")}},
+			{Name: "n2", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("Ready", "True"), cond("MemoryPressure", "False")}},
+		}},
+		WantRule:         "node-health/memory-pressure",
+		WantCommand:      "kubectl --context c1 describe node n1",
+		WantAffected:     []string{"n1"},
+		WantFindingCount: 1,
+	}, { // Test 1: A disk-pressure node is named.
+		Data: nodehealth.Data{NodeCount: 2, DiskPressureNodes: 2, Nodes: []nodehealth.NodeHealth{
+			{Name: "n2", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("DiskPressure", "True")}},
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("DiskPressure", "True")}},
+		}},
+		WantRule:         "node-health/disk-pressure",
+		WantCommand:      "kubectl --context c1 describe node n1 n2",
+		WantAffected:     []string{"n1", "n2"},
+		WantFindingCount: 1,
+	}, { // Test 2: A False status does not name the node.
+		Data: nodehealth.Data{NodeCount: 1, MemoryPressureNodes: 1, Nodes: []nodehealth.NodeHealth{
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("MemoryPressure", "False")}},
+		}},
+		WantRule:         "node-health/memory-pressure",
+		WantCommand:      "kubectl --context c1 describe node ",
+		WantAffected:     nil,
+		WantFindingCount: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := testReport(map[string]map[string]any{"node-health": {"c1": test.Data}})
+			got := nodeHealthFindings(r)
+			if len(got) != test.WantFindingCount {
+				t.Fatalf("finding count = %d, want %d", len(got), test.WantFindingCount)
+			}
+			if got[0].Rule != test.WantRule {
+				t.Errorf("rule = %q, want %q", got[0].Rule, test.WantRule)
+			}
+			diff := cmp.Diff(test.WantAffected, got[0].Affected, cmpopts.EquateEmpty())
+			if diff != "" {
+				t.Errorf("affected mismatch (-want +got):\n%s", diff)
+			}
+			if got[0].Remediation.Command != test.WantCommand {
+				t.Errorf("command = %q, want %q", got[0].Remediation.Command, test.WantCommand)
+			}
+		})
+	}
+}
+
+// unenforcedNamespaceList returns n security payload namespace entries with no enforce level.
+func unenforcedNamespaceList(n int) []any {
+	out := make([]any, 0, n)
+	for i := range n {
+		out = append(out, map[string]any{"namespace": fmt.Sprintf("n%02d", i)})
+	}
+	return out
 }

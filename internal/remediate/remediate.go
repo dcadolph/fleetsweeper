@@ -5,8 +5,8 @@
 //
 // This is the only Fleetsweeper code path that writes outside the local
 // filesystem. It is deliberately opt-in: callers must explicitly invoke
-// Open with WithPush(true). Without that flag the function returns the
-// planned change without contacting GitHub.
+// Open with Options.Push set. Without it the function returns the planned
+// change without contacting GitHub.
 package remediate
 
 import (
@@ -86,9 +86,6 @@ type Result struct {
 	DryRun bool `json:"dry_run"`
 }
 
-// ErrNoYAML is returned when the finding has no inline YAML remediation to push.
-var ErrNoYAML = errors.New("remediate: finding has no inline YAML remediation; nothing to push")
-
 // Open prepares and (optionally) submits a remediation PR. Returns ErrNoYAML
 // when the finding has no inline manifest to apply.
 func Open(ctx context.Context, opts Options) (Result, error) {
@@ -96,7 +93,7 @@ func Open(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, ErrNoYAML
 	}
 	if opts.Owner == "" || opts.Repo == "" {
-		return Result{}, errors.New("remediate: --owner and --repo are required")
+		return Result{}, ErrRepo
 	}
 	slug := slugify(opts.Finding.Title)
 	if opts.HeadBranch == "" {
@@ -129,21 +126,12 @@ func Open(ctx context.Context, opts Options) (Result, error) {
 	}
 
 	if !opts.Push {
-		// Caller asked for a plan only. Resolve the base branch best-effort
-		// for accuracy if Token is set, otherwise leave it.
-		if opts.Token != "" {
-			if base, err := defaultBranch(ctx, opts); err == nil {
-				res.BaseBranch = base
-			}
-		}
-		if res.BaseBranch == "" {
-			res.BaseBranch = opts.BaseBranch
-		}
+		res.BaseBranch = opts.BaseBranch
 		return res, nil
 	}
 
 	if opts.Token == "" {
-		return res, errors.New("remediate: --github-token (or $GITHUB_TOKEN) required when pushing")
+		return res, ErrToken
 	}
 
 	baseBranch := opts.BaseBranch

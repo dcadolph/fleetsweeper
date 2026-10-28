@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -13,7 +14,9 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/imageaudit"
 	"github.com/dcadolph/fleetsweeper/internal/server"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 // watchCmd reruns a scan on an interval and prints a diff between
@@ -25,7 +28,7 @@ var watchCmd = &cobra.Command{
 	Example: "  fleetsweeper watch --all-contexts --interval 10m --on-change-only",
 	Long: "Run a scan on the given interval and print the diff to the " +
 		"previous run. By default no results are persisted; pass --db to " +
-		"also save each scan into the SQLite store.",
+		"also save each scan into the store.",
 	RunE: runWatch,
 }
 
@@ -38,6 +41,8 @@ func init() {
 	watchCmd.Flags().Int("max-runs", 0, "Stop after N scans (0 = infinite).")
 	watchCmd.Flags().Bool("on-change-only", false, "Only print when the diff is non-empty.")
 	watchCmd.Flags().Bool("no-color", false, "Disable ANSI color even on a TTY.")
+	watchCmd.Flags().Duration("scanner-timeout", scanner.DefaultScanTimeout, "Maximum time a single scanner may run against one cluster. 0 disables.")
+	watchCmd.Flags().Bool("probe-registries", false, "Resolve image manifests against their registries to report image age. Contacts every registry the fleet pulls from.")
 }
 
 // runWatch is the cobra entrypoint for the watch subcommand.
@@ -50,6 +55,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
 	workers, _ := cmd.Flags().GetInt("workers")
+	scannerTimeout, _ := cmd.Flags().GetDuration("scanner-timeout")
 	interval, _ := cmd.Flags().GetDuration("interval")
 	maxRuns, _ := cmd.Flags().GetInt("max-runs")
 	onChangeOnly, _ := cmd.Flags().GetBool("on-change-only")
@@ -61,8 +67,22 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	probe, _ := cmd.Flags().GetBool("probe-registries")
+	imageaudit.SetProbeRegistries(probe)
 	registry := buildRegistry()
-	selected := selectScanners(registry, scannerNames)
+	selected, err := selectScanners(registry, scannerNames)
+	if err != nil {
+		return err
+	}
+
+	var st store.Store
+	if dbPath, _ := cmd.Flags().GetString("db"); dbPath != "" {
+		st, err = openAnyStore(cmd)
+		if err != nil {
+			return fmt.Errorf("open store: %w", err)
+		}
+		defer st.Close()
+	}
 
 	out := cmd.OutOrStdout()
 	var prev *report.Report
@@ -79,13 +99,10 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		if len(clients) == 0 {
 			log.Warn("watch: no clients reached")
 		} else {
-			results := server.RunScanners(ctx, clients, selected, workers, scanner.DefaultScanTimeout,
-				logutil.UnwrapLogger(ctx))
-			clusterNames := make([]string, len(clients))
-			for i, c := range clients {
-				clusterNames[i] = c.Context
+			cur, err := watchOnce(ctx, clients, selected, workers, scannerTimeout, st)
+			if err != nil {
+				return err
 			}
-			cur := report.Build(clusterNames, results)
 			d := compare.Diff(prev, cur)
 			if !onChangeOnly || diffHasChanges(d) {
 				fmt.Fprint(out, compare.RenderText(d, color))
@@ -104,6 +121,26 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		case <-time.After(interval):
 		}
 	}
+}
+
+// watchOnce scans the clients and returns the report built from the results. When st is
+// non-nil it saves the scan and builds the report with the store's cohort tags and groups.
+func watchOnce(ctx context.Context, clients []*kube.Client, selected map[string]scanner.Scanner,
+	workers int, timeout time.Duration, st store.Store) (*report.Report, error) {
+	scannedAt := time.Now().UTC()
+	results := server.RunScanners(ctx, clients, selected, workers, timeout, logutil.UnwrapLogger(ctx))
+	names := make([]string, len(clients))
+	for i, c := range clients {
+		names[i] = c.Context
+	}
+	if st != nil {
+		id, err := st.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: names}, results)
+		if err != nil {
+			return nil, fmt.Errorf("save scan: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "scan %s saved\n", id)
+	}
+	return buildScanReport(ctx, st, names, results, report.BuildOptions{Timestamp: scannedAt})
 }
 
 // diffHasChanges reports whether the diff carries any meaningful change.

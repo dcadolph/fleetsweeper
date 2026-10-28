@@ -57,7 +57,7 @@ type AlertListOptions struct {
 }
 
 // UpsertAlert inserts or updates an alert keyed by fingerprint.
-func (s *SQLite) UpsertAlert(ctx context.Context, rec AlertRecord) error {
+func (s *sqlStore) UpsertAlert(ctx context.Context, rec AlertRecord) error {
 	if rec.Fingerprint == "" {
 		return fmt.Errorf("%w: alert fingerprint required", ErrStore)
 	}
@@ -72,7 +72,7 @@ func (s *SQLite) UpsertAlert(ctx context.Context, rec AlertRecord) error {
 	if err != nil {
 		return fmt.Errorf("%w: marshal annotations: %w", ErrStore, err)
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = s.exec(ctx, `
 INSERT INTO alerts (fingerprint, cluster, status, alertname, severity, summary, starts_at, ends_at, received_at, labels_json, annotations_json, generator_url)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(fingerprint) DO UPDATE SET
@@ -102,8 +102,8 @@ ON CONFLICT(fingerprint) DO UPDATE SET
 
 // GetAlert returns the alert row with the given fingerprint. Returns
 // the wrapped ErrNotFound when no row matches.
-func (s *SQLite) GetAlert(ctx context.Context, fingerprint string) (*AlertRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *sqlStore) GetAlert(ctx context.Context, fingerprint string) (*AlertRecord, error) {
+	rows, err := s.query(ctx, `
 SELECT fingerprint, cluster, status, alertname, severity, summary, starts_at, ends_at, received_at, labels_json, annotations_json, generator_url
 FROM alerts WHERE fingerprint = ?`, fingerprint)
 	if err != nil {
@@ -121,7 +121,7 @@ FROM alerts WHERE fingerprint = ?`, fingerprint)
 }
 
 // ListAlerts returns alerts matching opts, newest received_at first.
-func (s *SQLite) ListAlerts(ctx context.Context, opts AlertListOptions) ([]AlertRecord, error) {
+func (s *sqlStore) ListAlerts(ctx context.Context, opts AlertListOptions) ([]AlertRecord, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = 200
 	}
@@ -150,7 +150,7 @@ func (s *SQLite) ListAlerts(ctx context.Context, opts AlertListOptions) ([]Alert
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	args = append(args, opts.Limit)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.query(ctx, `
 SELECT fingerprint, cluster, status, alertname, severity, summary, starts_at, ends_at, received_at, labels_json, annotations_json, generator_url
 FROM alerts`+where+` ORDER BY received_at DESC LIMIT ?`, args...)
 	if err != nil {
@@ -169,8 +169,8 @@ FROM alerts`+where+` ORDER BY received_at DESC LIMIT ?`, args...)
 }
 
 // PruneAlerts removes alert rows older than cutoff. Returns rows removed.
-func (s *SQLite) PruneAlerts(ctx context.Context, cutoff time.Time) (int, error) {
-	res, err := s.db.ExecContext(ctx,
+func (s *sqlStore) PruneAlerts(ctx context.Context, cutoff time.Time) (int, error) {
+	res, err := s.exec(ctx,
 		"DELETE FROM alerts WHERE received_at < ?",
 		cutoff.UTC().Format(sortableTime))
 	if err != nil {

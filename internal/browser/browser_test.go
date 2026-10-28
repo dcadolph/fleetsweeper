@@ -423,6 +423,11 @@ func TestDashboardSmoke(t *testing.T) {
 	}
 	latestCluster := scans[0].Clusters[0]
 
+	var kubeContexts []struct {
+		Name string `json:"name"`
+	}
+	getJSON(t, ts.URL+"/api/contexts", &kubeContexts)
+
 	routes := boot(t, ctx, ts)
 	if errs := log.take(); len(errs) > 0 {
 		t.Errorf("errors during boot:\n%s", strings.Join(errs, "\n"))
@@ -470,6 +475,21 @@ func TestDashboardSmoke(t *testing.T) {
 		if state != "content" && state != "empty" {
 			t.Errorf("route %s (%s): view shows %s", id, hash, state)
 		}
+		if id == "manage" {
+			var scanButtons int
+			err := run(ctx, 5*time.Second, chromedp.Evaluate(
+				`document.querySelectorAll('[data-action="scan-contexts"]').length`, &scanButtons))
+			want := 0
+			if len(kubeContexts) > 0 {
+				want = len(kubeContexts) + 1
+			}
+			if err != nil {
+				t.Errorf("route manage: count scan buttons: %v", err)
+			} else if scanButtons != want {
+				t.Errorf("route manage: %d scan buttons, want %d for %d contexts",
+					scanButtons, want, len(kubeContexts))
+			}
+		}
 		switch {
 		case shift.CLS > maxShiftScore:
 			t.Errorf("route %s: layout shift score %.3f, want at most %.2f", id, shift.CLS, maxShiftScore)
@@ -516,6 +536,83 @@ func TestDashboardSmoke(t *testing.T) {
 		if diff := cmp.Diff([]any{float64(1), "Keyed two"}, got); diff != "" {
 			t.Errorf("toasts mismatch (-want +got):\n%s", diff)
 		}
+	})
+
+	t.Run("read error message", func(t *testing.T) {
+		var got string
+		err := run(ctx, 10*time.Second, chromedp.Evaluate(
+			`import('/js/api.js').then((m) => m.api('/scans/nope/report')).catch((e) => e.message)`,
+			&got, awaitPromise))
+		if err != nil {
+			t.Fatalf("read error message: %v", err)
+		}
+		if diff := cmp.Diff("scan not found", got); diff != "" {
+			t.Errorf("error message mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("outliers held", func(t *testing.T) {
+		var resp struct {
+			Outliers []struct {
+				ExplainedBy string `json:"explained_by"`
+			} `json:"outliers"`
+		}
+		getJSON(t, ts.URL+"/api/outliers", &resp)
+		var cohortResp struct {
+			Cohorts []struct {
+				Outliers []struct {
+					Scope string `json:"scope"`
+				} `json:"outliers"`
+			} `json:"cohorts"`
+		}
+		getJSON(t, ts.URL+"/api/cohorts", &cohortResp)
+		open := 0
+		for _, o := range resp.Outliers {
+			if o.ExplainedBy == "" {
+				open++
+			}
+		}
+		fleetOpen := open
+		wantScopes := map[string]int{}
+		for _, c := range cohortResp.Cohorts {
+			for _, o := range c.Outliers {
+				wantScopes[o.Scope]++
+				open++
+			}
+		}
+		if len(wantScopes) == 0 {
+			t.Fatalf("demo has no cohort outliers to assert on")
+		}
+		held := len(resp.Outliers) - fleetOpen
+		var rows int
+		var summary string
+		var scopeCells []string
+		err := run(ctx, settleTimeout+5*time.Second,
+			chromedp.Evaluate(`location.hash = '#/outliers'`, nil),
+			chromedp.Poll(settledJS+` && !!document.querySelector('#outlierStrips')`,
+				nil, chromedp.WithPollingTimeout(settleTimeout)),
+			chromedp.Evaluate(`document.querySelectorAll('#outlierTable tbody tr').length`, &rows),
+			chromedp.Evaluate(`[...document.querySelectorAll('#outlierTable tbody tr')]
+				.map((r) => r.cells[3].textContent).filter((s) => s !== 'fleet')`, &scopeCells),
+			chromedp.Evaluate(`(document.querySelector('#outlierHeld summary') || {textContent: ''}).textContent`, &summary),
+		)
+		if err != nil {
+			t.Fatalf("outliers held: %v", err)
+		}
+		if rows != open {
+			t.Errorf("open outlier rows: %d != %d", rows, open)
+		}
+		gotScopes := map[string]int{}
+		for _, s := range scopeCells {
+			gotScopes[s]++
+		}
+		if diff := cmp.Diff(wantScopes, gotScopes); diff != "" {
+			t.Errorf("cohort rows by norm scope mismatch (-want +got):\n%s", diff)
+		}
+		if want := fmt.Sprintf("%d ", held); !strings.HasPrefix(summary, want) {
+			t.Errorf("held summary %q does not begin with %q", summary, want)
+		}
+		t.Logf("open %d held %d total %d", open, held, len(resp.Outliers))
 	})
 
 	t.Run("trigger flow", func(t *testing.T) {

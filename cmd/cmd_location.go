@@ -59,7 +59,7 @@ func init() {
 
 // runLocationSet writes a single location override.
 func runLocationSet(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func runLocationSet(cmd *cobra.Command, args []string) error {
 
 // runLocationList prints every override as JSON.
 func runLocationList(cmd *cobra.Command, _ []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func runLocationList(cmd *cobra.Command, _ []string) error {
 
 // runLocationDelete removes a single override.
 func runLocationDelete(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}

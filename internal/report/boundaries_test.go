@@ -120,14 +120,15 @@ func TestMajorityNumericBoundaries(t *testing.T) {
 		Threshold     float64
 		WantCluster   string
 		WantDeviation float64
+		WantExact     bool
 	}{{ // Test 0: A z exactly at the threshold is not an outlier.
 		Vals: []any{0, 1, 2, 11}, Threshold: atThreshold,
 	}, { // Test 1: A z just over the threshold is, with the exact z as its deviation.
 		Vals: []any{0, 1, 2, 11}, Threshold: math.Nextafter(atThreshold, 0),
 		WantCluster: "c03", WantDeviation: atThreshold,
-	}, { // Test 2: A flat majority reports the capped deviation for the one that differs.
+	}, { // Test 2: A flat majority flags the one that differs as exact, with no deviation.
 		Vals: []any{5, 5, 5, 9}, Threshold: 3.5,
-		WantCluster: "c03", WantDeviation: 1e6,
+		WantCluster: "c03", WantExact: true,
 	}}
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
@@ -148,6 +149,36 @@ func TestMajorityNumericBoundaries(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantDeviation, got.Deviation); diff != "" {
 				t.Errorf("deviation mismatch (-want +got):\n%s", diff)
+			}
+			if got.Exact != test.WantExact {
+				t.Errorf("exact = %v, want %v", got.Exact, test.WantExact)
+			}
+		})
+	}
+}
+
+// TestCappedZ verifies the JSON guard replaces an infinite z-score with the signed cap and
+// passes a finite one through.
+func TestCappedZ(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		In         float64
+		WantResult float64
+	}{{ // Test 0: Positive infinity becomes the cap.
+		In: math.Inf(1), WantResult: maxReportedDeviation,
+	}, { // Test 1: Negative infinity becomes the negative cap.
+		In: math.Inf(-1), WantResult: -maxReportedDeviation,
+	}, { // Test 2: A finite z passes through.
+		In: -4.2, WantResult: -4.2,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if diff := cmp.Diff(test.WantResult, cappedZ(test.In)); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(1e6, maxReportedDeviation); diff != "" {
+				t.Errorf("cap mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -226,14 +257,14 @@ func maxedReport() *Report {
 func TestFleetScoreFloorsAtZero(t *testing.T) {
 	t.Parallel()
 	r := maxedReport()
-	a := ComputeScoreAttribution(r)
+	a := computeScoreAttribution(r)
 	// 36 + 24 + 5 finding caps, 10 + 5 health shares of two clusters, 10 skew, 10 nodes.
 	if diff := cmp.Diff(100.0, a.Total); diff != "" {
 		t.Errorf("total mismatch (-want +got):\n%s", diff)
 	}
 	r.Findings = append(r.Findings, Finding{Severity: SeverityWarning, Cluster: "b", Rule: "extra"})
 	r.ClusterHealths[1].Status = "critical"
-	score := ComputeFleetScore(r)
+	score, _ := scoreWithAttribution(r)
 	if diff := cmp.Diff(0, score.Score); diff != "" {
 		t.Errorf("score mismatch (-want +got):\n%s", diff)
 	}
@@ -260,7 +291,7 @@ func TestScoreDriversTopThree(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			a := ComputeScoreAttribution(test.Report)
+			a := computeScoreAttribution(test.Report)
 			impacts := make([]int, 0, len(a.Terms))
 			for _, d := range a.Drivers() {
 				impacts = append(impacts, d.Impact)

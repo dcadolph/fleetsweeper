@@ -60,13 +60,8 @@ type ReasonSummary struct {
 
 // Data holds event information for one cluster.
 type Data struct {
-	// TotalEvents is the total number of warning events within the time window.
-	TotalEvents int `json:"total_events"`
 	// WarningEvents is the number of Warning-type events within the window.
 	WarningEvents int `json:"warning_events"`
-	// NormalEvents is always zero (kept for backward compatibility); the scanner
-	// no longer ingests Normal events because they are pure noise at fleet scale.
-	NormalEvents int `json:"normal_events"`
 	// TopWarningReasons lists the most common warning event reasons.
 	TopWarningReasons []ReasonSummary `json:"top_warning_reasons"`
 	// RecentWarnings lists the most recent warning events.
@@ -106,7 +101,6 @@ func NewScanner() scanner.Scanner {
 			}
 
 			data.WarningEvents++
-			data.TotalEvents++
 
 			count := ev.Count
 			if count == 0 {

@@ -111,29 +111,19 @@ func parseRepoSpec(s string) (string, string, error) {
 // scan-id is honored as a convenience so callers do not have to look up a
 // scan ID first.
 func pickFinding(ctx context.Context, cmd *cobra.Command, scanID, cluster, scannerFilter string, idx int) (report.Finding, error) {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return report.Finding{}, fmt.Errorf("open store: %w", err)
 	}
 	defer s.Close()
 
-	if scanID == "latest" {
-		scans, err := s.ListScans(ctx, 1)
-		if err != nil || len(scans) == 0 {
-			return report.Finding{}, fmt.Errorf("no scans available")
-		}
-		scanID = scans[0].ID
+	if scanID, err = resolveScanRef(ctx, s, scanID); err != nil {
+		return report.Finding{}, err
 	}
-
-	scan, err := s.GetScan(ctx, scanID)
+	rpt, _, err := loadStoredReport(ctx, s, scanID)
 	if err != nil {
-		return report.Finding{}, fmt.Errorf("get scan %q: %w", scanID, err)
+		return report.Finding{}, err
 	}
-	results, err := s.GetScanResults(ctx, scan.ID)
-	if err != nil {
-		return report.Finding{}, fmt.Errorf("get scan results: %w", err)
-	}
-	rpt := report.Build(scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
 
 	candidates := filterRemediable(rpt.Findings, cluster, scannerFilter)
 	if len(candidates) == 0 {
@@ -172,8 +162,12 @@ func printResult(cmd *cobra.Command, res remediate.Result) {
 	} else {
 		fmt.Fprintf(out, "PR opened: %s (#%d)\n", res.PRURL, res.PRNumber)
 	}
+	base := res.BaseBranch
+	if base == "" {
+		base = "(repo default)"
+	}
 	fmt.Fprintf(out, "  head: %s\n  base: %s\n  path: %s\n  title: %s\n",
-		res.HeadBranch, res.BaseBranch, res.TargetPath, res.PRTitle)
+		res.HeadBranch, base, res.TargetPath, res.PRTitle)
 	if res.DryRun {
 		fmt.Fprintln(out, "\nplanned YAML:")
 		fmt.Fprintln(out, res.PlannedYAML)

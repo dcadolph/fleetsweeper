@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -81,16 +82,26 @@ func defaultKubeconfig() string {
 
 // newLogger creates a zap logger writing to stderr at the given level.
 func newLogger(level string) (*zap.Logger, error) {
+	cfg, err := loggerConfig(level)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Build()
+}
+
+// loggerConfig builds the zap configuration for the given level name.
+func loggerConfig(level string) (zap.Config, error) {
 	var zapLevel zapcore.Level
 	if err := zapLevel.UnmarshalText([]byte(level)); err != nil {
-		zapLevel = zapcore.WarnLevel
+		return zap.Config{}, fmt.Errorf("%w: %q: want debug, info, warn, or error", ErrLogLevel, level)
 	}
-	cfg := zap.Config{
+	encoder := zap.NewProductionEncoderConfig()
+	encoder.EncodeTime = zapcore.ISO8601TimeEncoder
+	return zap.Config{
 		Level:            zap.NewAtomicLevelAt(zapLevel),
 		Encoding:         "console",
 		OutputPaths:      []string{"stderr"},
 		ErrorOutputPaths: []string{"stderr"},
-		EncoderConfig:    zap.NewProductionEncoderConfig(),
-	}
-	return cfg.Build()
+		EncoderConfig:    encoder,
+	}, nil
 }

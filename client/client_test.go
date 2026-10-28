@@ -1,9 +1,12 @@
 package client_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -255,6 +258,41 @@ func TestContract(t *testing.T) {
 		}
 		okOrAPIError(t, "contexts", func() error { _, err := c.Contexts(ctx); return err }())
 	})
+
+	t.Run("trigger scan empty", func(t *testing.T) {
+		_, err := c.TriggerScan(ctx, client.TriggerScanRequest{})
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("trigger scan: want *APIError, got %v", err)
+		}
+		if apiErr.StatusCode != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
+		}
+		if apiErr.Message != "no contexts specified" {
+			t.Errorf("message = %q, want %q", apiErr.Message, "no contexts specified")
+		}
+	})
+
+	t.Run("ack alert unknown", func(t *testing.T) {
+		_, err := c.AckAlert(ctx, "fp-unknown", client.AckAlertRequest{AckBy: "tester"})
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("ack alert: want *APIError, got %v", err)
+		}
+		if apiErr.StatusCode != http.StatusNotFound {
+			t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusNotFound)
+		}
+	})
+
+	t.Run("cluster trends", func(t *testing.T) {
+		raw, err := c.ClusterTrends(ctx, "prod-a")
+		if err != nil {
+			t.Fatalf("cluster trends: %v", err)
+		}
+		if !strings.Contains(string(raw), `"cluster":"prod-a"`) {
+			t.Errorf("cluster trends = %s, want it to contain %q", raw, `"cluster":"prod-a"`)
+		}
+	})
 }
 
 // TestContractAuth confirms the client sends its bearer token and that the
@@ -378,7 +416,7 @@ func TestContractNorm(t *testing.T) {
 				v = 80
 			}
 			clusters = append(clusters, cl)
-			results[cl] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+			results[cl] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"unenforced_count": v}}}
 		}
 		rec := store.ScanRecord{ID: fmt.Sprintf("scan-%d", n), Timestamp: start.Add(time.Duration(n) * time.Hour), Clusters: clusters}
 		if _, err := st.SaveScanRecord(ctx, rec, results); err != nil {
@@ -386,7 +424,7 @@ func TestContractNorm(t *testing.T) {
 		}
 	}
 
-	dists, err := c.Distributions(ctx, client.DistributionQuery{Field: "enforced_count"})
+	dists, err := c.Distributions(ctx, client.DistributionQuery{Field: "unenforced_count"})
 	if err != nil || dists.ScanID != "scan-5" || len(dists.Distributions) != 1 {
 		t.Fatalf("distributions: %+v, %v", dists, err)
 	}
@@ -400,7 +438,7 @@ func TestContractNorm(t *testing.T) {
 		t.Errorf("want one flagged cluster, got %d", flagged)
 	}
 
-	hist, err := c.DistributionHistory(ctx, "security", "enforced_count", "", 5)
+	hist, err := c.DistributionHistory(ctx, "security", "unenforced_count", "", 5)
 	if err != nil || len(hist.Points) != 5 || hist.Points[0].ScanID != "scan-1" {
 		t.Errorf("history: %+v, %v", hist, err)
 	}
@@ -427,7 +465,7 @@ func TestContractNorm(t *testing.T) {
 		t.Errorf("cohort map: %+v, %v", m, err)
 	}
 
-	out, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "enforced_count"})
+	out, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "unenforced_count"})
 	if err != nil {
 		t.Fatalf("whatif: %v", err)
 	}
@@ -438,5 +476,208 @@ func TestContractNorm(t *testing.T) {
 	if _, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "nope"}); !errors.As(err, &apiErr) ||
 		apiErr.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("whatif on an unknown field: want 422, got %v", err)
+	}
+}
+
+// TestContractDemoStrict decodes every typed read endpoint of the demo fleet with unknown
+// fields disallowed, so a field the server sends and the client drops fails the test.
+func TestContractDemoStrict(t *testing.T) {
+	t.Parallel()
+	st, err := store.Open("sqlite", filepath.Join(t.TempDir(), "fleet.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := server.SeedDemo(ctx, st, time.Now()); err != nil {
+		t.Fatalf("seed demo: %v", err)
+	}
+	srv := server.New(server.Config{
+		Store: st, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Demo: true,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	c := client.New(ts.URL)
+
+	scans, err := c.ListScans(ctx, 1)
+	if err != nil || len(scans) == 0 {
+		t.Fatalf("list scans: %v, %d", err, len(scans))
+	}
+	clusters, err := c.ListClusters(ctx)
+	if err != nil || len(clusters) == 0 {
+		t.Fatalf("list clusters: %v, %d", err, len(clusters))
+	}
+	dists, err := c.Distributions(ctx, client.DistributionQuery{})
+	if err != nil || len(dists.Distributions) == 0 {
+		t.Fatalf("distributions: %v", err)
+	}
+	d := dists.Distributions[0]
+	histPath := "/api/distributions/history?scanner=" + d.Scanner + "&field=" + d.Field
+
+	// reportWire is Report plus the top-level keys the client deliberately omits.
+	type reportWire struct {
+		client.Report
+		Sections   json.RawMessage `json:"sections"`
+		Categories json.RawMessage `json:"categories"`
+		Brief      json.RawMessage `json:"brief"`
+		Incidents  json.RawMessage `json:"incidents"`
+		Degraded   json.RawMessage `json:"degraded"`
+	}
+
+	tests := []struct {
+		Dest func() any
+		Name string
+		Path string
+	}{
+		{ // Test 0: Report.
+			Dest: func() any { return &reportWire{} },
+			Name: "report", Path: "/api/scans/" + scans[0].ID + "/report",
+		},
+		{ // Test 1: Outliers.
+			Dest: func() any { return &client.OutliersResponse{} },
+			Name: "outliers", Path: "/api/outliers",
+		},
+		{ // Test 2: Distributions.
+			Dest: func() any { return &client.DistributionsResponse{} },
+			Name: "distributions", Path: "/api/distributions",
+		},
+		{ // Test 3: Cohorts.
+			Dest: func() any { return &client.CohortsResponse{} },
+			Name: "cohorts", Path: "/api/cohorts",
+		},
+		{ // Test 4: Capacity.
+			Dest: func() any { return &client.CapacityResponse{} },
+			Name: "capacity", Path: "/api/capacity",
+		},
+		{ // Test 5: Cluster detail.
+			Dest: func() any { return &client.ClusterDetail{} },
+			Name: "detail", Path: "/api/clusters/" + clusters[0].Name + "/detail",
+		},
+		{ // Test 6: Attribution.
+			Dest: func() any { return &client.AttributionResponse{} },
+			Name: "attribution", Path: "/api/score/attribution",
+		},
+		{ // Test 7: Distribution history.
+			Dest: func() any { return &client.HistoryResponse{} },
+			Name: "history", Path: histPath,
+		},
+		{ // Test 8: Drift.
+			Dest: func() any { return &client.DriftLedger{} },
+			Name: "drift", Path: "/api/drift",
+		},
+		{ // Test 9: Cohort map.
+			Dest: func() any { return &client.CohortMapResponse{} },
+			Name: "cohort map", Path: "/api/cohorts/map",
+		},
+		{ // Test 10: Fleet forecast.
+			Dest: func() any { return &client.FleetForecastResponse{} },
+			Name: "fleet forecast", Path: "/api/forecast/fleet-score",
+		},
+		{ // Test 11: Cluster forecasts.
+			Dest: func() any { return &client.ClustersForecastResponse{} },
+			Name: "cluster forecasts", Path: "/api/forecast/clusters",
+		},
+		{ // Test 12: Alerts.
+			Dest: func() any { return &client.AlertsResponse{} },
+			Name: "alerts", Path: "/api/alerts",
+		},
+		{ // Test 13: Timeline.
+			Dest: func() any { return &client.TimelineResponse{} },
+			Name: "timeline", Path: "/api/clusters/" + clusters[0].Name + "/timeline",
+		},
+		{ // Test 14: Cost.
+			Dest: func() any { return &client.CostAnalysis{} },
+			Name: "cost", Path: "/api/cost",
+		},
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			resp, err := http.Get(ts.URL + test.Path)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", resp.StatusCode, body)
+			}
+			dec := json.NewDecoder(bytes.NewReader(body))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(test.Dest()); err != nil {
+				t.Errorf("strict decode: %v", err)
+			}
+		})
+	}
+}
+
+// countingTransport counts round trips and delegates to the default transport.
+type countingTransport struct {
+	// Count is the number of requests sent through the transport.
+	Count int
+}
+
+// RoundTrip counts the request and forwards it.
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.Count++
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestClientOptions confirms WithUserAgent and WithHTTPClient reach the wire.
+func TestClientOptions(t *testing.T) {
+	t.Parallel()
+	var gotUA string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(ts.Close)
+	ctx := context.Background()
+
+	t.Run("user agent", func(t *testing.T) {
+		c := client.New(ts.URL, client.WithUserAgent("custom-agent/9"))
+		if err := c.Healthz(ctx); err != nil {
+			t.Fatalf("healthz: %v", err)
+		}
+		if gotUA != "custom-agent/9" {
+			t.Errorf("User-Agent = %q, want %q", gotUA, "custom-agent/9")
+		}
+	})
+
+	t.Run("http client", func(t *testing.T) {
+		rt := &countingTransport{}
+		c := client.New(ts.URL, client.WithHTTPClient(&http.Client{Transport: rt}))
+		if err := c.Healthz(ctx); err != nil {
+			t.Fatalf("healthz: %v", err)
+		}
+		if rt.Count != 1 {
+			t.Errorf("round trips = %d, want 1", rt.Count)
+		}
+	})
+}
+
+// TestAPIErrorError checks the exact error strings.
+func TestAPIErrorError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		WantString string
+		Err        client.APIError
+	}{{ // Test 0: Message present.
+		Err:        client.APIError{StatusCode: 404, Message: "not found"},
+		WantString: "fleetsweeper: http 404: not found",
+	}, { // Test 1: Empty message.
+		Err:        client.APIError{StatusCode: 502},
+		WantString: "fleetsweeper: http 502",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if diff := cmp.Diff(test.WantString, test.Err.Error(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

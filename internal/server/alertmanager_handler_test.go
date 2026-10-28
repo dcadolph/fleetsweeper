@@ -223,3 +223,41 @@ func TestVerifyBearer_ConstantTime(t *testing.T) {
 		t.Error("empty secret should never authenticate")
 	}
 }
+
+// TestHandleListAlerts_AllFilters exercises the status, severity, limit, and
+// since query-parameter branches.
+func TestHandleListAlerts_AllFilters(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	ctx := context.Background()
+	seed := []store.AlertRecord{
+		{Fingerprint: "f1", Cluster: "east", Status: "firing", Severity: "critical",
+			AlertName: "A", ReceivedAt: time.Now(), Labels: map[string]string{}, Annotations: map[string]string{}},
+		{Fingerprint: "f2", Cluster: "west", Status: "resolved", Severity: "warning",
+			AlertName: "B", ReceivedAt: time.Now(), Labels: map[string]string{}, Annotations: map[string]string{}},
+	}
+	for _, a := range seed {
+		if err := ss.UpsertAlert(ctx, a); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	since := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	url := "/api/alerts?status=firing&severity=critical&limit=10&since=" + since
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	w := httptest.NewRecorder()
+	srv.handleListAlerts(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var resp struct {
+		Alerts []store.AlertRecord `json:"alerts"`
+		Count  int                 `json:"count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Count != 1 || resp.Alerts[0].Fingerprint != "f1" {
+		t.Errorf("expected only the firing critical alert, got %+v", resp)
+	}
+}

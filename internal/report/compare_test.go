@@ -69,3 +69,92 @@ func TestBuild(t *testing.T) {
 		})
 	}
 }
+
+func TestCompare(t *testing.T) {
+	t.Parallel()
+
+	type data = map[string]any
+	abc := []string{"a", "b", "c"}
+
+	tests := []struct {
+		WantUniform     bool
+		WantDivergences []Divergence
+		Clusters        []string
+		PerCluster      map[string]any
+	}{{ // Test 0: Empty first string value differs from later values.
+		Clusters:    abc,
+		PerCluster:  map[string]any{"a": data{"x": ""}, "b": data{"x": "x"}, "c": data{"x": "x"}},
+		WantUniform: false,
+		WantDivergences: []Divergence{{
+			Field:  "x",
+			Values: map[string]string{"a": "", "b": "x", "c": "x"},
+		}},
+	}, { // Test 1: Cluster absent from perCluster shows missing for strings.
+		Clusters:    abc,
+		PerCluster:  map[string]any{"a": data{"x": "1"}, "b": data{"x": "2"}},
+		WantUniform: false,
+		WantDivergences: []Divergence{{
+			Field:  "x",
+			Values: map[string]string{"a": "1", "b": "2", "c": "<missing>"},
+		}},
+	}, { // Test 2: Leading nil numeric value still gets numeric annotation.
+		Clusters:    abc,
+		PerCluster:  map[string]any{"a": data{"n": nil}, "b": data{"n": 5.0}, "c": data{"n": 3.0}},
+		WantUniform: false,
+		WantDivergences: []Divergence{{
+			Field:  "n",
+			Values: map[string]string{"a": "0 [lowest]", "b": "5 [highest]", "c": "3"},
+		}},
+	}, { // Test 3: Absent cluster keeps missing and is not annotated for numerics.
+		Clusters:    abc,
+		PerCluster:  map[string]any{"a": data{"n": 0.0}, "b": data{"n": 2.0}},
+		WantUniform: false,
+		WantDivergences: []Divergence{{
+			Field:  "n",
+			Values: map[string]string{"a": "0 [lowest]", "b": "2 [highest]", "c": "<missing>"},
+		}},
+	}, { // Test 4: Set field reports item counts and missing members.
+		Clusters: abc,
+		PerCluster: map[string]any{
+			"a": data{"names": []any{"x", "y"}},
+			"b": data{"names": []any{"x"}},
+			"c": data{"names": []any{"x", "y"}},
+		},
+		WantUniform: false,
+		WantDivergences: []Divergence{{
+			Field:  "names",
+			Values: map[string]string{"a": "2 items", "b": "1 items, missing: y", "c": "2 items"},
+		}},
+	}, { // Test 5: Set field with an absent cluster reports all members missing.
+		Clusters: abc,
+		PerCluster: map[string]any{
+			"a": data{"hosts": []any{"h"}},
+			"b": data{"hosts": []any{"h", "i"}},
+		},
+		WantUniform: false,
+		WantDivergences: []Divergence{{
+			Field: "hosts",
+			Values: map[string]string{
+				"a": "1 items, missing: i", "b": "2 items", "c": "0 items, missing: h, i",
+			},
+		}},
+	}, { // Test 6: Uniform input yields no divergences.
+		Clusters:        abc,
+		PerCluster:      map[string]any{"a": data{"x": "1"}, "b": data{"x": "1"}, "c": data{"x": "1"}},
+		WantUniform:     true,
+		WantDivergences: nil,
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := compare(test.Clusters, test.PerCluster)
+			if diff := cmp.Diff(test.WantUniform, got.Uniform); diff != "" {
+				t.Errorf("uniform mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantDivergences, got.Divergences, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("divergences mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

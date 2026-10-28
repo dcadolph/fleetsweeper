@@ -179,7 +179,12 @@ func TestExitCodesDocumented(t *testing.T) {
 
 func TestBadFlagErrorShape(t *testing.T) {
 	t.Parallel()
-	for _, c := range contractCommands(rootCmd) {
+	// Commands sorts its slice in place, so the walk holds the lock like every Execute.
+	cmds := func() []*cobra.Command {
+		defer lockRootCmd(t)()
+		return contractCommands(rootCmd)
+	}()
+	for _, c := range cmds {
 		path := commandPath(c)
 		func() {
 			defer lockRootCmd(t)()

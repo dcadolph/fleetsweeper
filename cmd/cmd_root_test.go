@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -22,18 +26,56 @@ func TestDefaultKubeconfig(t *testing.T) {
 	}
 }
 
-// TestNewLogger verifies a valid level builds and an invalid level falls back
-// to warn without erroring.
+// TestNewLogger verifies valid levels build and unknown levels return ErrLogLevel.
 func TestNewLogger(t *testing.T) {
 	t.Parallel()
-	for _, level := range []string{"debug", "info", "warn", "error", "bogus"} {
-		log, err := newLogger(level)
-		if err != nil {
-			t.Fatalf("newLogger(%q): %v", level, err)
-		}
-		if log == nil {
-			t.Fatalf("newLogger(%q): nil logger", level)
-		}
+	tests := []struct {
+		Want  error
+		Level string
+	}{
+		{Level: "debug"},                      // Test 0: Debug builds.
+		{Level: "info"},                       // Test 1: Info builds.
+		{Level: "warn"},                       // Test 2: Warn builds.
+		{Level: "error"},                      // Test 3: Error builds.
+		{Level: "verbose", Want: ErrLogLevel}, // Test 4: Unknown level is rejected.
+		{Level: "loud", Want: ErrLogLevel},    // Test 5: Another unknown level is rejected.
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			log, err := newLogger(test.Level)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("newLogger(%q) error = %v, want %v", test.Level, err, test.Want)
+			}
+			if test.Want == nil && log == nil {
+				t.Fatalf("newLogger(%q): nil logger", test.Level)
+			}
+		})
+	}
+}
+
+// TestLoggerTimestamp verifies log lines carry an ISO 8601 timestamp.
+func TestLoggerTimestamp(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "log.txt")
+	cfg, err := loggerConfig("info")
+	if err != nil {
+		t.Fatalf("loggerConfig: %v", err)
+	}
+	cfg.OutputPaths = []string{path}
+	cfg.ErrorOutputPaths = []string{path}
+	log, err := cfg.Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	log.Info("hello")
+	_ = log.Sync()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T`).Match(data) {
+		t.Errorf("timestamp not ISO 8601: %q", data)
 	}
 }
 

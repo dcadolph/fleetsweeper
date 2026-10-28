@@ -17,8 +17,8 @@ import (
 )
 
 // probeRegistries is the package-level toggle for registry probing.
-// Operators flip it via SetProbeRegistries from the serve command so the
-// scanner stays useful in low-egress environments where the registry
+// Operators flip it via SetProbeRegistries from the scan, serve, and watch
+// commands so the scanner stays useful in low-egress environments where the registry
 // round-trip is undesirable.
 var (
 	probeMu        sync.RWMutex

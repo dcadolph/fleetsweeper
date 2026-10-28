@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
-	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 // textfileCmd writes Prometheus textfile-collector-compatible .prom
@@ -47,12 +45,13 @@ func runExportMetrics(cmd *cobra.Command, args []string) error {
 	defer st.Close()
 
 	ctx := cmdContext(cmd)
-	rpt, scanID, err := latestReport(ctx, st)
+	scanID, err := resolveScanRef(ctx, st, "latest")
 	if err != nil {
 		return err
 	}
-	if rpt == nil {
-		return fmt.Errorf("no scans found in store")
+	rpt, _, err := loadStoredReport(ctx, st, scanID)
+	if err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -77,24 +76,6 @@ func runExportMetrics(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "wrote %s\n", final)
 	return nil
-}
-
-// latestReport pulls the most recent scan and rebuilds the Report.
-// Returns (nil, "", nil) when the store has no scans yet.
-func latestReport(ctx context.Context, st store.Store) (*report.Report, string, error) {
-	scans, err := st.ListScans(ctx, 1)
-	if err != nil {
-		return nil, "", fmt.Errorf("list scans: %w", err)
-	}
-	if len(scans) == 0 {
-		return nil, "", nil
-	}
-	results, err := st.GetScanResults(ctx, scans[0].ID)
-	if err != nil {
-		return nil, "", fmt.Errorf("get scan results: %w", err)
-	}
-	rpt := report.Build(scans[0].Clusters, results, report.BuildOptions{Timestamp: scans[0].Timestamp})
-	return rpt, scans[0].ID, nil
 }
 
 // writeProm renders the report as Prometheus textfile-collector lines.

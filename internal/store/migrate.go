@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -185,11 +186,17 @@ type dialect struct {
 	// Lock serializes migrations across processes inside tx. Nil when the
 	// backend needs no cross-process lock.
 	Lock func(ctx context.Context, tx *sql.Tx) error
+	// IsUnique reports whether err is the backend's unique-constraint violation.
+	IsUnique func(err error) bool
 }
 
 // sqliteDialect applies migrations to SQLite, which takes its write lock per
 // transaction and needs no extra serialization.
-var sqliteDialect = dialect{Name: "sqlite", Rebind: func(q string) string { return q }}
+var sqliteDialect = dialect{
+	Name:     "sqlite",
+	Rebind:   func(q string) string { return q },
+	IsUnique: func(err error) bool { return strings.Contains(err.Error(), "UNIQUE") },
+}
 
 // migrate brings a SQLite schema to the latest version.
 func migrate(ctx context.Context, db *sql.DB) error {

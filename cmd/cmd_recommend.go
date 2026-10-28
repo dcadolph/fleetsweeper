@@ -59,6 +59,10 @@ type recommendation struct {
 
 // runRecommend implements the recommend subcommand.
 func runRecommend(cmd *cobra.Command, _ []string) error {
+	severity, _ := cmd.Flags().GetString("severity")
+	if err := oneOf("severity", severity, "", "critical", "warning", "info"); err != nil {
+		return err
+	}
 	st, err := openAnyStore(cmd)
 	if err != nil {
 		return err
@@ -66,15 +70,15 @@ func runRecommend(cmd *cobra.Command, _ []string) error {
 	defer st.Close()
 
 	ctx := cmdContext(cmd)
-	rpt, _, err := latestReport(ctx, st)
+	scanID, err := resolveScanRef(ctx, st, "latest")
 	if err != nil {
 		return err
 	}
-	if rpt == nil {
-		return fmt.Errorf("no scans found in store")
+	rpt, _, err := loadStoredReport(ctx, st, scanID)
+	if err != nil {
+		return err
 	}
 
-	severity, _ := cmd.Flags().GetString("severity")
 	limit, _ := cmd.Flags().GetInt("limit")
 	recs := buildRecommendations(rpt.Findings, severity)
 	if limit > 0 && len(recs) > limit {
@@ -120,7 +124,7 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 			entry.Leverage++
 		}
 		// Promote severity to the highest seen across contributing rows.
-		if recommendSeverityRank(f.Severity) > recommendSeverityRank(entry.Severity) {
+		if util.SeverityRank(f.Severity) > util.SeverityRank(entry.Severity) {
 			entry.Severity = f.Severity
 		}
 	}
@@ -131,8 +135,8 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		out = append(out, *g)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		scoreI := out[i].Leverage * (recommendSeverityRank(out[i].Severity) + 1)
-		scoreJ := out[j].Leverage * (recommendSeverityRank(out[j].Severity) + 1)
+		scoreI := out[i].Leverage * (util.SeverityRank(out[i].Severity) + 1)
+		scoreJ := out[j].Leverage * (util.SeverityRank(out[j].Severity) + 1)
 		if scoreI != scoreJ {
 			return scoreI > scoreJ
 		}
@@ -142,21 +146,6 @@ func buildRecommendations(findings []report.Finding, minSeverity string) []recom
 		return out[i].Rule < out[j].Rule
 	})
 	return out
-}
-
-// recommendSeverityRank orders the report severities the same way
-// severityAtLeast in whatchanged does. Local copy avoids a cross-file
-// alias.
-func recommendSeverityRank(s string) int {
-	switch s {
-	case "critical":
-		return 3
-	case "warning":
-		return 2
-	case "info":
-		return 1
-	}
-	return 0
 }
 
 // containsCluster reports whether the slice already includes c.

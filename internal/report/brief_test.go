@@ -33,7 +33,7 @@ func TestGenerateBrief(t *testing.T) {
 		Degraded: []ScannerStatus{{Cluster: "c", Scanner: "metrics", State: "errored"}},
 	}
 
-	b := GenerateBrief(r)
+	b := generateBrief(r)
 
 	// Test 0: headline carries the score, provenance, counts, and incident total.
 	for _, want := range []string{

@@ -368,7 +368,7 @@ func demoEvents(p demoProfile) events.Data {
 	if p.notReadyNodes() > 0 {
 		bursts = append(bursts, burst{"NodeNotReady", "Node", "", "Node is not ready", 6})
 	}
-	d := events.Data{WindowSeconds: 3600, NormalEvents: 40 + jitter(p.C.Name+"normal", 15)}
+	d := events.Data{WindowSeconds: 3600}
 	for i, b := range bursts {
 		d.WarningEvents += b.count
 		d.TopWarningReasons = append(d.TopWarningReasons, events.ReasonSummary{Reason: b.reason, Count: int32(b.count), EventCount: b.count})
@@ -378,7 +378,6 @@ func demoEvents(p demoProfile) events.Data {
 			Reason: b.reason, Message: b.msg, Type: "Warning", Count: int32(b.count), FirstSeen: seen, LastSeen: seen,
 		})
 	}
-	d.TotalEvents = d.WarningEvents + d.NormalEvents
 	return d
 }
 

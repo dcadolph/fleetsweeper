@@ -4,6 +4,7 @@ package report
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -41,6 +42,16 @@ func Categories() []Category {
 	}
 }
 
+// CategoryOf returns the name of the category that holds scanner, or "Other" when none does.
+func CategoryOf(scanner string) string {
+	for _, c := range Categories() {
+		if slices.Contains(c.Scanners, scanner) {
+			return c.Name
+		}
+	}
+	return "Other"
+}
+
 // Report is the top-level output structure.
 type Report struct {
 	// Timestamp is when the scan was executed.
@@ -48,7 +59,7 @@ type Report struct {
 	// Clusters lists the kubeconfig contexts that were scanned.
 	Clusters []string `json:"clusters"`
 	// Categories groups sections by functional area.
-	Categories []CategoryReport `json:"categories"`
+	Categories []Category `json:"categories"`
 	// Sections holds per-scanner comparison results keyed by scanner name.
 	Sections map[string]*SectionReport `json:"sections"`
 	// Summary holds fleet-wide summary statistics.
@@ -126,14 +137,6 @@ type BuildOptions struct {
 	Timestamp time.Time
 }
 
-// CategoryReport holds a category and its scanner names for the report.
-type CategoryReport struct {
-	// Name is the category display name.
-	Name string `json:"name"`
-	// Scanners lists scanner names in this category.
-	Scanners []string `json:"scanners"`
-}
-
 // Summary holds fleet-wide statistics.
 type Summary struct {
 	// ClusterCount is the number of clusters scanned.
@@ -146,9 +149,9 @@ type Summary struct {
 	DivergentCount int `json:"divergent_count"`
 	// TotalDivergences is the total number of individual divergence points.
 	TotalDivergences int `json:"total_divergences"`
-	// CriticalCount is the number of critical-severity divergences.
+	// CriticalCount is the number of critical findings.
 	CriticalCount int `json:"critical_count"`
-	// WarningCount is the number of warning-severity divergences.
+	// WarningCount is the number of warning findings.
 	WarningCount int `json:"warning_count"`
 }
 
@@ -166,8 +169,6 @@ type SectionReport struct {
 type Divergence struct {
 	// Field identifies what differs (e.g. "git_version").
 	Field string `json:"field"`
-	// Severity indicates how important this divergence is.
-	Severity string `json:"severity"`
 	// Values maps cluster name to the value it reported for this field.
 	Values map[string]string `json:"values"`
 }
@@ -218,7 +219,6 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 			perCluster[cluster] = res.Data
 		}
 		section := compare(clusters, perCluster)
-		applySeverity(name, section)
 		if _, identity := identityScanners[name]; identity {
 			section.Uniform, section.Divergences = true, nil
 		}
@@ -231,9 +231,9 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 
 	switch {
 	case len(clusters) >= minMADSample:
-		r.Outliers, r.Distributions = detectOutliers(r, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectOutliers(r.Clusters, r.Sections, opt.OutlierThreshold, NormScopeFleet)
 	case len(clusters) >= minMajoritySample:
-		r.Outliers, r.Distributions = detectMajorityOutliers(r, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectMajorityOutliers(r.Clusters, r.Sections, opt.OutlierThreshold, NormScopeFleet)
 	default:
 		r.Notes = append(r.Notes, fmt.Sprintf(
 			"Fleet-relative outlier detection needs at least %d clusters; this report has %d.",
@@ -241,18 +241,19 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		))
 	}
 
-	r.Capacity = AnalyzeCapacity(r, opt.Groups)
+	r.Capacity = analyzeCapacity(r, opt.Groups)
 	var cohortDists []Distribution
 	r.Cohorts, cohortDists = buildCohorts(r, opt.ClusterTags, opt.OutlierThreshold)
 	applyCohortNorms(r, cohortDists)
 	r.Distributions = append(r.Distributions, cohortDists...)
 	sortDistributions(r.Distributions)
-	r.Findings = GenerateFindings(r)
-	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
-	r.Incidents = FuseIncidents(r.Findings)
-	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
+	r.Findings = generateFindings(r)
+	r.Findings = append(r.Findings, stampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
+	sortFindings(r.Findings)
+	r.Incidents = fuseIncidents(r.Findings)
+	r.ClusterHealths = generateClusterHealth(r, r.Findings)
 	Rescore(r)
-	r.Brief = GenerateBrief(r)
+	r.Brief = generateBrief(r)
 
 	return r
 }
@@ -283,13 +284,13 @@ func sortScannerStatuses(s []ScannerStatus) {
 }
 
 // buildCategories creates category groupings for the scanned scanner names.
-func buildCategories(scanned []string) []CategoryReport {
+func buildCategories(scanned []string) []Category {
 	scannedSet := make(map[string]struct{}, len(scanned))
 	for _, s := range scanned {
 		scannedSet[s] = struct{}{}
 	}
 
-	var categories []CategoryReport
+	var categories []Category
 	for _, cat := range Categories() {
 		var present []string
 		for _, s := range cat.Scanners {
@@ -298,7 +299,7 @@ func buildCategories(scanned []string) []CategoryReport {
 			}
 		}
 		if len(present) > 0 {
-			categories = append(categories, CategoryReport{
+			categories = append(categories, Category{
 				Name:     cat.Name,
 				Scanners: present,
 			})
@@ -307,7 +308,8 @@ func buildCategories(scanned []string) []CategoryReport {
 	return categories
 }
 
-// buildSummary computes fleet-wide statistics from section reports.
+// buildSummary computes the fleet-wide section statistics. The finding counts are set by
+// countFindings once the findings exist.
 func buildSummary(clusters []string, sections map[string]*SectionReport) Summary {
 	s := Summary{
 		ClusterCount: len(clusters),
@@ -319,17 +321,23 @@ func buildSummary(clusters []string, sections map[string]*SectionReport) Summary
 		} else {
 			s.DivergentCount++
 		}
-		for _, d := range sec.Divergences {
-			s.TotalDivergences++
-			switch d.Severity {
-			case SeverityCritical:
-				s.CriticalCount++
-			case SeverityWarning:
-				s.WarningCount++
-			}
-		}
+		s.TotalDivergences += len(sec.Divergences)
 	}
 	return s
+}
+
+// countFindings sets s's critical and warning counts from findings, so the summary states the
+// same numbers as the findings list.
+func countFindings(s *Summary, findings []Finding) {
+	s.CriticalCount, s.WarningCount = 0, 0
+	for _, f := range findings {
+		switch f.Severity {
+		case SeverityCritical:
+			s.CriticalCount++
+		case SeverityWarning:
+			s.WarningCount++
+		}
+	}
 }
 
 // GroupFindingsByCluster buckets findings by cluster, using "fleet" as the key for

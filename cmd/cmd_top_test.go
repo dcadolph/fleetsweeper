@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
 // TestTruncR verifies right-truncation with an ellipsis and pass-through.
@@ -25,6 +29,7 @@ func TestTruncR(t *testing.T) {
 		{In: "short", WantS: "short", Width: 10},              // Test 0: Fits, unchanged.
 		{In: "exactly-ten", WantS: "exactly-ten", Width: 11},  // Test 1: Exact width, unchanged.
 		{In: "toolongvalue", WantS: "toolongval…", Width: 11}, // Test 2: Over width, truncated with ellipsis.
+		{In: "ééééé", WantS: "éé…", Width: 3},                 // Test 3: Multibyte cut on runes.
 	}
 	for testNum, test := range tests {
 		t.Run(test.In, func(t *testing.T) {
@@ -159,26 +164,46 @@ func TestBuildRows(t *testing.T) {
 	s := &topState{}
 	got := s.buildRows(rpt, prev)
 	want := []topRow{
-		{Cluster: "a", Status: "healthy", Score: 90, CPU: 10, Memory: 20, Critical: 1, Warning: 0, Delta: -5},
-		{Cluster: "b", Status: "critical", Score: 40, CPU: 80, Memory: 90, Critical: 1, Warning: 1, Delta: 10},
+		{Cluster: "a", Status: "healthy", Score: 90, CPU: 10, Memory: 20, Critical: 1, Warning: 0, Delta: -5, HasPrev: true},
+		{Cluster: "b", Status: "critical", Score: 40, CPU: 80, Memory: 90, Critical: 1, Warning: 1, Delta: 10, HasPrev: true},
 	}
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("buildRows mismatch (-want +got):\n%s", diff)
 	}
 }
 
-// TestBuildRowsNoPrev verifies deltas fall back to the raw score when no
-// previous report is available.
+// TestBuildRowsNoPrev verifies rows have HasPrev false and render a dash when no previous
+// report exists or the cluster is missing from it.
 func TestBuildRowsNoPrev(t *testing.T) {
 	t.Parallel()
 	rpt := &topReport{
 		ClusterHealths: []topClusterHealth{{Name: "a", Status: "healthy"}},
 		ClusterScores:  []topClusterScore{{Cluster: "a", Score: 88}},
 	}
-	s := &topState{}
-	got := s.buildRows(rpt, nil)
-	if len(got) != 1 || got[0].Delta != 88 {
-		t.Errorf("want single row with delta 88, got %+v", got)
+	otherPrev := &topReport{ClusterScores: []topClusterScore{{Cluster: "z", Score: 50}}}
+	tests := []struct {
+		Prev        *topReport
+		WantHasPrev bool
+		WantRender  string
+	}{
+		{Prev: nil, WantHasPrev: false, WantRender: "-"},       // Test 0: No previous report.
+		{Prev: otherPrev, WantHasPrev: false, WantRender: "-"}, // Test 1: Cluster missing from previous.
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			s := &topState{}
+			got := s.buildRows(rpt, test.Prev)
+			if len(got) != 1 {
+				t.Fatalf("want one row, got %+v", got)
+			}
+			if got[0].HasPrev != test.WantHasPrev || got[0].Delta != 0 {
+				t.Errorf("got %+v, want HasPrev=%v Delta=0", got[0], test.WantHasPrev)
+			}
+			if r := rowDelta(got[0]); r != test.WantRender {
+				t.Errorf("rowDelta: got %q, want %q", r, test.WantRender)
+			}
+		})
 	}
 }
 
@@ -242,104 +267,61 @@ func TestGetJSON(t *testing.T) {
 	}
 }
 
-// TestHydrateScoresForecast verifies scores come from the forecast endpoint
-// when it responds.
-func TestHydrateScoresForecast(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"forecasts": []map[string]any{
-				{"cluster": "a", "current_score": 77},
-				{"cluster": "b", "current_score": 33},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	s := &topState{server: srv.URL, client: srv.Client()}
-	r := &topReport{ClusterHealths: []topClusterHealth{{Name: "a", Status: "healthy"}}}
-	s.hydrateScores(context.Background(), r)
-	want := []topClusterScore{{Cluster: "a", Score: 77}, {Cluster: "b", Score: 33}}
-	if diff := cmp.Diff(want, r.ClusterScores, cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("forecast scores mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// TestHydrateScoresFallback verifies the synthetic status-based fallback when
-// the forecast endpoint is unavailable.
-func TestHydrateScoresFallback(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	s := &topState{server: srv.URL, client: srv.Client()}
-	r := &topReport{ClusterHealths: []topClusterHealth{
-		{Name: "crit", Status: "critical"},
-		{Name: "deg", Status: "degraded"},
-		{Name: "busy", Status: "busy"},
-		{Name: "ok", Status: "healthy"},
-	}}
-	s.hydrateScores(context.Background(), r)
-	want := []topClusterScore{
-		{Cluster: "crit", Score: 40},
-		{Cluster: "deg", Score: 75},
-		{Cluster: "busy", Score: 90},
-		{Cluster: "ok", Score: 100},
-	}
-	if diff := cmp.Diff(want, r.ClusterScores, cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("fallback scores mismatch (-want +got):\n%s", diff)
+// topTestReport builds a two-cluster report where cluster b carries the given findings.
+func topTestReport(fleet int, grade, bStatus string, bFindings ...report.Finding) report.Report {
+	return report.Report{
+		Timestamp:  "2026-01-01T00:00:00Z",
+		Clusters:   []string{"a", "b"},
+		FleetScore: report.FleetScore{Score: fleet, Grade: grade},
+		ClusterHealths: []report.ClusterHealth{
+			{Name: "a", Status: "healthy", AvgCPU: 12, AvgMemory: 30},
+			{Name: "b", Status: bStatus, AvgCPU: 88, AvgMemory: 91},
+		},
+		Findings: bFindings,
 	}
 }
 
 // newTopTestServer returns an httptest server serving a two-scan fleet so the
-// fetch + render path can run end to end without a live cluster.
-func newTopTestServer(t *testing.T) *httptest.Server {
+// fetch + render path can run end to end without a live cluster. Scan s1 is the
+// latest and has cluster b degraded by findings. Scan s2 is healthy. Any request
+// to the forecast endpoint is recorded in forecastHits.
+func newTopTestServer(t *testing.T) (srv *httptest.Server, forecastHits *atomic.Int32) {
 	t.Helper()
-	report := func(fleet int, grade string) topReport {
-		return topReport{
-			Timestamp:  "2026-01-01T00:00:00Z",
-			Clusters:   []string{"a", "b"},
-			FleetScore: topFleetScore{Score: fleet, Grade: grade},
-			ClusterHealths: []topClusterHealth{
-				{Name: "a", Status: "healthy", AvgCPU: 12, AvgMemory: 30},
-				{Name: "b", Status: "critical", AvgCPU: 88, AvgMemory: 91},
-			},
-			Findings: []topFinding{
-				{Severity: "critical", Cluster: "b"},
-				{Severity: "warning", Cluster: "b"},
-			},
-		}
-	}
+	forecastHits = &atomic.Int32{}
+	cur := topTestReport(70, "C", "critical",
+		report.Finding{Severity: "critical", Cluster: "b"},
+		report.Finding{Severity: "warning", Cluster: "b"})
+	prev := topTestReport(80, "B", "healthy")
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/scans", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/scans", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "limit=2" {
+			http.Error(w, "bad query", http.StatusBadRequest)
+			return
+		}
 		_ = json.NewEncoder(w).Encode([]map[string]string{{"id": "s1"}, {"id": "s2"}})
 	})
 	mux.HandleFunc("/api/scans/s1/report", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(report(70, "C"))
+		_ = json.NewEncoder(w).Encode(cur)
 	})
 	mux.HandleFunc("/api/scans/s2/report", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(report(80, "B"))
+		_ = json.NewEncoder(w).Encode(prev)
 	})
 	mux.HandleFunc("/api/forecast/clusters", func(w http.ResponseWriter, _ *http.Request) {
+		forecastHits.Add(1)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"forecasts": []map[string]any{
-				{"cluster": "a", "current_score": 90},
-				{"cluster": "b", "current_score": 40},
-			},
+			"forecasts": []map[string]any{{"cluster": "a", "current_score": 1}},
 		})
 	})
-	srv := httptest.NewServer(mux)
+	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, forecastHits
 }
 
-// TestFetchLatestReports verifies both the current and previous reports are
-// fetched and hydrated with per-cluster scores.
+// TestFetchLatestReports verifies both reports are fetched, per-cluster scores
+// are computed from each, and the forecast endpoint is never requested.
 func TestFetchLatestReports(t *testing.T) {
 	t.Parallel()
-	srv := newTopTestServer(t)
+	srv, forecastHits := newTopTestServer(t)
 	s := &topState{server: srv.URL, client: srv.Client()}
 	cur, prev, err := s.fetchLatestReports(context.Background())
 	if err != nil {
@@ -348,8 +330,42 @@ func TestFetchLatestReports(t *testing.T) {
 	if cur.FleetScore.Score != 70 || prev == nil || prev.FleetScore.Score != 80 {
 		t.Fatalf("cur=%+v prev=%+v", cur.FleetScore, prev)
 	}
-	if len(cur.ClusterScores) != 2 {
-		t.Errorf("expected hydrated cluster scores, got %+v", cur.ClusterScores)
+	wantCur := []topClusterScore{{Cluster: "a", Score: 100}, {Cluster: "b", Score: 60}}
+	if diff := cmp.Diff(wantCur, cur.ClusterScores, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("current scores mismatch (-want +got):\n%s", diff)
+	}
+	wantPrev := []topClusterScore{{Cluster: "a", Score: 100}, {Cluster: "b", Score: 90}}
+	if diff := cmp.Diff(wantPrev, prev.ClusterScores, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("previous scores mismatch (-want +got):\n%s", diff)
+	}
+	if n := forecastHits.Load(); n != 0 {
+		t.Errorf("forecast endpoint requested %d times, want 0", n)
+	}
+}
+
+// TestTopBuildRowsDeltaFromReports verifies buildRows deltas equal the difference between the
+// scores computed from each scan's report.
+func TestTopBuildRowsDeltaFromReports(t *testing.T) {
+	t.Parallel()
+	srv, forecastHits := newTopTestServer(t)
+	s := &topState{server: srv.URL, client: srv.Client()}
+	cur, prev, err := s.fetchLatestReports(context.Background())
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	got := s.buildRows(cur, prev)
+	want := []topRow{
+		{Cluster: "a", Status: "healthy", Score: 100, CPU: 12, Memory: 30, HasPrev: true},
+		{
+			Cluster: "b", Status: "critical", Score: 60, CPU: 88, Memory: 91,
+			Critical: 1, Warning: 1, Delta: -30, HasPrev: true,
+		},
+	}
+	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("buildRows mismatch (-want +got):\n%s", diff)
+	}
+	if n := forecastHits.Load(); n != 0 {
+		t.Errorf("forecast endpoint requested %d times, want 0", n)
 	}
 }
 
@@ -370,7 +386,7 @@ func TestFetchLatestReportsNoScans(t *testing.T) {
 // the cluster rows, and the key-binding footer.
 func TestDrawRendersTable(t *testing.T) {
 	t.Parallel()
-	srv := newTopTestServer(t)
+	srv, _ := newTopTestServer(t)
 	buf := &bytes.Buffer{}
 	s := &topState{
 		server: srv.URL,
@@ -394,7 +410,7 @@ func TestDrawRendersTable(t *testing.T) {
 // TestDrawHonorsLimit verifies the row cap is applied before rendering.
 func TestDrawHonorsLimit(t *testing.T) {
 	t.Parallel()
-	srv := newTopTestServer(t)
+	srv, _ := newTopTestServer(t)
 	buf := &bytes.Buffer{}
 	s := &topState{server: srv.URL, client: srv.Client(), out: buf, limit: 1, sortBy: sortByScore}
 	if err := s.draw(context.Background()); err != nil {

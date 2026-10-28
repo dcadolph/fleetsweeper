@@ -29,7 +29,7 @@ func TestRenderHTML(t *testing.T) {
 	}
 
 	content := string(html)
-	// The HTML is now a JS-rendered dashboard. Check that the data payload
+	// The HTML is a JS-rendered dashboard. Check that the data payload
 	// is embedded and the essential shell elements are present.
 	checks := []string{
 		"<!DOCTYPE html>",
