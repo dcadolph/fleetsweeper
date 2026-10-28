@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // minMADSample is the minimum number of values required before MAD-based
@@ -227,10 +229,10 @@ func detectOutliers(r *Report, threshold float64, scope string) ([]OutlierResult
 // sortOutliers orders outliers by severity, then scanner, cluster, and field,
 // so report output is stable across runs.
 func sortOutliers(outliers []OutlierResult) {
-	sevOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	sort.Slice(outliers, func(i, j int) bool {
-		if sevOrder[outliers[i].Severity] != sevOrder[outliers[j].Severity] {
-			return sevOrder[outliers[i].Severity] < sevOrder[outliers[j].Severity]
+		si, sj := util.SeverityRank(outliers[i].Severity), util.SeverityRank(outliers[j].Severity)
+		if si != sj {
+			return si > sj
 		}
 		if outliers[i].Scanner != outliers[j].Scanner {
 			return outliers[i].Scanner < outliers[j].Scanner

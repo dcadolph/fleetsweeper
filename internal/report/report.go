@@ -246,6 +246,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 	sortDistributions(r.Distributions)
 	r.Findings = GenerateFindings(r)
 	r.Findings = append(r.Findings, StampFingerprints(misCohortFindings(r, opt.ClusterTags))...)
+	sortFindings(r.Findings)
 	r.Incidents = FuseIncidents(r.Findings)
 	r.ClusterHealths = GenerateClusterHealth(r, r.Findings)
 	Rescore(r)

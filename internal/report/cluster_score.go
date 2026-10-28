@@ -81,28 +81,35 @@ func ComputeClusterScore(h ClusterHealth, findings []Finding) ClusterScore {
 
 // ClusterCharges counts the critical and warning findings a cluster pays for: its own
 // findings at their severity, and each mark a fleet-scoped finding puts on it at the mark's
-// severity. A fleet finding with no mark on the cluster costs it nothing, which is the same
-// rule GenerateClusterHealth uses for status, so the two never disagree about a finding.
+// severity. A fleet finding with no mark on the cluster costs it nothing. It and
+// GenerateClusterHealth both read clusterSeverityCounts, so score and status never disagree
+// about a finding.
 func ClusterCharges(cluster string, findings []Finding) (crit, warn int) {
-	charge := func(severity string) {
+	counts := clusterSeverityCounts(cluster, findings)
+	return counts[SeverityCritical], counts[SeverityWarning]
+}
+
+// clusterSeverityCounts maps each severity to the number of findings and marks charged to
+// the cluster. All three severities are always present.
+func clusterSeverityCounts(cluster string, findings []Finding) map[string]int {
+	counts := map[string]int{SeverityCritical: 0, SeverityWarning: 0, SeverityInfo: 0}
+	count := func(severity string) {
 		switch severity {
-		case SeverityCritical:
-			crit++
-		case SeverityWarning:
-			warn++
+		case SeverityCritical, SeverityWarning, SeverityInfo:
+			counts[severity]++
 		}
 	}
 	for _, f := range findings {
 		if f.Cluster == cluster {
-			charge(f.Severity)
+			count(f.Severity)
 		}
 		for _, m := range f.Marks {
 			if m.Cluster == cluster {
-				charge(m.Severity)
+				count(m.Severity)
 			}
 		}
 	}
-	return crit, warn
+	return counts
 }
 
 // ComputeClusterScores returns one ClusterScore per cluster in the report.

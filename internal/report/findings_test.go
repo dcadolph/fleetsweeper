@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/nodehealth"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -412,7 +413,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "image-audit", Affected: []string{"ns"},
 			Remediation: &Remediation{Command: "kubectl --context a -n ns get pods,events --sort-by=.lastTimestamp"},
 		}},
-	}, { // Test 23: Numeric, string, set, and unknown-scanner outliers state the gap.
+	}, { // Test 23: Each outlier kind, an unknown scanner, and a numeric string state the gap.
 		Name:     "fleet outliers",
 		Generate: outlierFindings,
 		Report: &Report{Outliers: []OutlierResult{
@@ -422,7 +423,11 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 				Scope: "fleet", Kind: NormKindString, Mode: "v1.31.0", ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
 			{Cluster: "c", Field: "names", Value: "missing 2: [a b]", FleetNorm: "5 consensus items", Scanner: "crds", Severity: SeverityInfo,
 				Scope: "fleet", Kind: NormKindSet, Consensus: []string{"a", "b", "c", "d", "e"}, Missing: []string{"a", "b"}, SampleSize: 10, Threshold: 0.6},
-			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel", Severity: SeverityInfo},
+			{Cluster: "c", Field: "count", Value: "9", FleetNorm: "2.5", Scanner: "novel",
+				Severity: SeverityInfo, Kind: NormKindNumeric, Median: 2.5},
+			{Cluster: "c", Field: "minor", Value: "30", FleetNorm: "31", Scanner: "version",
+				Severity: SeverityWarning, Scope: "fleet", Kind: NormKindString, Mode: "31",
+				ModeShare: 0.9, SampleSize: 10, Threshold: 0.6},
 		}},
 		WantResult: []Finding{{
 			Rule: "security/outlier-enforced-count", Title: "c deviates from fleet norm on enforced_count",
@@ -449,7 +454,19 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Description: "c reports count=9 while the fleet norm is 2.5 (scanner: ).",
 			Severity:    SeverityInfo, Cluster: "c", Scanner: "novel", Affected: []string{"count"},
 			Remediation: &Remediation{Command: "# count is 9 here, 6.5 above the fleet median of 2.5\nkubectl --context c get all -A"},
-			Norm:        &NormBasis{Field: "count", Value: "9"},
+			Norm:        &NormBasis{Field: "count", Kind: NormKindNumeric, Median: 2.5, Value: "9"},
+		}, {
+			Rule: "version/outlier-minor", Title: "c deviates from fleet norm on minor",
+			Description: "c reports minor=30 while the fleet norm is 31 " +
+				"(scanner: Kubernetes Version).",
+			Severity: SeverityWarning, Cluster: "c", Scanner: "version",
+			Affected: []string{"minor"},
+			Remediation: &Remediation{
+				Command: "# minor is \"30\" here, the fleet norm is \"31\"\n" +
+					"kubectl --context c version",
+			},
+			Norm: &NormBasis{Scope: "fleet", Field: "minor", Kind: NormKindString, Mode: "31",
+				ModeShare: 0.9, SampleSize: 10, Threshold: 0.6, Value: "30"},
 		}},
 	}, { // Test 24: A cohort outlier names its cohort as the norm's scope.
 		Name:     "cohort outliers",
@@ -465,6 +482,24 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Remediation: &Remediation{Command: "# crd_count is 9 here, 7 above the cohort \"edge\" median of 2\nkubectl --context b get crds"},
 			Norm:        &NormBasis{Scope: "edge", Field: "crd_count", Kind: NormKindNumeric, Median: 2, MAD: 1, SampleSize: 8, Threshold: 3.5, Value: "9", Z: 4.72},
 		}},
+	}, { // Test 25: Twelve privileged pods list ten names and a suffix.
+		Name:     "workload security capped",
+		Generate: workloadSecFindings,
+		Report: testReport(map[string]map[string]any{"workload-security": {"a": map[string]any{
+			"privileged_containers": 12, "total_pods": 12,
+			"high_risk_pods": cappedPods(12),
+		}}}),
+		WantResult: []Finding{{
+			Rule: "workload-security/privileged", Title: "a has 12 privileged container(s)",
+			Description: "Privileged containers have full host access. Review whether these workloads genuinely require it. Total pods: 12.",
+			Severity:    SeverityCritical, Cluster: "a", Scanner: "workload-security",
+			Affected: []string{
+				"ns/p00/c", "ns/p01/c", "ns/p02/c", "ns/p03/c", "ns/p04/c",
+				"ns/p05/c", "ns/p06/c", "ns/p07/c", "ns/p08/c", "ns/p09/c",
+				"...and 2 more",
+			},
+			Remediation: &Remediation{Command: privilegedCommand},
+		}},
 	}}
 
 	for testNum, test := range tests {
@@ -473,6 +508,53 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			got := test.Generate(test.Report)
 			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("findings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// cappedPods returns n privileged high-risk pod payloads named p00, p01, and so on.
+func cappedPods(n int) []any {
+	pods := make([]any, 0, n)
+	for i := range n {
+		pods = append(pods, map[string]any{
+			"namespace": "ns", "pod": fmt.Sprintf("p%02d", i), "container": "c",
+			"risks": []any{"privileged"},
+		})
+	}
+	return pods
+}
+
+// TestCapList checks the Affected list cap and its suffix.
+func TestCapList(t *testing.T) {
+	t.Parallel()
+
+	numbered := func(n int) []string {
+		out := make([]string, 0, n)
+		for i := range n {
+			out = append(out, fmt.Sprintf("i%02d", i))
+		}
+		return out
+	}
+	tests := []struct {
+		WantResult []string
+		In         []string
+	}{{ // Test 0: Empty input stays empty.
+		In: nil, WantResult: nil,
+	}, { // Test 1: Exactly ten items pass through.
+		In: numbered(10), WantResult: numbered(10),
+	}, { // Test 2: Eleven items keep ten and report one more.
+		In: numbered(11), WantResult: append(numbered(10), "...and 1 more"),
+	}, { // Test 3: Twenty-five items keep ten and report fifteen more.
+		In: numbered(25), WantResult: append(numbered(10), "...and 15 more"),
+	}}
+
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := capList(test.In)
+			if diff := cmp.Diff(test.WantResult, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("capList mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -1388,6 +1470,72 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantStatus, got); diff != "" {
 				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNodeHealthFindings verifies pressure findings name the affected nodes.
+func TestNodeHealthFindings(t *testing.T) {
+	t.Parallel()
+	cond := func(typ, status string) nodehealth.NodeCondition {
+		return nodehealth.NodeCondition{Type: typ, Status: status}
+	}
+	tests := []struct {
+		Data             nodehealth.Data
+		WantRule         string
+		WantCommand      string
+		WantAffected     []string
+		WantFindingCount int
+	}{{ // Test 0: A memory-pressure node is named.
+		Data: nodehealth.Data{NodeCount: 2, MemoryPressureNodes: 1, Nodes: []nodehealth.NodeHealth{
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("Ready", "True"), cond("MemoryPressure", "True")}},
+			{Name: "n2", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("Ready", "True"), cond("MemoryPressure", "False")}},
+		}},
+		WantRule:         "node-health/memory-pressure",
+		WantCommand:      "kubectl --context c1 describe node n1",
+		WantAffected:     []string{"n1"},
+		WantFindingCount: 1,
+	}, { // Test 1: A disk-pressure node is named.
+		Data: nodehealth.Data{NodeCount: 2, DiskPressureNodes: 2, Nodes: []nodehealth.NodeHealth{
+			{Name: "n2", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("DiskPressure", "True")}},
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("DiskPressure", "True")}},
+		}},
+		WantRule:         "node-health/disk-pressure",
+		WantCommand:      "kubectl --context c1 describe node n1 n2",
+		WantAffected:     []string{"n1", "n2"},
+		WantFindingCount: 1,
+	}, { // Test 2: A False status does not name the node.
+		Data: nodehealth.Data{NodeCount: 1, MemoryPressureNodes: 1, Nodes: []nodehealth.NodeHealth{
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("MemoryPressure", "False")}},
+		}},
+		WantRule:         "node-health/memory-pressure",
+		WantCommand:      "kubectl --context c1 describe node ",
+		WantAffected:     nil,
+		WantFindingCount: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := testReport(map[string]map[string]any{"node-health": {"c1": test.Data}})
+			got := nodeHealthFindings(r)
+			if len(got) != test.WantFindingCount {
+				t.Fatalf("finding count = %d, want %d", len(got), test.WantFindingCount)
+			}
+			if got[0].Rule != test.WantRule {
+				t.Errorf("rule = %q, want %q", got[0].Rule, test.WantRule)
+			}
+			diff := cmp.Diff(test.WantAffected, got[0].Affected, cmpopts.EquateEmpty())
+			if diff != "" {
+				t.Errorf("affected mismatch (-want +got):\n%s", diff)
+			}
+			if got[0].Remediation.Command != test.WantCommand {
+				t.Errorf("command = %q, want %q", got[0].Remediation.Command, test.WantCommand)
 			}
 		})
 	}

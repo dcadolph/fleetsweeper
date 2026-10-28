@@ -180,12 +180,16 @@ func GenerateFindings(r *Report) []Finding {
 	findings = append(findings, compositeBadDeployFindings(r)...)
 	findings = dropRedundant(findings, scopeMembers(r))
 
-	severityOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
-	sort.SliceStable(findings, func(i, j int) bool {
-		return severityOrder[findings[i].Severity] < severityOrder[findings[j].Severity]
-	})
+	sortFindings(findings)
 
 	return StampFingerprints(findings)
+}
+
+// sortFindings orders findings most severe first, keeping the relative order of equals.
+func sortFindings(fs []Finding) {
+	sort.SliceStable(fs, func(i, j int) bool {
+		return util.SeverityRank(fs[i].Severity) > util.SeverityRank(fs[j].Severity)
+	})
 }
 
 // clusterRule keys a finding by its cluster and rule.
@@ -458,17 +462,7 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 		h := ClusterHealth{
 			Name:          cluster,
 			Status:        "healthy",
-			FindingCounts: map[string]int{SeverityCritical: 0, SeverityWarning: 0, SeverityInfo: 0},
-		}
-		for _, f := range findings {
-			if f.Cluster == cluster {
-				h.FindingCounts[f.Severity]++
-			}
-			for _, m := range f.Marks {
-				if m.Cluster == cluster {
-					h.FindingCounts[m.Severity]++
-				}
-			}
+			FindingCounts: clusterSeverityCounts(cluster, findings),
 		}
 		if h.FindingCounts[SeverityCritical] > 0 {
 			h.Status = "critical"
@@ -728,8 +722,15 @@ func extractNodeNames(r *Report, cluster, scannerName string) nodeSet {
 		}
 		if cs, ok := nm["conditions"].([]any); ok {
 			for _, c := range cs {
-				if s, ok := c.(string); ok {
-					nv.Conditions = append(nv.Conditions, s)
+				switch cv := c.(type) {
+				case string:
+					nv.Conditions = append(nv.Conditions, cv)
+				case map[string]any:
+					typ, _ := cv["type"].(string)
+					status, _ := cv["status"].(string)
+					if typ != "" && status == "True" {
+						nv.Conditions = append(nv.Conditions, typ)
+					}
 				}
 			}
 		}
@@ -743,7 +744,7 @@ func capacityFindings(r *Report) []Finding {
 	var findings []Finding
 	for _, ca := range r.Capacity {
 		switch ca.Status {
-		case "critical":
+		case capacityCritical:
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-critical",
 				Title:       fmt.Sprintf("%s is in critical state", ca.Cluster),
@@ -752,7 +753,7 @@ func capacityFindings(r *Report) []Finding {
 				Cluster:     ca.Cluster,
 				Scanner:     "metrics",
 			})
-		case "strained", "degraded":
+		case capacityStrained:
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-degraded",
 				Title:       fmt.Sprintf("%s is degraded", ca.Cluster),
@@ -761,7 +762,7 @@ func capacityFindings(r *Report) []Finding {
 				Cluster:     ca.Cluster,
 				Scanner:     "metrics",
 			})
-		case "busy":
+		case capacityBusy:
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-busy",
 				Title:       fmt.Sprintf("%s is busy but healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
@@ -1230,27 +1231,22 @@ func highRiskPods(r *Report, cluster string) []highRiskPod {
 	return out
 }
 
+// maxAffected is the most Affected entries a finding lists before the "and N more" suffix.
+const maxAffected = 10
+
 // filterRiskNames returns the names of pods carrying the given risk tag, capped
-// at 10 entries with an "and N more" suffix when truncated.
+// at maxAffected entries with an "and N more" suffix when truncated.
 func filterRiskNames(pods []highRiskPod, tag string) []string {
-	var out []string
-	extra := 0
+	var matches []string
 	for _, p := range pods {
 		for _, r := range p.Risks {
 			if strings.HasPrefix(r, tag) {
-				if len(out) < 10 {
-					out = append(out, p.Name)
-				} else {
-					extra++
-				}
+				matches = append(matches, p.Name)
 				break
 			}
 		}
 	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("...and %d more", extra))
-	}
-	return out
+	return capList(matches)
 }
 
 // dedup returns s with duplicates removed, preserving order.
@@ -1374,23 +1370,15 @@ func riskBindings(r *Report, cluster string) []riskBinding {
 }
 
 // filterBindingsByRisk returns the names of bindings tagged with the named
-// risk, capped at 10 entries.
+// risk, capped at maxAffected entries.
 func filterBindingsByRisk(bs []riskBinding, risk string) []string {
-	var out []string
-	extra := 0
+	var matches []string
 	for _, b := range bs {
 		if slices.Contains(b.Risks, risk) {
-			if len(out) < 10 {
-				out = append(out, b.Name)
-			} else {
-				extra++
-			}
+			matches = append(matches, b.Name)
 		}
 	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("...and %d more", extra))
-	}
-	return out
+	return capList(matches)
 }
 
 // imageAuditFindings names the offending images so operators can pin or
@@ -1491,23 +1479,15 @@ func imageRisks(r *Report, cluster string) []imageRisk {
 }
 
 // filterImagesByRisk returns "image @ location" strings for images with the
-// given risk tag, capped at 10 entries.
+// given risk tag, capped at maxAffected entries.
 func filterImagesByRisk(images []imageRisk, risk string) []string {
-	var out []string
-	extra := 0
+	var matches []string
 	for _, ir := range images {
 		if slices.Contains(ir.Risks, risk) {
-			if len(out) < 10 {
-				out = append(out, fmt.Sprintf("%s @ %s", ir.Image, ir.Where))
-			} else {
-				extra++
-			}
+			matches = append(matches, fmt.Sprintf("%s @ %s", ir.Image, ir.Where))
 		}
 	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("...and %d more", extra))
-	}
-	return out
+	return capList(matches)
 }
 
 // certFindings reports TLS certificates expiring soon. Each finding names the
@@ -2024,16 +2004,15 @@ func namespacesWithWorkloadRisk(r *Report, cluster string) map[string]struct{} {
 	return out
 }
 
-// capList returns the slice capped at ten items with an "and N more" suffix when
+// capList returns the slice capped at maxAffected items with an "and N more" suffix when
 // truncated. Used to keep finding output readable on wide fleets.
 func capList(items []string) []string {
-	const limit = 10
-	if len(items) <= limit {
+	if len(items) <= maxAffected {
 		return items
 	}
-	out := make([]string, 0, limit+1)
-	out = append(out, items[:limit]...)
-	out = append(out, fmt.Sprintf("...and %d more", len(items)-limit))
+	out := make([]string, 0, maxAffected+1)
+	out = append(out, items[:maxAffected]...)
+	out = append(out, fmt.Sprintf("...and %d more", len(items)-maxAffected))
 	return out
 }
 
