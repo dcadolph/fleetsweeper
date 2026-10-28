@@ -1,9 +1,12 @@
 package client_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -438,5 +441,140 @@ func TestContractNorm(t *testing.T) {
 	if _, err := c.WhatIf(ctx, client.WhatIfRequest{Cluster: "c04", Scanner: "security", Field: "nope"}); !errors.As(err, &apiErr) ||
 		apiErr.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("whatif on an unknown field: want 422, got %v", err)
+	}
+}
+
+// TestContractDemoStrict decodes every typed read endpoint of the demo fleet with unknown
+// fields disallowed, so a field the server sends and the client drops fails the test.
+func TestContractDemoStrict(t *testing.T) {
+	t.Parallel()
+	st, err := store.Open("sqlite", filepath.Join(t.TempDir(), "fleet.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := server.SeedDemo(ctx, st, time.Now()); err != nil {
+		t.Fatalf("seed demo: %v", err)
+	}
+	srv := server.New(server.Config{
+		Store: st, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Demo: true,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	c := client.New(ts.URL)
+
+	scans, err := c.ListScans(ctx, 1)
+	if err != nil || len(scans) == 0 {
+		t.Fatalf("list scans: %v, %d", err, len(scans))
+	}
+	clusters, err := c.ListClusters(ctx)
+	if err != nil || len(clusters) == 0 {
+		t.Fatalf("list clusters: %v, %d", err, len(clusters))
+	}
+	dists, err := c.Distributions(ctx, client.DistributionQuery{})
+	if err != nil || len(dists.Distributions) == 0 {
+		t.Fatalf("distributions: %v", err)
+	}
+	d := dists.Distributions[0]
+	histPath := "/api/distributions/history?scanner=" + d.Scanner + "&field=" + d.Field
+
+	// reportWire is Report plus the top-level keys the client deliberately omits.
+	type reportWire struct {
+		client.Report
+		Sections   json.RawMessage `json:"sections"`
+		Categories json.RawMessage `json:"categories"`
+		Brief      json.RawMessage `json:"brief"`
+		Incidents  json.RawMessage `json:"incidents"`
+		Degraded   json.RawMessage `json:"degraded"`
+	}
+
+	tests := []struct {
+		Dest func() any
+		Name string
+		Path string
+	}{
+		{ // Test 0: Report.
+			Dest: func() any { return &reportWire{} },
+			Name: "report", Path: "/api/scans/" + scans[0].ID + "/report",
+		},
+		{ // Test 1: Outliers.
+			Dest: func() any { return &client.OutliersResponse{} },
+			Name: "outliers", Path: "/api/outliers",
+		},
+		{ // Test 2: Distributions.
+			Dest: func() any { return &client.DistributionsResponse{} },
+			Name: "distributions", Path: "/api/distributions",
+		},
+		{ // Test 3: Cohorts.
+			Dest: func() any { return &client.CohortsResponse{} },
+			Name: "cohorts", Path: "/api/cohorts",
+		},
+		{ // Test 4: Capacity.
+			Dest: func() any { return &client.CapacityResponse{} },
+			Name: "capacity", Path: "/api/capacity",
+		},
+		{ // Test 5: Cluster detail.
+			Dest: func() any { return &client.ClusterDetail{} },
+			Name: "detail", Path: "/api/clusters/" + clusters[0].Name + "/detail",
+		},
+		{ // Test 6: Attribution.
+			Dest: func() any { return &client.AttributionResponse{} },
+			Name: "attribution", Path: "/api/score/attribution",
+		},
+		{ // Test 7: Distribution history.
+			Dest: func() any { return &client.HistoryResponse{} },
+			Name: "history", Path: histPath,
+		},
+		{ // Test 8: Drift.
+			Dest: func() any { return &client.DriftLedger{} },
+			Name: "drift", Path: "/api/drift",
+		},
+		{ // Test 9: Cohort map.
+			Dest: func() any { return &client.CohortMapResponse{} },
+			Name: "cohort map", Path: "/api/cohorts/map",
+		},
+		{ // Test 10: Fleet forecast.
+			Dest: func() any { return &client.FleetForecastResponse{} },
+			Name: "fleet forecast", Path: "/api/forecast/fleet-score",
+		},
+		{ // Test 11: Cluster forecasts.
+			Dest: func() any { return &client.ClustersForecastResponse{} },
+			Name: "cluster forecasts", Path: "/api/forecast/clusters",
+		},
+		{ // Test 12: Alerts.
+			Dest: func() any { return &client.AlertsResponse{} },
+			Name: "alerts", Path: "/api/alerts",
+		},
+		{ // Test 13: Timeline.
+			Dest: func() any { return &client.TimelineResponse{} },
+			Name: "timeline", Path: "/api/clusters/" + clusters[0].Name + "/timeline",
+		},
+		{ // Test 14: Cost.
+			Dest: func() any { return &client.CostAnalysis{} },
+			Name: "cost", Path: "/api/cost",
+		},
+	}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			resp, err := http.Get(ts.URL + test.Path)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", resp.StatusCode, body)
+			}
+			dec := json.NewDecoder(bytes.NewReader(body))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(test.Dest()); err != nil {
+				t.Errorf("strict decode: %v", err)
+			}
+		})
 	}
 }
