@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/nodehealth"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -1469,6 +1470,72 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantStatus, got); diff != "" {
 				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestNodeHealthFindings verifies pressure findings name the affected nodes.
+func TestNodeHealthFindings(t *testing.T) {
+	t.Parallel()
+	cond := func(typ, status string) nodehealth.NodeCondition {
+		return nodehealth.NodeCondition{Type: typ, Status: status}
+	}
+	tests := []struct {
+		Data             nodehealth.Data
+		WantRule         string
+		WantCommand      string
+		WantAffected     []string
+		WantFindingCount int
+	}{{ // Test 0: A memory-pressure node is named.
+		Data: nodehealth.Data{NodeCount: 2, MemoryPressureNodes: 1, Nodes: []nodehealth.NodeHealth{
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("Ready", "True"), cond("MemoryPressure", "True")}},
+			{Name: "n2", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("Ready", "True"), cond("MemoryPressure", "False")}},
+		}},
+		WantRule:         "node-health/memory-pressure",
+		WantCommand:      "kubectl --context c1 describe node n1",
+		WantAffected:     []string{"n1"},
+		WantFindingCount: 1,
+	}, { // Test 1: A disk-pressure node is named.
+		Data: nodehealth.Data{NodeCount: 2, DiskPressureNodes: 2, Nodes: []nodehealth.NodeHealth{
+			{Name: "n2", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("DiskPressure", "True")}},
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("DiskPressure", "True")}},
+		}},
+		WantRule:         "node-health/disk-pressure",
+		WantCommand:      "kubectl --context c1 describe node n1 n2",
+		WantAffected:     []string{"n1", "n2"},
+		WantFindingCount: 1,
+	}, { // Test 2: A False status does not name the node.
+		Data: nodehealth.Data{NodeCount: 1, MemoryPressureNodes: 1, Nodes: []nodehealth.NodeHealth{
+			{Name: "n1", Ready: true, Conditions: []nodehealth.NodeCondition{
+				cond("MemoryPressure", "False")}},
+		}},
+		WantRule:         "node-health/memory-pressure",
+		WantCommand:      "kubectl --context c1 describe node ",
+		WantAffected:     nil,
+		WantFindingCount: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			r := testReport(map[string]map[string]any{"node-health": {"c1": test.Data}})
+			got := nodeHealthFindings(r)
+			if len(got) != test.WantFindingCount {
+				t.Fatalf("finding count = %d, want %d", len(got), test.WantFindingCount)
+			}
+			if got[0].Rule != test.WantRule {
+				t.Errorf("rule = %q, want %q", got[0].Rule, test.WantRule)
+			}
+			diff := cmp.Diff(test.WantAffected, got[0].Affected, cmpopts.EquateEmpty())
+			if diff != "" {
+				t.Errorf("affected mismatch (-want +got):\n%s", diff)
+			}
+			if got[0].Remediation.Command != test.WantCommand {
+				t.Errorf("command = %q, want %q", got[0].Remediation.Command, test.WantCommand)
 			}
 		})
 	}

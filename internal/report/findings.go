@@ -728,8 +728,15 @@ func extractNodeNames(r *Report, cluster, scannerName string) nodeSet {
 		}
 		if cs, ok := nm["conditions"].([]any); ok {
 			for _, c := range cs {
-				if s, ok := c.(string); ok {
-					nv.Conditions = append(nv.Conditions, s)
+				switch cv := c.(type) {
+				case string:
+					nv.Conditions = append(nv.Conditions, cv)
+				case map[string]any:
+					typ, _ := cv["type"].(string)
+					status, _ := cv["status"].(string)
+					if typ != "" && status == "True" {
+						nv.Conditions = append(nv.Conditions, typ)
+					}
 				}
 			}
 		}
