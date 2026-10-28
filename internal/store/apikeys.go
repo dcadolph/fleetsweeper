@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -90,7 +89,7 @@ func TokensEqual(a, b string) bool {
 
 // SaveAPIKey inserts a new API key. The ID and TokenHash must already be set;
 // CreatedAt defaults to now when zero. Re-inserting the same ID returns ErrStore.
-func (s *SQLite) SaveAPIKey(ctx context.Context, rec APIKeyRecord) error {
+func (s *sqlStore) SaveAPIKey(ctx context.Context, rec APIKeyRecord) error {
 	if rec.ID == "" || rec.TokenHash == "" {
 		return errors.New("api key: id and token hash required")
 	}
@@ -117,14 +116,14 @@ func (s *SQLite) SaveAPIKey(ctx context.Context, rec APIKeyRecord) error {
 	if !rec.RevokedAt.IsZero() {
 		revoked = sql.NullString{String: rec.RevokedAt.UTC().Format(time.RFC3339), Valid: true}
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = s.exec(ctx, `
 INSERT INTO api_keys (id, token_hash, name, role, cluster_scope, created_at, expires_at, last_used_at, revoked_at, created_by)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		rec.ID, rec.TokenHash, rec.Name, rec.Role, string(scopeJSON),
 		rec.CreatedAt.UTC().Format(time.RFC3339), expires, lastUsed, revoked, rec.CreatedBy,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if s.d.IsUnique(err) {
 			return fmt.Errorf("%w: duplicate api key", ErrStore)
 		}
 		return fmt.Errorf("%w: save api key: %w", ErrStore, err)
@@ -135,8 +134,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 // GetAPIKeyByHash looks up a key by its token hash. Revoked or expired keys
 // are returned with their RevokedAt/ExpiresAt set so callers can produce the
 // right error message.
-func (s *SQLite) GetAPIKeyByHash(ctx context.Context, hash string) (*APIKeyRecord, error) {
-	row := s.db.QueryRowContext(ctx, `
+func (s *sqlStore) GetAPIKeyByHash(ctx context.Context, hash string) (*APIKeyRecord, error) {
+	row := s.queryRow(ctx, `
 SELECT id, token_hash, name, role, cluster_scope, created_at, expires_at, last_used_at, revoked_at, created_by
 FROM api_keys WHERE token_hash = ?`, hash)
 	rec, err := scanAPIKeyRow(row)
@@ -150,8 +149,8 @@ FROM api_keys WHERE token_hash = ?`, hash)
 }
 
 // GetAPIKey returns the key with the given ID.
-func (s *SQLite) GetAPIKey(ctx context.Context, id string) (*APIKeyRecord, error) {
-	row := s.db.QueryRowContext(ctx, `
+func (s *sqlStore) GetAPIKey(ctx context.Context, id string) (*APIKeyRecord, error) {
+	row := s.queryRow(ctx, `
 SELECT id, token_hash, name, role, cluster_scope, created_at, expires_at, last_used_at, revoked_at, created_by
 FROM api_keys WHERE id = ?`, id)
 	rec, err := scanAPIKeyRow(row)
@@ -166,8 +165,8 @@ FROM api_keys WHERE id = ?`, id)
 
 // ListAPIKeys returns every API key, ordered by creation time descending.
 // Revoked keys are included so administrators can audit them.
-func (s *SQLite) ListAPIKeys(ctx context.Context) ([]APIKeyRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *sqlStore) ListAPIKeys(ctx context.Context) ([]APIKeyRecord, error) {
+	rows, err := s.query(ctx, `
 SELECT id, token_hash, name, role, cluster_scope, created_at, expires_at, last_used_at, revoked_at, created_by
 FROM api_keys ORDER BY created_at DESC`)
 	if err != nil {
@@ -187,8 +186,8 @@ FROM api_keys ORDER BY created_at DESC`)
 
 // RevokeAPIKey marks a key as revoked. The row is retained so audit log
 // entries referencing it remain interpretable.
-func (s *SQLite) RevokeAPIKey(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx,
+func (s *sqlStore) RevokeAPIKey(ctx context.Context, id string) error {
+	res, err := s.exec(ctx,
 		"UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
 		time.Now().UTC().Format(time.RFC3339), id)
 	if err != nil {
@@ -203,8 +202,8 @@ func (s *SQLite) RevokeAPIKey(ctx context.Context, id string) error {
 
 // TouchAPIKey records the most recent successful authentication time. This is
 // best-effort: a failure here does not invalidate the request.
-func (s *SQLite) TouchAPIKey(ctx context.Context, id string, at time.Time) error {
-	_, err := s.db.ExecContext(ctx,
+func (s *sqlStore) TouchAPIKey(ctx context.Context, id string, at time.Time) error {
+	_, err := s.exec(ctx,
 		"UPDATE api_keys SET last_used_at = ? WHERE id = ?",
 		at.UTC().Format(time.RFC3339), id)
 	if err != nil {
