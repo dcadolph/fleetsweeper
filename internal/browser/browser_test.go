@@ -525,20 +525,42 @@ func TestDashboardSmoke(t *testing.T) {
 			} `json:"outliers"`
 		}
 		getJSON(t, ts.URL+"/api/outliers", &resp)
+		var cohortResp struct {
+			Cohorts []struct {
+				Outliers []struct {
+					Scope string `json:"scope"`
+				} `json:"outliers"`
+			} `json:"cohorts"`
+		}
+		getJSON(t, ts.URL+"/api/cohorts", &cohortResp)
 		open := 0
 		for _, o := range resp.Outliers {
 			if o.ExplainedBy == "" {
 				open++
 			}
 		}
-		held := len(resp.Outliers) - open
+		fleetOpen := open
+		wantScopes := map[string]int{}
+		for _, c := range cohortResp.Cohorts {
+			for _, o := range c.Outliers {
+				wantScopes[o.Scope]++
+				open++
+			}
+		}
+		if len(wantScopes) == 0 {
+			t.Fatalf("demo has no cohort outliers to assert on")
+		}
+		held := len(resp.Outliers) - fleetOpen
 		var rows int
 		var summary string
+		var scopeCells []string
 		err := run(ctx, settleTimeout+5*time.Second,
 			chromedp.Evaluate(`location.hash = '#/outliers'`, nil),
 			chromedp.Poll(settledJS+` && !!document.querySelector('#outlierStrips')`,
 				nil, chromedp.WithPollingTimeout(settleTimeout)),
 			chromedp.Evaluate(`document.querySelectorAll('#outlierTable tbody tr').length`, &rows),
+			chromedp.Evaluate(`[...document.querySelectorAll('#outlierTable tbody tr')]
+				.map((r) => r.cells[3].textContent).filter((s) => s !== 'fleet')`, &scopeCells),
 			chromedp.Evaluate(`(document.querySelector('#outlierHeld summary') || {textContent: ''}).textContent`, &summary),
 		)
 		if err != nil {
@@ -546,6 +568,13 @@ func TestDashboardSmoke(t *testing.T) {
 		}
 		if rows != open {
 			t.Errorf("open outlier rows: %d != %d", rows, open)
+		}
+		gotScopes := map[string]int{}
+		for _, s := range scopeCells {
+			gotScopes[s]++
+		}
+		if diff := cmp.Diff(wantScopes, gotScopes); diff != "" {
+			t.Errorf("cohort rows by norm scope mismatch (-want +got):\n%s", diff)
 		}
 		if want := fmt.Sprintf("%d ", held); !strings.HasPrefix(summary, want) {
 			t.Errorf("held summary %q does not begin with %q", summary, want)

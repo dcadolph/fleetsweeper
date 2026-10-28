@@ -26,12 +26,15 @@ export async function renderOutliers() {
   h += `<div id="outlierStrips">${await stripsFor(scope)}</div>`;
   h += '<h3>Outlier table</h3>';
   const all = data.outliers || [];
-  const open = all.filter((o) => !o.explained_by);
+  const sevRank = (o) => (o.severity === 'critical' ? 0 : o.severity === 'warning' ? 1 : 2);
+  const cohortRows = (cohorts.cohorts || []).flatMap((c) => c.outliers || []);
+  const open = all.filter((o) => !o.explained_by).concat(cohortRows)
+    .sort((a, b) => sevRank(a) - sevRank(b) || (b.deviation || 0) - (a.deviation || 0));
   const held = all.filter((o) => o.explained_by);
-  const head = (first) => `<thead><tr><th scope="col">${first}</th><th scope="col">Cluster</th><th scope="col">Scanner</th><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Fleet norm</th>` +
+  const head = (first) => `<thead><tr><th scope="col">${first}</th><th scope="col">Cluster</th><th scope="col">Scanner</th><th scope="col">Norm</th><th scope="col">Field</th><th scope="col">Value</th><th scope="col">Norm value</th>` +
     '<th scope="col" data-tip="Modified z-score from the median. Exact means the field is flat across the fleet and this cluster is off it.">Deviation</th></tr></thead>';
   const row = (o, first) => `<tr><td${first.cls}>${first.text}</td><td class="fw-500"><a href="${esc(clusterHref(o.cluster))}">${esc(o.cluster)}</a></td>` +
-    `<td>${esc(o.scanner)}</td><td>${esc(o.field)}</td><td class="mono">${esc(o.value)}</td><td class="mono">${esc(o.fleet_norm)}</td>` +
+    `<td>${esc(o.scanner)}</td><td>${esc(o.scope || 'fleet')}</td><td>${esc(o.field)}</td><td class="mono">${esc(o.value)}</td><td class="mono">${esc(o.fleet_norm)}</td>` +
     `<td class="mono">${o.exact ? 'exact' : o.deviation ? fixed(o.deviation, 1) : ''}</td></tr>`;
   if (!open.length) {
     h += '<div class="empty">No cluster sits outside every norm that applies to it.</div>';
