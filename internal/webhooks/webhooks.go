@@ -8,8 +8,6 @@ package webhooks
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,9 +28,8 @@ import (
 // the timeout matters because one slow target should not stall the next.
 const requestTimeout = 6 * time.Second
 
-// dedupTTL is how long a finding fingerprint counts as "already notified".
-// Aligned with the Slack notifier so a finding deduped on one channel is
-// also deduped on the others.
+// dedupTTL is how long a finding counts as "already notified". Dedup is per
+// subscriber and keyed by the finding fingerprint.
 const dedupTTL = 6 * time.Hour
 
 // Config is the YAML shape an operator supplies via --webhook-config.
@@ -232,15 +229,7 @@ func matches(s Subscriber, f report.Finding) bool {
 // per subscriber so different subscribers can each fire once on the same
 // finding without colliding.
 func dedupKey(subscriber string, f report.Finding) string {
-	h := sha256.New()
-	h.Write([]byte(subscriber))
-	h.Write([]byte{0})
-	h.Write([]byte(f.Cluster))
-	h.Write([]byte{0})
-	h.Write([]byte(f.Scanner))
-	h.Write([]byte{0})
-	h.Write([]byte(f.Title))
-	return hex.EncodeToString(h.Sum(nil))
+	return subscriber + "\x00" + report.FindingFingerprint(f)
 }
 
 // gcExpired drops dedup entries older than dedupTTL.
