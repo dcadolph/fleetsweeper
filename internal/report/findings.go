@@ -1,7 +1,6 @@
 package report
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -692,20 +691,8 @@ func (ns nodeSet) notReady() []string {
 // unmarshal generically so this function does not depend on the scanner
 // package's concrete types.
 func extractNodeNames(r *Report, cluster, scannerName string) nodeSet {
-	sec := r.Sections[scannerName]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, scannerName, cluster)
+	if m == nil {
 		return nil
 	}
 	rawNodes, _ := m["nodes"].([]any)
@@ -965,20 +952,8 @@ func eventFindings(r *Report) []Finding {
 // cluster, formatted as "Reason (N)". Returns nil if the scanner did not
 // emit a TopWarningReasons slice.
 func topEventReasons(r *Report, cluster string, n int) []string {
-	sec := r.Sections["events"]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "events", cluster)
+	if m == nil {
 		return nil
 	}
 	raw, _ := m["top_warning_reasons"].([]any)
@@ -1049,20 +1024,8 @@ func namespaceFindings(r *Report) []Finding {
 // when present and counts those not in the system allowlist. Falls back to
 // the bare count when the scanner did not emit names.
 func countNonSystemNamespaces(r *Report, cluster string) int {
-	sec := r.Sections["namespaces"]
-	if sec == nil {
-		return 0
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return 0
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return 0
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "namespaces", cluster)
+	if m == nil {
 		return 0
 	}
 	if raw, ok := m["namespaces"].([]any); ok {
@@ -1190,20 +1153,8 @@ type highRiskPod struct {
 // highRiskPods extracts the HighRiskPods slice from a cluster's workloadsec
 // data so finding messages can name specific offenders.
 func highRiskPods(r *Report, cluster string) []highRiskPod {
-	sec := r.Sections["workload-security"]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "workload-security", cluster)
+	if m == nil {
 		return nil
 	}
 	raw, _ := m["high_risk_pods"].([]any)
@@ -1331,20 +1282,8 @@ type riskBinding struct {
 
 // riskBindings extracts the rbac-audit scanner's risk_bindings slice.
 func riskBindings(r *Report, cluster string) []riskBinding {
-	sec := r.Sections["rbac-audit"]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "rbac-audit", cluster)
+	if m == nil {
 		return nil
 	}
 	raw, _ := m["risk_bindings"].([]any)
@@ -1438,20 +1377,8 @@ type imageRisk struct {
 
 // imageRisks extracts the image-audit scanner's image_risks slice.
 func imageRisks(r *Report, cluster string) []imageRisk {
-	sec := r.Sections["image-audit"]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "image-audit", cluster)
+	if m == nil {
 		return nil
 	}
 	raw, _ := m["image_risks"].([]any)
@@ -1500,16 +1427,8 @@ func certFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		data, ok := sec.PerCluster[cluster]
-		if !ok {
-			continue
-		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
+		m := clusterData(r, "certs", cluster)
+		if m == nil {
 			continue
 		}
 		raw, _ := m["certs"].([]any)
@@ -1623,16 +1542,8 @@ func deprecatedAPIFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		data, ok := sec.PerCluster[cluster]
-		if !ok {
-			continue
-		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
+		m := clusterData(r, "deprecated-apis", cluster)
+		if m == nil {
 			continue
 		}
 		raw, _ := m["deprecated"].([]any)
@@ -1677,16 +1588,8 @@ func coverageFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		data, ok := sec.PerCluster[cluster]
-		if !ok {
-			continue
-		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
+		m := clusterData(r, "workload-coverage", cluster)
+		if m == nil {
 			continue
 		}
 		raw, _ := m["gaps"].([]any)
@@ -1762,16 +1665,8 @@ func admissionFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		data, ok := sec.PerCluster[cluster]
-		if !ok {
-			continue
-		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
+		m := clusterData(r, "admission", cluster)
+		if m == nil {
 			continue
 		}
 		raw, _ := m["webhooks"].([]any)
@@ -1834,16 +1729,8 @@ func clusterInfoFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		data, ok := sec.PerCluster[cluster]
-		if !ok {
-			continue
-		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
+		m := clusterData(r, "cluster-info", cluster)
+		if m == nil {
 			continue
 		}
 		hasDrift, _ := m["has_drift"].(bool)
@@ -1959,20 +1846,8 @@ func namespacesWithImageRisk(r *Report, cluster string) map[string]struct{} {
 // include any of the supplied reasons.
 func namespacesWithEventReasons(r *Report, cluster string, reasons map[string]bool) map[string]struct{} {
 	out := make(map[string]struct{})
-	sec := r.Sections["events"]
-	if sec == nil {
-		return out
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return out
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return out
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "events", cluster)
+	if m == nil {
 		return out
 	}
 	rec, _ := m["recent_warnings"].([]any)
@@ -2016,66 +1891,34 @@ func capList(items []string) []string {
 	return out
 }
 
-// getStringField extracts a string field from a cluster's scanner data.
-func getStringField(r *Report, scannerName, cluster, field string) string {
+// clusterData returns a cluster's scanner payload as a generic map, or nil when the section,
+// cluster, or a valid conversion is absent. The map may be the report's own, so callers must not
+// modify it.
+func clusterData(r *Report, scannerName, cluster string) map[string]any {
 	sec := r.Sections[scannerName]
 	if sec == nil {
-		return ""
+		return nil
 	}
 	data, ok := sec.PerCluster[cluster]
 	if !ok {
-		return ""
+		return nil
 	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return ""
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return ""
-	}
-	s, _ := m[field].(string)
+	m, _ := genericMap(data)
+	return m
+}
+
+// getStringField extracts a string field from a cluster's scanner data.
+func getStringField(r *Report, scannerName, cluster, field string) string {
+	s, _ := clusterData(r, scannerName, cluster)[field].(string)
 	return s
 }
 
 // getIntField extracts an integer field from a cluster's scanner data.
 func getIntField(r *Report, scannerName, cluster, field string) int {
-	sec := r.Sections[scannerName]
-	if sec == nil {
-		return 0
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return 0
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return 0
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return 0
-	}
-	return int(toFloat64(m[field]))
+	return int(toFloat64(clusterData(r, scannerName, cluster)[field]))
 }
 
 // getMetricsFloat extracts a float field from a cluster's metrics scanner data.
 func getMetricsFloat(r *Report, cluster, field string) float64 {
-	sec := r.Sections["metrics"]
-	if sec == nil {
-		return 0
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return 0
-	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		return 0
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return 0
-	}
-	return toFloat64(m[field])
+	return toFloat64(clusterData(r, "metrics", cluster)[field])
 }

@@ -1,7 +1,6 @@
 package report
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -364,17 +363,8 @@ func extractAllSignals(r *Report) map[string]clusterSignals {
 
 // hasEventReason checks if a cluster has warning events with a specific reason.
 func hasEventReason(r *Report, cluster, reason string) bool {
-	sec := r.Sections["events"]
-	if sec == nil {
-		return false
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return false
-	}
-	b, _ := json.Marshal(data)
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "events", cluster)
+	if m == nil {
 		return false
 	}
 	reasons, ok := m["top_warning_reasons"].([]any)

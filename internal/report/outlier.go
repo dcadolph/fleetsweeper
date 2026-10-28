@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -633,17 +634,57 @@ func flattenSection(clusters []string, sec *SectionReport) map[string]map[string
 		if !ok {
 			continue
 		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
-			continue
+		m, shared := genericMap(data)
+		if shared {
+			m = maps.Clone(m)
 		}
 		flat[c] = m
 	}
 	return flat
+}
+
+// genericMap returns data as a map[string]any, or nil when it does not convert. A map that
+// already holds only the value types JSON decoding produces is returned as is and shared reports
+// true. Anything else takes one JSON round trip, so numbers become float64 and slices []any.
+func genericMap(data any) (m map[string]any, shared bool) {
+	if m, ok := data.(map[string]any); ok && jsonShaped(m) {
+		return m, true
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return nil, false
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, false
+	}
+	return m, false
+}
+
+// jsonShaped reports whether v holds only the types encoding/json decodes into an any: nil,
+// bool, string, finite float64, []any, and map[string]any.
+func jsonShaped(v any) bool {
+	switch t := v.(type) {
+	case nil, bool, string:
+		return true
+	case float64:
+		return !math.IsNaN(t) && !math.IsInf(t, 0)
+	case []any:
+		for _, e := range t {
+			if !jsonShaped(e) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		for _, e := range t {
+			if !jsonShaped(e) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // collectFields gathers unique field names across all clusters.
