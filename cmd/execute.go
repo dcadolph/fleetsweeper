@@ -46,7 +46,7 @@ func execute() int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return exitCode(err)
 	}
-	return 0
+	return CodeSuccess
 }
 
 // tracingShutdownTimeout bounds the final span and metric flush so an unreachable collector

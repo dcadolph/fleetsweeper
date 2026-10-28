@@ -27,7 +27,9 @@ const maxDriftLines = 10
 // and how the per-cluster scores moved.
 var whatChangedCmd = &cobra.Command{
 	Use:   "whatchanged [scan-a] [scan-b]",
-	Short: "Diff two scans: drifted clusters, new and cleared findings, score deltas",
+	Short: "Diff two scans: drifted clusters, new and cleared findings, score deltas.",
+	Example: "  fleetsweeper whatchanged --db fleet.db\n" +
+		"  fleetsweeper whatchanged 41 42 --db fleet.db --severity warning",
 	Long: "Compares two scans and prints only what changed. When no IDs\n" +
 		"are passed, the previous and current scans are compared. The drift\n" +
 		"ledger reads every stored scan between the two, so each outlier flag\n" +

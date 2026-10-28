@@ -15,8 +15,9 @@ var (
 
 // versionCmd prints build version information.
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print the version",
+	Use:     "version",
+	Short:   "Print the version.",
+	Example: "  fleetsweeper version",
 	Run: func(c *cobra.Command, _ []string) {
 		fmt.Fprintf(c.OutOrStderr(), "fleetsweeper %s (%s) built %s\n", buildVersion, buildCommit, buildDate)
 	},

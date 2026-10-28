@@ -20,8 +20,9 @@ import (
 // files so node_exporter (or any textfile collector) picks up
 // Fleetsweeper metrics without running the HTTP server.
 var textfileCmd = &cobra.Command{
-	Use:   "export-metrics <output-dir>",
-	Short: "Write Prometheus textfile-collector .prom files",
+	Use:     "export-metrics <output-dir>",
+	Short:   "Write Prometheus textfile-collector .prom files.",
+	Example: "  fleetsweeper export-metrics /var/lib/node_exporter/textfile --db fleet.db",
 	Long: "Reads the latest scan from the configured store and writes a\n" +
 		"fleetsweeper.prom file (atomically, via a .tmp rename) into\n" +
 		"<output-dir>. The directory is the path node_exporter watches\n" +

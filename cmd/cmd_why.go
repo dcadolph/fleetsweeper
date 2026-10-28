@@ -20,7 +20,9 @@ import (
 //	fleetsweeper why list
 var whyCmd = &cobra.Command{
 	Use:   "why <topic>",
-	Short: "Explain what a Fleetsweeper finding or scanner means",
+	Short: "Explain what a Fleetsweeper finding or scanner means.",
+	Example: "  fleetsweeper why list\n" +
+		"  fleetsweeper why version-skew",
 	Long: "Print a rich explanation of a Fleetsweeper concept: what it means, " +
 		"how the severity is computed, suggested remediation, and related " +
 		"topics. Pass 'list' to see all available topics.",

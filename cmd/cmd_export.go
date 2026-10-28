@@ -19,8 +19,9 @@ import (
 // bytes, and a sealed bundle carries a signed MANIFEST of every file. Designed for security and compliance handoffs that want
 // one file rather than a directory of separate artifacts.
 var exportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Bundle a scan as a tar.gz of report + PolicyReports + FleetDrift + cost",
+	Use:     "export",
+	Short:   "Bundle a scan as a tar.gz of report + PolicyReports + FleetDrift + cost.",
+	Example: "  fleetsweeper export --db fleet.db --output scan.tar.gz --seal-key \"$SEAL_KEY\"",
 	Long: "Read a scan from the database and produce a single tar.gz containing " +
 		"the JSON report, HTML report, per-cluster PolicyReport CRs, per-cluster " +
 		"FleetDriftReport CRs, and (when --cost-csv is provided) a cost analysis. " +

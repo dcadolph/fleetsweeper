@@ -20,8 +20,9 @@ import (
 // Polls a running Fleetsweeper server on an interval and renders a sorted
 // table. Useful for status TVs and operator triage.
 var topCmd = &cobra.Command{
-	Use:   "top",
-	Short: "Live, sorted view of fleet clusters by score",
+	Use:     "top",
+	Short:   "Live, sorted view of fleet clusters by score.",
+	Example: "  fleetsweeper top --server http://localhost:8080 --interval 10s",
 	Long: "Connect to a running Fleetsweeper server and continuously render a " +
 		"sorted table of clusters. Inspired by htop: q to quit, p to pause, s " +
 		"to cycle sort order, r to refresh now.",
@@ -369,7 +370,7 @@ func (s *topState) getJSON(ctx context.Context, path string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", path, resp.Status)
+		return fmt.Errorf("fetch %s: %s", path, resp.Status)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }

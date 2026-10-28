@@ -15,43 +15,49 @@ import (
 )
 
 var historyCmd = &cobra.Command{
-	Use:   "history",
-	Short: "View scan history and trends",
-	Long:  "Browse past scans, compare them, and view fleet drift trends.",
+	Use:     "history",
+	Short:   "View scan history and trends.",
+	Example: "  fleetsweeper history list --db fleet.db",
+	Long:    "Browse past scans, compare them, and view fleet drift trends.",
 }
 
 var historyListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List past scans",
-	RunE:  runHistoryList,
+	Use:     "list",
+	Short:   "List past scans.",
+	Example: "  fleetsweeper history list --db fleet.db --limit 5",
+	RunE:    runHistoryList,
 }
 
 var historyShowCmd = &cobra.Command{
-	Use:   "show <scan-id>",
-	Short: "Show details of a past scan",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runHistoryShow,
+	Use:     "show <scan-id>",
+	Short:   "Show details of a past scan.",
+	Example: "  fleetsweeper history show 42 --db fleet.db --pretty",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runHistoryShow,
 }
 
 var historyDiffCmd = &cobra.Command{
-	Use:   "diff <scan-id-1> <scan-id-2>",
-	Short: "Compare two scans",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runHistoryDiff,
+	Use:     "diff <scan-id-1> <scan-id-2>",
+	Short:   "Compare two scans.",
+	Example: "  fleetsweeper history diff 41 42 --db fleet.db",
+	Args:    cobra.ExactArgs(2),
+	RunE:    runHistoryDiff,
 }
 
 var historyTrendCmd = &cobra.Command{
-	Use:   "trend",
-	Short: "Show fleet drift trends",
-	RunE:  runHistoryTrend,
+	Use:     "trend",
+	Short:   "Show fleet drift trends.",
+	Example: "  fleetsweeper history trend --db fleet.db --cluster prod-east --scans 20",
+	RunE:    runHistoryTrend,
 }
 
 // historyPruneCmd deletes scans older than a cutoff.
 var historyPruneCmd = &cobra.Command{
-	Use:   "prune",
-	Short: "Delete scans older than a cutoff",
-	Long:  "Delete scan records older than --older-than. Supports duration suffixes like 24h, 7d, 30d, 1y.",
-	RunE:  runHistoryPrune,
+	Use:     "prune",
+	Short:   "Delete scans older than a cutoff.",
+	Example: "  fleetsweeper history prune --db fleet.db --older-than 90d --dry-run",
+	Long:    "Delete scan records older than --older-than. Supports duration suffixes like 24h, 7d, 30d, 1y.",
+	RunE:    runHistoryPrune,
 }
 
 func init() {

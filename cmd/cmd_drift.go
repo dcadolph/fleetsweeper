@@ -22,8 +22,9 @@ import (
 // validating admission webhook, but applied as a one-shot audit so
 // teams can gate CI without installing the webhook in-cluster.
 var driftCmd = &cobra.Command{
-	Use:   "drift",
-	Short: "Check every pod in a context against the admission baseline",
+	Use:     "drift",
+	Short:   "Check every pod in a context against the admission baseline.",
+	Example: "  fleetsweeper drift --context prod-east --baseline baseline.yaml --fail-on-drift",
 	Long: "Lists pods across the chosen context (defaults to current-context)\n" +
 		"and applies the admission baseline checks locally. Useful as a\n" +
 		"pre-flight CI gate: scan a staging cluster, fail the build when any\n" +

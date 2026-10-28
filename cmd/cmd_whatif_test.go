@@ -23,7 +23,7 @@ func execWhatif(t *testing.T, dbPath string, args ...string) (string, error) {
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)
 	base := []string{
-		"whatif", "--db=" + dbPath, "--cluster=", "--field=", "--fix=", "--scope=fleet", "--scan-id=latest", "--json=false",
+		"whatif", "--db=" + dbPath, "--cluster=", "--field=", "--fix=", "--norm=fleet", "--scan-id=latest", "--json=false",
 	}
 	full := make([]string, 0, len(base)+len(args))
 	full = append(full, base...)

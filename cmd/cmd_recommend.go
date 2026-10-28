@@ -19,8 +19,9 @@ import (
 // remediations that would fix the same problem on many clusters at
 // once — that's where the operator's effort goes furthest.
 var recommendCmd = &cobra.Command{
-	Use:   "recommend",
-	Short: "Prioritized action items derived from the latest scan",
+	Use:     "recommend",
+	Short:   "Prioritized action items derived from the latest scan.",
+	Example: "  fleetsweeper recommend --db fleet.db --severity critical --limit 10",
 	Long: "Walks the latest scan's findings, collapses identical\n" +
 		"remediations across clusters, and prints a ranked list. The\n" +
 		"hero metric is leverage: a remediation that fixes ten clusters\n" +
