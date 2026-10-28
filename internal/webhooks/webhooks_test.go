@@ -250,3 +250,40 @@ func TestDedupKey(t *testing.T) {
 		})
 	}
 }
+
+func TestDispatchRetriesAfterFailure(t *testing.T) {
+	t.Parallel()
+	var posts atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if posts.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Webhooks: []Subscriber{{Name: "test", URL: ts.URL, MinSeverity: "warning"}}}
+	if err := compile(cfg); err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := NewDispatcher(cfg, NoopLogger{})
+	d.SetClient(ts.Client())
+	findings := []report.Finding{
+		{Severity: "critical", Cluster: "c1", Scanner: "node-health", Title: "x"},
+	}
+
+	tests := []struct {
+		WantPosts int32
+	}{
+		{WantPosts: 1}, // Test 0: First dispatch fails with a 500.
+		{WantPosts: 2}, // Test 1: Failure was not deduped, so the retry sends.
+		{WantPosts: 2}, // Test 2: Success is deduped, so nothing is sent.
+	}
+	for testNum, test := range tests {
+		d.Dispatch(context.Background(), findings)
+		if diff := cmp.Diff(test.WantPosts, posts.Load()); diff != "" {
+			t.Errorf("test %d: posts mismatch (-want +got):\n%s", testNum, diff)
+		}
+	}
+}

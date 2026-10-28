@@ -206,6 +206,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, findings []report.Finding) {
 			if err := d.send(ctx, s, f); err != nil {
 				d.log.Warnw("webhook send failed",
 					"name", s.Name, "url", s.URL, "err", err)
+				d.mu.Lock()
+				delete(d.notified, key)
+				d.mu.Unlock()
 			}
 		}
 	}
