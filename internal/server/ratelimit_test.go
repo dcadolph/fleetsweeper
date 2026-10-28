@@ -156,7 +156,7 @@ func TestRateLimiterSeparateClasses(t *testing.T) {
 func TestRateLimitThrottlesBadTokens(t *testing.T) {
 	t.Parallel()
 	srv := newRateLimitedTestServer(t, 0, 3)
-	var codes []int
+	codes := make([]int, 0, 5)
 	for range 5 {
 		req := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(`{"name":"g"}`))
 		req.Header.Set("Authorization", "Bearer wrong-guess")
@@ -190,8 +190,9 @@ func TestRateLimitTrustedProxyHeader(t *testing.T) {
 			t.Parallel()
 			srv := newRateLimitedTestServer(t, 1, 0)
 			srv.trustedProxyHeader = test.ProxyHeader
-			var got []int
-			for _, client := range []string{"203.0.113.1", "203.0.113.2"} {
+			clients := []string{"203.0.113.1", "203.0.113.2"}
+			got := make([]int, 0, len(clients))
+			for _, client := range clients {
 				req := httptest.NewRequest(http.MethodGet, "/api/scans", nil)
 				req.RemoteAddr = "10.0.0.1:443"
 				req.Header.Set("X-Forwarded-For", client)

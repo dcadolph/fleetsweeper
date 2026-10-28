@@ -24,8 +24,8 @@ var crdGVR = schema.GroupVersionResource{
 	Resource: "customresourcedefinitions",
 }
 
-// CRDInfo describes a single CustomResourceDefinition.
-type CRDInfo struct {
+// Info describes a single CustomResourceDefinition.
+type Info struct {
 	// Name is the CRD name (e.g. certificates.cert-manager.io).
 	Name string `json:"name"`
 	// Group is the API group.
@@ -41,12 +41,12 @@ type Data struct {
 	// Count is the total number of CRDs.
 	Count int `json:"count"`
 	// CRDs lists all CustomResourceDefinitions.
-	CRDs []CRDInfo `json:"crds"`
+	CRDs []Info `json:"crds"`
 }
 
 // NewScanner returns a scanner that lists CRDs in a cluster.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
 		if dyn == nil {
 			return scanner.Result{Scanner: Name}, fmt.Errorf("%w: %s: dynamic client unavailable", scanner.ErrScan, Name)
@@ -59,7 +59,7 @@ func NewScanner() scanner.Scanner {
 			list = nil
 		}
 
-		crds := make([]CRDInfo, 0, len(list))
+		crds := make([]Info, 0, len(list))
 		for _, item := range list {
 			info := extractCRDInfo(item.Object)
 			crds = append(crds, info)
@@ -76,8 +76,8 @@ func NewScanner() scanner.Scanner {
 }
 
 // extractCRDInfo pulls relevant fields from an unstructured CRD object.
-func extractCRDInfo(obj map[string]any) CRDInfo {
-	info := CRDInfo{}
+func extractCRDInfo(obj map[string]any) Info {
+	info := Info{}
 
 	if meta, ok := obj["metadata"].(map[string]any); ok {
 		info.Name, _ = meta["name"].(string)

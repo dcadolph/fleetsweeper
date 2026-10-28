@@ -102,8 +102,9 @@ func TestGroupComparison(t *testing.T) {
 func TestCapacityHealthyRaisesNoFinding(t *testing.T) {
 	t.Parallel()
 	r := &Report{Capacity: []CapacityAnalysis{{Cluster: "a", Status: "healthy"}, {Cluster: "b", Status: "busy"}}}
-	var rules []string
-	for _, f := range capacityFindings(r) {
+	findings := capacityFindings(r)
+	rules := make([]string, 0, len(findings))
+	for _, f := range findings {
 		rules = append(rules, f.Cluster+" "+f.Rule)
 	}
 	if diff := cmp.Diff([]string{"b metrics/capacity-busy"}, rules); diff != "" {

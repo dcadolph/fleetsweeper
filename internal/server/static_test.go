@@ -93,8 +93,9 @@ func TestRouteTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read routes: %v", err)
 	}
-	var got []string
-	for _, m := range regexp.MustCompile(`\{ id: '([a-zA-Z]+)'`).FindAllStringSubmatch(string(src), -1) {
+	matches := regexp.MustCompile(`\{ id: '([a-zA-Z]+)'`).FindAllStringSubmatch(string(src), -1)
+	got := make([]string, 0, len(matches))
+	for _, m := range matches {
 		got = append(got, m[1])
 	}
 	sort.Strings(got)

@@ -25,7 +25,7 @@ func demoTestReport() *report.Report {
 		groups[g.Name] = g.Clusters
 	}
 	opts := report.BuildOptions{ClusterTags: demoTags(), Groups: groups, Timestamp: demoTestNow}
-	return report.Build(demoClusterNames(), demoResults(demoScans-1, demoScans, demoTestNow, demoTestNow), opts)
+	return report.Build(demoClusterNames(), demoResults(demoScans-1, demoTestNow, demoTestNow), opts)
 }
 
 // TestDemoReportRunsRealEngine verifies that serve --demo exercises the real
@@ -93,7 +93,7 @@ func TestBuildDeterministic(t *testing.T) {
 	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	opts := report.BuildOptions{ClusterTags: demoTags(), Timestamp: at}
 	render := func() []byte {
-		r := report.Build(clusters, demoResults(demoScans-1, demoScans, at, at), opts)
+		r := report.Build(clusters, demoResults(demoScans-1, at, at), opts)
 		js, err := json.Marshal(r)
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
@@ -202,7 +202,7 @@ func TestDemoScoreBand(t *testing.T) {
 		groups[g.Name] = g.Clusters
 	}
 	start := demoTestNow.Add(-time.Duration(demoScans-1) * demoStep)
-	oldest := report.Build(demoClusterNames(), demoResults(0, demoScans, start, demoTestNow),
+	oldest := report.Build(demoClusterNames(), demoResults(0, start, demoTestNow),
 		report.BuildOptions{ClusterTags: demoTags(), Groups: groups, Timestamp: start})
 	if oldest.FleetScore.Score <= r.FleetScore.Score {
 		t.Errorf("oldest scan scores %d, newest %d: want a decline", oldest.FleetScore.Score, r.FleetScore.Score)

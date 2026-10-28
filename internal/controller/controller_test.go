@@ -80,14 +80,14 @@ func (f *fakeRunner) callCount() int {
 func TestControllerMetricsRecord(t *testing.T) {
 	ResetMetrics()
 	dyn, _ := newFakeDynamic(t,
-		newClusterScan("default", "metrics-test", map[string]any{
+		newClusterScan("metrics-test", map[string]any{
 			"interval": "15m",
 			"contexts": []any{"a"},
 		}),
 	)
 	runner := &fakeRunner{summary: ScanSummary{ScanID: "m1", Score: 75, Grade: "C", Clusters: 1}}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: nopLogger()})
-	reconcileOne(t, c, dyn, "default", "metrics-test")
+	reconcileOne(t, c, dyn, "metrics-test")
 
 	if reconcileTotal.Load() != 1 {
 		t.Errorf("reconcileTotal: want 1, got %d", reconcileTotal.Load())
@@ -113,7 +113,7 @@ func nopLogger() *zap.Logger { return zap.NewNop() }
 func TestReconcileDueScanFires(t *testing.T) {
 	t.Parallel()
 	dyn, gvr := newFakeDynamic(t,
-		newClusterScan("default", "prod", map[string]any{
+		newClusterScan("prod", map[string]any{
 			"interval": "15m",
 			"contexts": []any{"prod-east", "prod-west"},
 		}),
@@ -129,7 +129,7 @@ func TestReconcileDueScanFires(t *testing.T) {
 		PollInterval: time.Second,
 	})
 
-	reconcileOne(t, c, dyn, "default", "prod")
+	reconcileOne(t, c, dyn, "prod")
 
 	if runner.callCount() != 1 {
 		t.Fatalf("want 1 scan invocation, got %d", runner.callCount())
@@ -158,7 +158,7 @@ func TestReconcileDueScanFires(t *testing.T) {
 func TestReconcilePausedSkips(t *testing.T) {
 	t.Parallel()
 	dyn, gvr := newFakeDynamic(t,
-		newClusterScan("default", "paused-scan", map[string]any{
+		newClusterScan("paused-scan", map[string]any{
 			"interval": "15m",
 			"contexts": []any{"a"},
 			"paused":   true,
@@ -167,7 +167,7 @@ func TestReconcilePausedSkips(t *testing.T) {
 	runner := &fakeRunner{}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	reconcileOne(t, c, dyn, "default", "paused-scan")
+	reconcileOne(t, c, dyn, "paused-scan")
 
 	if runner.callCount() != 0 {
 		t.Errorf("paused resource should not trigger a scan, got %d calls", runner.callCount())
@@ -183,7 +183,7 @@ func TestReconcilePausedSkips(t *testing.T) {
 func TestReconcileNotYetDueSkips(t *testing.T) {
 	t.Parallel()
 	recent := time.Now().Add(-1 * time.Minute).UTC().Format(time.RFC3339)
-	obj := newClusterScan("default", "recent", map[string]any{
+	obj := newClusterScan("recent", map[string]any{
 		"interval": "1h",
 		"contexts": []any{"a"},
 	})
@@ -193,7 +193,7 @@ func TestReconcileNotYetDueSkips(t *testing.T) {
 	runner := &fakeRunner{}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	reconcileOne(t, c, dyn, "default", "recent")
+	reconcileOne(t, c, dyn, "recent")
 
 	if runner.callCount() != 0 {
 		t.Errorf("not-yet-due resource should not scan, got %d calls", runner.callCount())
@@ -204,7 +204,7 @@ func TestReconcileNotYetDueSkips(t *testing.T) {
 func TestReconcileFailedScanRecordsPhase(t *testing.T) {
 	t.Parallel()
 	dyn, gvr := newFakeDynamic(t,
-		newClusterScan("default", "doomed", map[string]any{
+		newClusterScan("doomed", map[string]any{
 			"interval": "15m",
 			"contexts": []any{"unreachable"},
 		}),
@@ -212,7 +212,7 @@ func TestReconcileFailedScanRecordsPhase(t *testing.T) {
 	runner := &fakeRunner{err: errors.New("no clusters reachable")}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	reconcileOne(t, c, dyn, "default", "doomed")
+	reconcileOne(t, c, dyn, "doomed")
 
 	obj, _ := dyn.Resource(gvr).Namespace("default").Get(context.Background(), "doomed", metav1.GetOptions{})
 	if readStatus(obj).Phase != PhaseFailed {
@@ -224,7 +224,7 @@ func TestReconcileFailedScanRecordsPhase(t *testing.T) {
 func TestReconcileInvalidIntervalRecordsFailure(t *testing.T) {
 	t.Parallel()
 	dyn, gvr := newFakeDynamic(t,
-		newClusterScan("default", "bad", map[string]any{
+		newClusterScan("bad", map[string]any{
 			"interval": "potato",
 			"contexts": []any{"a"},
 		}),
@@ -232,7 +232,7 @@ func TestReconcileInvalidIntervalRecordsFailure(t *testing.T) {
 	runner := &fakeRunner{}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
 
-	reconcileOne(t, c, dyn, "default", "bad")
+	reconcileOne(t, c, dyn, "bad")
 
 	if runner.callCount() != 0 {
 		t.Error("bad interval should not trigger a scan")
@@ -261,7 +261,7 @@ func TestRunWatchTriggersScan(t *testing.T) {
 	runDone := make(chan error, 1)
 	go func() { runDone <- c.Run(ctx) }()
 
-	obj := newClusterScan("default", "watched", map[string]any{
+	obj := newClusterScan("watched", map[string]any{
 		"interval": "15m",
 		"contexts": []any{"a"},
 	})
@@ -286,14 +286,17 @@ func TestRunWatchTriggersScan(t *testing.T) {
 	}
 }
 
-// newClusterScan builds a minimal ClusterScan unstructured object with the
+// testNamespace is the namespace every test ClusterScan lives in.
+const testNamespace = "default"
+
+// newClusterScan builds a minimal ClusterScan unstructured object in testNamespace with the
 // supplied spec map.
-func newClusterScan(namespace, name string, spec map[string]any) *unstructured.Unstructured {
+func newClusterScan(name string, spec map[string]any) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "fleetsweeper.io/v1alpha1",
 		"kind":       "ClusterScan",
 		"metadata": map[string]any{
-			"namespace": namespace,
+			"namespace": testNamespace,
 			"name":      name,
 		},
 		"spec": spec,
@@ -302,9 +305,9 @@ func newClusterScan(namespace, name string, spec map[string]any) *unstructured.U
 
 // reconcileOne fetches the named ClusterScan and reconciles it directly,
 // standing in for the informer-driven path in Run.
-func reconcileOne(t *testing.T, c *Controller, dyn dynamic.Interface, namespace, name string) {
+func reconcileOne(t *testing.T, c *Controller, dyn dynamic.Interface, name string) {
 	t.Helper()
-	obj, err := dyn.Resource(ClusterScanGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	obj, err := dyn.Resource(ClusterScanGVR).Namespace(testNamespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get cr: %v", err)
 	}
@@ -328,9 +331,9 @@ func newFakeDynamic(t *testing.T, objs ...*unstructured.Unstructured) (dynamic.I
 }
 
 // getClusterScan reads the named ClusterScan back from the fake client.
-func getClusterScan(t *testing.T, dyn dynamic.Interface, namespace, name string) *unstructured.Unstructured {
+func getClusterScan(t *testing.T, dyn dynamic.Interface, name string) *unstructured.Unstructured {
 	t.Helper()
-	obj, err := dyn.Resource(ClusterScanGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	obj, err := dyn.Resource(ClusterScanGVR).Namespace(testNamespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get cr: %v", err)
 	}
@@ -380,7 +383,7 @@ func drainEvents(rec *record.FakeRecorder) []string {
 // re-running on every poll tick, and that the failure is recorded in status and conditions.
 func TestFailingScanNotRerunWithinPoll(t *testing.T) {
 	t.Parallel()
-	dyn, _ := newFakeDynamic(t, newClusterScan("default", "flaky", map[string]any{
+	dyn, _ := newFakeDynamic(t, newClusterScan("flaky", map[string]any{
 		"interval": "1h", "contexts": []any{"a"},
 	}))
 	runner := &fakeRunner{err: errors.New("no clusters reachable")}
@@ -393,7 +396,7 @@ func TestFailingScanNotRerunWithinPoll(t *testing.T) {
 		t.Fatalf("failing scan ran %d times across 30 poll ticks, want 1", n)
 	}
 
-	status := readStatus(getClusterScan(t, dyn, "default", "flaky"))
+	status := readStatus(getClusterScan(t, dyn, "flaky"))
 	if status.Phase != PhaseFailed || status.ConsecutiveFailures != 1 {
 		t.Errorf("phase %q failures %d, want Failed and 1", status.Phase, status.ConsecutiveFailures)
 	}
@@ -410,7 +413,7 @@ func TestFailingScanNotRerunWithinPoll(t *testing.T) {
 // previous values.
 func TestStatusPatchWritesZeros(t *testing.T) {
 	t.Parallel()
-	obj := newClusterScan("default", "clean", map[string]any{"interval": "15m", "contexts": []any{"a"}})
+	obj := newClusterScan("clean", map[string]any{"interval": "15m", "contexts": []any{"a"}})
 	obj.Object["status"] = map[string]any{
 		"phase": PhaseSucceeded, "lastScanTime": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
 		"observedCritical": int64(5), "observedWarning": int64(3), "observedScore": int64(40),
@@ -419,9 +422,9 @@ func TestStatusPatchWritesZeros(t *testing.T) {
 	dyn, _ := newFakeDynamic(t, obj)
 	runner := &fakeRunner{summary: ScanSummary{ScanID: "s2", Score: 100, Grade: "A", Clusters: 2}}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
-	reconcileOne(t, c, dyn, "default", "clean")
+	reconcileOne(t, c, dyn, "clean")
 
-	got := getClusterScan(t, dyn, "default", "clean")
+	got := getClusterScan(t, dyn, "clean")
 	for _, field := range []string{"observedCritical", "observedWarning", "consecutiveFailures"} {
 		v, found, err := unstructured.NestedFieldNoCopy(got.Object, "status", field)
 		if err != nil || !found {
@@ -459,7 +462,7 @@ func TestReconcileConditionsAndEvents(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			obj := newClusterScan("default", "cs", map[string]any{"interval": "15m", "contexts": []any{"a"}})
+			obj := newClusterScan("cs", map[string]any{"interval": "15m", "contexts": []any{"a"}})
 			obj.SetGeneration(3)
 			dyn, _ := newFakeDynamic(t, obj)
 			rec := record.NewFakeRecorder(10)
@@ -467,12 +470,12 @@ func TestReconcileConditionsAndEvents(t *testing.T) {
 				ScanID: "s1", Score: 88, Grade: "B", Critical: 1, Warning: 4, Clusters: 2,
 			}}
 			c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop(), Recorder: rec})
-			_, err := c.reconcile(context.Background(), getClusterScan(t, dyn, "default", "cs"))
+			_, err := c.reconcile(context.Background(), getClusterScan(t, dyn, "cs"))
 			if (err != nil) != test.WantReconError {
 				t.Errorf("reconcile err = %v, want error %v", err, test.WantReconError)
 			}
 
-			status := readStatus(getClusterScan(t, dyn, "default", "cs"))
+			status := readStatus(getClusterScan(t, dyn, "cs"))
 			if status.ObservedGeneration != 3 {
 				t.Errorf("observedGeneration = %d, want 3", status.ObservedGeneration)
 			}
@@ -501,19 +504,19 @@ func TestReconcileConditionsAndEvents(t *testing.T) {
 // re-patched or re-announced while the spec stays the same.
 func TestInvalidSpecEventOnce(t *testing.T) {
 	t.Parallel()
-	dyn, _ := newFakeDynamic(t, newClusterScan("default", "bad", map[string]any{
+	dyn, _ := newFakeDynamic(t, newClusterScan("bad", map[string]any{
 		"interval": "potato", "contexts": []any{"a"},
 	}))
 	rec := record.NewFakeRecorder(10)
 	c := New(Config{Dynamic: dyn, Runner: &fakeRunner{}, Log: zap.NewNop(), Recorder: rec})
-	reconcileOne(t, c, dyn, "default", "bad")
-	reconcileOne(t, c, dyn, "default", "bad")
+	reconcileOne(t, c, dyn, "bad")
+	reconcileOne(t, c, dyn, "bad")
 
 	events := drainEvents(rec)
 	if len(events) != 1 {
 		t.Fatalf("want one InvalidSpec event, got %v", events)
 	}
-	status := readStatus(getClusterScan(t, dyn, "default", "bad"))
+	status := readStatus(getClusterScan(t, dyn, "bad"))
 	if !meta.IsStatusConditionTrue(status.Conditions, ConditionFailed) {
 		t.Errorf("want Failed=True, got %+v", status.Conditions)
 	}
@@ -525,7 +528,7 @@ func TestInvalidSpecEventOnce(t *testing.T) {
 // TestDeleteCancelsInflightScan verifies deleting a ClusterScan cancels the scan it is running.
 func TestDeleteCancelsInflightScan(t *testing.T) {
 	t.Parallel()
-	dyn, gvr := newFakeDynamic(t, newClusterScan("default", "doomed", map[string]any{
+	dyn, gvr := newFakeDynamic(t, newClusterScan("doomed", map[string]any{
 		"interval": "15m", "contexts": []any{"a"},
 	}))
 	runner := &fakeRunner{block: true}
@@ -563,7 +566,7 @@ func TestProcessNextBackoff(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			obj := newClusterScan("default", "cs", map[string]any{"interval": "15m", "contexts": []any{"a"}})
+			obj := newClusterScan("cs", map[string]any{"interval": "15m", "contexts": []any{"a"}})
 			dyn, _ := newFakeDynamic(t, obj)
 			c := New(Config{Dynamic: dyn, Runner: &fakeRunner{err: test.Err}, Log: zap.NewNop()})
 			store := cache.NewStore(cache.MetaNamespaceKeyFunc)
@@ -682,12 +685,12 @@ func TestStatusToMapNamesEveryField(t *testing.T) {
 // controller's last write neither re-runs the scan nor writes status from the stale copy.
 func TestStaleCacheDoesNotClobberStatus(t *testing.T) {
 	t.Parallel()
-	dyn, _ := newFakeDynamic(t, newClusterScan("default", "cs", map[string]any{
+	dyn, _ := newFakeDynamic(t, newClusterScan("cs", map[string]any{
 		"interval": "1h", "contexts": []any{"a"},
 	}))
 	runner := &fakeRunner{err: errors.New("boom")}
 	c := New(Config{Dynamic: dyn, Runner: runner, Log: zap.NewNop()})
-	stale := getClusterScan(t, dyn, "default", "cs")
+	stale := getClusterScan(t, dyn, "cs")
 	if _, err := c.reconcile(context.Background(), stale.DeepCopy()); err == nil {
 		t.Fatal("want the failed scan reported as an error")
 	}
@@ -697,7 +700,7 @@ func TestStaleCacheDoesNotClobberStatus(t *testing.T) {
 	if n := runner.callCount(); n != 1 {
 		t.Errorf("scans = %d, want 1", n)
 	}
-	status := readStatus(getClusterScan(t, dyn, "default", "cs"))
+	status := readStatus(getClusterScan(t, dyn, "cs"))
 	if status.Phase != PhaseFailed || status.ConsecutiveFailures != 1 {
 		t.Errorf("phase %q failures %d after a stale reconcile, want Failed and 1", status.Phase, status.ConsecutiveFailures)
 	}
@@ -771,18 +774,18 @@ func enforceResourceVersion(t *testing.T, dyn *dynamicfake.FakeDynamicClient) {
 // rather than overwriting newer status.
 func TestStatusPatchOptimisticLock(t *testing.T) {
 	t.Parallel()
-	obj := newClusterScan("default", "cs", map[string]any{"interval": "15m", "contexts": []any{"a"}})
+	obj := newClusterScan("cs", map[string]any{"interval": "15m", "contexts": []any{"a"}})
 	obj.SetResourceVersion("1")
 	dyn, _ := newFakeDynamic(t, obj)
 	fake := dyn.(*dynamicfake.FakeDynamicClient)
 	enforceResourceVersion(t, fake)
 	c := New(Config{Dynamic: dyn, Runner: &fakeRunner{summary: ScanSummary{ScanID: "s1", Grade: "A"}}, Log: zap.NewNop()})
 
-	stale := getClusterScan(t, dyn, "default", "cs")
+	stale := getClusterScan(t, dyn, "cs")
 	if _, err := c.reconcile(context.Background(), stale.DeepCopy()); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	got := getClusterScan(t, dyn, "default", "cs")
+	got := getClusterScan(t, dyn, "cs")
 	if rv := got.GetResourceVersion(); rv != "3" {
 		t.Errorf("resourceVersion = %s, want 3 after the Running and Succeeded writes", rv)
 	}
@@ -794,7 +797,7 @@ func TestStatusPatchOptimisticLock(t *testing.T) {
 	if !apierrors.IsConflict(err) {
 		t.Errorf("stale write: want Conflict, got %v", err)
 	}
-	if phase := readStatus(getClusterScan(t, dyn, "default", "cs")).Phase; phase != PhaseSucceeded {
+	if phase := readStatus(getClusterScan(t, dyn, "cs")).Phase; phase != PhaseSucceeded {
 		t.Errorf("phase after the rejected stale write = %s, want Succeeded", phase)
 	}
 }

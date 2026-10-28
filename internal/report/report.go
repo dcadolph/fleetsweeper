@@ -1,3 +1,5 @@
+// Package report builds the fleet comparison report from per-cluster scanner results,
+// including divergences, findings, scores, outliers, and trends.
 package report
 
 import (

@@ -120,7 +120,7 @@ func TestBuildSlackPayload_Shape(t *testing.T) {
 func TestBuildSlackPayload_TruncatesAtLimit(t *testing.T) {
 	t.Parallel()
 	r := &report.Report{Clusters: []string{"a"}}
-	var findings []report.Finding
+	findings := make([]report.Finding, 0, slackMaxFindingsPerPost+5)
 	for i := range slackMaxFindingsPerPost + 5 {
 		findings = append(findings, report.Finding{
 			Severity: report.SeverityCritical,

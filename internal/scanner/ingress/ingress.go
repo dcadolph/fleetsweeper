@@ -1,3 +1,4 @@
+// Package ingress implements the scanner that lists ingress resources in a cluster.
 package ingress
 
 import (
@@ -13,8 +14,8 @@ import (
 // Name is the registry key for this scanner.
 const Name = "ingresses"
 
-// IngressInfo describes a single ingress resource.
-type IngressInfo struct {
+// Info describes a single ingress resource.
+type Info struct {
 	// Namespace is the namespace containing the ingress.
 	Namespace string `json:"namespace"`
 	// Name is the ingress name.
@@ -32,12 +33,12 @@ type Data struct {
 	// Count is the total number of ingress resources.
 	Count int `json:"count"`
 	// Ingresses lists all ingress resources.
-	Ingresses []IngressInfo `json:"ingresses"`
+	Ingresses []Info `json:"ingresses"`
 }
 
 // NewScanner returns a scanner that lists all ingress resources in a cluster.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		ingList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
 			client.Clientset().NetworkingV1().Ingresses("").List,
@@ -46,9 +47,9 @@ func NewScanner() scanner.Scanner {
 			ingList = nil
 		}
 
-		ingresses := make([]IngressInfo, 0, len(ingList))
+		ingresses := make([]Info, 0, len(ingList))
 		for _, ing := range ingList {
-			info := IngressInfo{
+			info := Info{
 				Namespace: ing.Namespace,
 				Name:      ing.Name,
 				TLS:       len(ing.Spec.TLS) > 0,

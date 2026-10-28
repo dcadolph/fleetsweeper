@@ -26,7 +26,7 @@ func sealedFiles(t *testing.T) map[string][]byte {
 	if err != nil {
 		t.Fatalf("bundle files: %v", err)
 	}
-	if _, err := seal.SealBundle(files, verifyKey); err != nil {
+	if _, err := seal.Bundle(files, verifyKey); err != nil {
 		t.Fatalf("seal bundle: %v", err)
 	}
 	return files

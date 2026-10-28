@@ -229,7 +229,7 @@ func oneHot(dims, hot int, off float64) []float64 {
 func nineGroups() []ClusterProfile {
 	const dims = 10
 	offs := []float64{0, 0.001, 0.003}
-	var out []ClusterProfile
+	out := make([]ClusterProfile, 0, 9*len(offs))
 	for g := range 9 {
 		for m, off := range offs {
 			hot := g
@@ -248,7 +248,7 @@ func nineGroups() []ClusterProfile {
 
 // groupNames returns the three member names of nine-group fleet group g.
 func groupNames(gs ...int) []string {
-	var out []string
+	out := make([]string, 0, 3*len(gs))
 	for _, g := range gs {
 		for m := range 3 {
 			out = append(out, fmt.Sprintf("g%d-%d", g, m))

@@ -1,3 +1,5 @@
+// Package rbacaudit implements the scanner that audits RBAC for over-permissive bindings and
+// rules.
 package rbacaudit
 
 import (
@@ -66,7 +68,7 @@ type Data struct {
 // Counters increment per binding (not per subject) so a single binding with N
 // subjects no longer inflates the total by a factor of N.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		rbacClient := client.Clientset().RbacV1()
 		data := Data{}
 		var cov scanner.Coverage

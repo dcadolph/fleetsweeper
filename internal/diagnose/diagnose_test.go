@@ -119,7 +119,7 @@ func TestRun_Slack_BadURL(t *testing.T) {
 func TestRun_Slack_Probe(t *testing.T) {
 	t.Parallel()
 	var hits atomic.Int32
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))

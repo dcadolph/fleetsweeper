@@ -1,3 +1,5 @@
+// Package scanner defines the Scanner interface, the result and coverage types every scanner
+// returns, and the registry that holds scanners by name.
 package scanner
 
 import (
@@ -12,11 +14,11 @@ type Scanner interface {
 	Scan(ctx context.Context, client *kube.Client) (Result, error)
 }
 
-// ScannerFunc adapts a plain function to the Scanner interface.
-type ScannerFunc func(ctx context.Context, client *kube.Client) (Result, error)
+// Func adapts a plain function to the Scanner interface.
+type Func func(ctx context.Context, client *kube.Client) (Result, error)
 
 // Scan calls the underlying function.
-func (f ScannerFunc) Scan(ctx context.Context, client *kube.Client) (Result, error) {
+func (f Func) Scan(ctx context.Context, client *kube.Client) (Result, error) {
 	return f(ctx, client)
 }
 

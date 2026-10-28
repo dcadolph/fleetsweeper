@@ -102,7 +102,7 @@ type Data struct {
 // Whichever source wins is recorded in Data.Source so consumers can show
 // the operator which configuration is currently active.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		nodes, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
 			func(l *corev1.NodeList) []corev1.Node { return l.Items })

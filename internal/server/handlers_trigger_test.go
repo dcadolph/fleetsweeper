@@ -177,7 +177,7 @@ func writeTestKubeconfig(t *testing.T, contexts ...string) string {
 
 // pressureScanner is a fake node-health scanner reporting one node under memory pressure, which
 // the report turns into one critical finding per cluster.
-var pressureScanner = scanner.ScannerFunc(func(context.Context, *kube.Client) (scanner.Result, error) {
+var pressureScanner = scanner.Func(func(context.Context, *kube.Client) (scanner.Result, error) {
 	return scanner.Result{Scanner: "node-health", Data: map[string]any{
 		"node_count": 3, "healthy_nodes": 2, "memory_pressure_nodes": 1,
 	}}, nil
@@ -195,8 +195,8 @@ func newScanTestServer(t *testing.T, contexts ...string) (*Server, *store.SQLite
 	return srv, ss
 }
 
-// waitForScan polls GET /api/scans/{id} until it resolves and returns how long that took.
-func waitForScan(t *testing.T, srv *Server, id string) time.Duration {
+// waitForScan polls GET /api/scans/{id} until it resolves.
+func waitForScan(t *testing.T, srv *Server, id string) {
 	t.Helper()
 	start := time.Now()
 	for time.Since(start) < 10*time.Second {
@@ -204,12 +204,11 @@ func waitForScan(t *testing.T, srv *Server, id string) time.Duration {
 		w := httptest.NewRecorder()
 		srv.mux.ServeHTTP(w, req)
 		if w.Code == http.StatusOK {
-			return time.Since(start)
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("scan %s never resolved", id)
-	return 0
 }
 
 // triggerScan posts a scan of contexts and returns the scan ID from the 202 response.
@@ -355,7 +354,7 @@ func TestScanOnceHonorsEmitOptions(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
 			var posts atomic.Int64
-			slack := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			slack := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 				posts.Add(1)
 			}))
 			t.Cleanup(slack.Close)

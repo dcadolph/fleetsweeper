@@ -85,11 +85,11 @@ func TestOpen_Push_GitHubFlow(t *testing.T) {
 		calledPullsP  int32
 	)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/o/r", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/o/r", func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&calledGetRepo, 1)
 		_ = json.NewEncoder(w).Encode(repoInfo{DefaultBranch: "main"})
 	})
-	mux.HandleFunc("/repos/o/r/git/refs/heads/main", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/o/r/git/refs/heads/main", func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&calledGetRef, 1)
 		_ = json.NewEncoder(w).Encode(refInfo{Object: struct {
 			SHA string `json:"sha"`

@@ -22,9 +22,11 @@ func execWhatif(t *testing.T, dbPath string, args ...string) (string, error) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)
-	full := []string{
+	base := []string{
 		"whatif", "--db=" + dbPath, "--cluster=", "--field=", "--fix=", "--scope=fleet", "--scan-id=latest", "--json=false",
 	}
+	full := make([]string, 0, len(base)+len(args))
+	full = append(full, base...)
 	rootCmd.SetArgs(append(full, args...))
 	err := rootCmd.Execute()
 	return buf.String(), err

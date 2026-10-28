@@ -1,3 +1,4 @@
+// Package namespace implements the scanner that lists namespaces in a cluster.
 package namespace
 
 import (
@@ -25,7 +26,7 @@ type Data struct {
 
 // NewScanner returns a scanner that lists all namespaces in a cluster.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		nsList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
 			client.Clientset().CoreV1().Namespaces().List,

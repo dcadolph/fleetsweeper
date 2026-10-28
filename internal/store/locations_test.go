@@ -91,7 +91,7 @@ func TestListLocationsSorted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	var names []string
+	names := make([]string, 0, len(got))
 	for _, l := range got {
 		names = append(names, l.Cluster)
 	}

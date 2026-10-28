@@ -8,15 +8,30 @@ linters:
   default: none
   enable:
     - errcheck
+    - errorlint
+    - gocritic
     - govet
     - ineffassign
     - misspell
+    - nolintlint
+    - prealloc
+    - revive
     - staticcheck
+    - unconvert
+    - unparam
     - unused
 
   settings:
     misspell:
       locale: US
+
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: unused-parameter
+        - name: early-return
+        - name: indent-error-flow
 
     errcheck:
       # Print writers and defer-Close patterns are accepted noise.

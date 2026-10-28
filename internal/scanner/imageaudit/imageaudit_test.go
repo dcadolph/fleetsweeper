@@ -704,7 +704,7 @@ func TestScan(t *testing.T) {
 func TestScanTruncatesImageRisks(t *testing.T) {
 	t.Parallel()
 
-	var objects []runtime.Object
+	objects := make([]runtime.Object, 0, 60)
 	for i := range 60 {
 		objects = append(objects, pod("ns", fmt.Sprintf("p%d", i), nil,
 			[]corev1.Container{container("c0", fmt.Sprintf("img-%d", i))}))

@@ -103,8 +103,7 @@ func Profiles(clusters []string, sections SectionLookup, tags map[string]string)
 // json.Unmarshal produces for objects) and pre-decoded structs flattened to
 // the same shape upstream.
 func extractField(data any, field string, extract func(any) (float64, bool)) (float64, bool) {
-	switch v := data.(type) {
-	case map[string]any:
+	if v, ok := data.(map[string]any); ok {
 		return extract(v[field])
 	}
 	// Fallback: round-trip through JSON for typed structs.

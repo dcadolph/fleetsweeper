@@ -283,8 +283,8 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 		h.KubernetesVersion = getStringField(r, "version", cluster, "git_version")
 		h.NodeCount = getIntField(r, "node-health", cluster, "node_count")
 		h.HealthyNodes = getIntField(r, "node-health", cluster, "healthy_nodes")
-		h.AvgCPU = getFloatField(r, "metrics", cluster, "avg_cpu_percent")
-		h.AvgMemory = getFloatField(r, "metrics", cluster, "avg_memory_percent")
+		h.AvgCPU = getMetricsFloat(r, cluster, "avg_cpu_percent")
+		h.AvgMemory = getMetricsFloat(r, cluster, "avg_memory_percent")
 		h.WarningEvents = getIntField(r, "events", cluster, "warning_events")
 		h.NamespaceCount = getIntField(r, "namespaces", cluster, "count")
 		h.DegradedScanners = degradedByCluster[cluster]
@@ -1370,7 +1370,7 @@ func certFindings(r *Report) []Finding {
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "certs",
-				Affected:    capList(critical, 10),
+				Affected:    capList(critical),
 				Remediation: &Remediation{
 					Command: fmt.Sprintf("kubectl --context %s get secret -A --field-selector type=kubernetes.io/tls", cluster),
 				},
@@ -1384,7 +1384,7 @@ func certFindings(r *Report) []Finding {
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "certs",
-				Affected:    capList(warning, 10),
+				Affected:    capList(warning),
 			})
 		}
 	}
@@ -1428,7 +1428,7 @@ func vulnerabilityFindings(r *Report) []Finding {
 			Severity:    SeverityInfo,
 			Cluster:     cluster,
 			Scanner:     "vulnerabilities",
-			Affected:    capList(images, 10),
+			Affected:    capList(images),
 			Remediation: &Remediation{
 				Command: fmt.Sprintf("kubectl --context %s %s", cluster, scannerInspect["vulnerabilities"]),
 			},
@@ -1482,7 +1482,7 @@ func deprecatedAPIFindings(r *Report) []Finding {
 			Severity:    SeverityWarning,
 			Cluster:     cluster,
 			Scanner:     "deprecated-apis",
-			Affected:    capList(affected, 10),
+			Affected:    capList(affected),
 			Remediation: &Remediation{
 				Command: fmt.Sprintf("kubectl --context %s get --raw /metrics 2>/dev/null | grep apiserver_requested_deprecated_apis", cluster),
 			},
@@ -1541,7 +1541,7 @@ func coverageFindings(r *Report) []Finding {
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "workload-coverage",
-				Affected:    capList(missingPDB, 10),
+				Affected:    capList(missingPDB),
 				Remediation: &Remediation{
 					YAML: defaultPDBYAML,
 				},
@@ -1555,7 +1555,7 @@ func coverageFindings(r *Report) []Finding {
 				Severity:    SeverityInfo,
 				Cluster:     cluster,
 				Scanner:     "workload-coverage",
-				Affected:    capList(missingHPA, 10),
+				Affected:    capList(missingHPA),
 			})
 		}
 	}
@@ -1627,7 +1627,7 @@ func admissionFindings(r *Report) []Finding {
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "admission",
-				Affected:    capList(unhealthy, 10),
+				Affected:    capList(unhealthy),
 				Remediation: &Remediation{
 					Command: fmt.Sprintf("kubectl --context %s get pods -A -l app=<webhook-service-app>", cluster),
 				},
@@ -1641,7 +1641,7 @@ func admissionFindings(r *Report) []Finding {
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "admission",
-				Affected:    capList(expiring, 10),
+				Affected:    capList(expiring),
 			})
 		}
 	}
@@ -1828,9 +1828,10 @@ func namespacesWithWorkloadRisk(r *Report, cluster string) map[string]struct{} {
 	return out
 }
 
-// capList returns the slice capped at limit with an "and N more" suffix when
+// capList returns the slice capped at ten items with an "and N more" suffix when
 // truncated. Used to keep finding output readable on wide fleets.
-func capList(items []string, limit int) []string {
+func capList(items []string) []string {
+	const limit = 10
 	if len(items) <= limit {
 		return items
 	}
@@ -1883,9 +1884,9 @@ func getIntField(r *Report, scannerName, cluster, field string) int {
 	return int(toFloat64(m[field]))
 }
 
-// getFloatField extracts a float field from a cluster's scanner data.
-func getFloatField(r *Report, scannerName, cluster, field string) float64 {
-	sec := r.Sections[scannerName]
+// getMetricsFloat extracts a float field from a cluster's metrics scanner data.
+func getMetricsFloat(r *Report, cluster, field string) float64 {
+	sec := r.Sections["metrics"]
 	if sec == nil {
 		return 0
 	}

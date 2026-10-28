@@ -126,11 +126,11 @@ func TestListAllPages(t *testing.T) {
 			t.Parallel()
 			names, err := listPodNames(test.Pager.clientset(), test.Opts)
 			switch {
-			case test.Want == errExpired:
+			case errors.Is(test.Want, errExpired):
 				if !apierrors.IsResourceExpired(err) {
 					t.Errorf("want an expired error, got %v", err)
 				}
-			case test.Want == errRepeated:
+			case errors.Is(test.Want, errRepeated):
 				if err == nil {
 					t.Error("want an error for a repeated continue token")
 				}

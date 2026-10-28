@@ -111,7 +111,7 @@ func TestExportDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bundle files: %v", err)
 	}
-	wantSig, err := seal.SealBundle(want, key)
+	wantSig, err := seal.Bundle(want, key)
 	if err != nil {
 		t.Fatalf("seal bundle: %v", err)
 	}

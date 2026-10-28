@@ -31,8 +31,9 @@ func TestCheckNames(t *testing.T) {
 		})
 	}
 
-	var gotNames []string
-	for _, c := range DefaultChecks() {
+	checks := DefaultChecks()
+	gotNames := make([]string, 0, len(checks))
+	for _, c := range checks {
 		gotNames = append(gotNames, c.Name())
 	}
 	wantNames := []string{

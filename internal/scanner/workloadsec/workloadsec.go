@@ -1,3 +1,5 @@
+// Package workloadsec implements the scanner that audits pod security contexts across all
+// namespaces.
 package workloadsec
 
 import (
@@ -79,7 +81,7 @@ type Data struct {
 
 // NewScanner returns a scanner that audits pod security contexts across all namespaces.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		pods, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Pods("").List,
 			func(l *corev1.PodList) []corev1.Pod { return l.Items })

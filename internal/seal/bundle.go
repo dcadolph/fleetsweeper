@@ -143,9 +143,9 @@ func metadata(rpt *report.Report, scanID string, opts BundleOptions) []byte {
 	return []byte(b.String())
 }
 
-// SealBundle adds ManifestFile and its signature under FileName to files and returns the
+// Bundle adds ManifestFile and its signature under FileName to files and returns the
 // signature.
-func SealBundle(files map[string][]byte, key string) (string, error) {
+func Bundle(files map[string][]byte, key string) (string, error) {
 	manifest := Manifest(files)
 	sig, err := Sign(manifest, key)
 	if err != nil {

@@ -321,7 +321,7 @@ func renderBody(s Subscriber, f report.Finding) ([]byte, error) {
 }
 
 // envMap is a template func returning a value from the environment.
-var envMap = func(k string) string { return os.Getenv(k) }
+var envMap = os.Getenv
 
 // ErrInvalidConfig is returned by LoadConfig when the YAML is unparseable.
 var ErrInvalidConfig = errors.New("invalid webhook config")

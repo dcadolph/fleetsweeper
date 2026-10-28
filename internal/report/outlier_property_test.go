@@ -11,17 +11,15 @@ import (
 
 // numericFlat builds the flat per-cluster shape detectNumericOutliers consumes
 // from a slice of values, one cluster per value.
-func numericFlat(values []float64) ([]string, map[string]map[string]any, map[string]float64) {
+func numericFlat(values []float64) ([]string, map[string]map[string]any) {
 	clusters := make([]string, len(values))
 	flat := make(map[string]map[string]any, len(values))
-	byCluster := make(map[string]float64, len(values))
 	for i, v := range values {
 		c := fmt.Sprintf("c%02d", i)
 		clusters[i] = c
 		flat[c] = map[string]any{"v": v}
-		byCluster[c] = v
 	}
-	return clusters, flat, byCluster
+	return clusters, flat
 }
 
 // TestOutlierThresholdMonotonic asserts that raising the threshold never yields
@@ -37,7 +35,7 @@ func TestOutlierThresholdMonotonic(t *testing.T) {
 		for i := range values {
 			values[i] = rng.NormFloat64() * float64(1+rng.Intn(30))
 		}
-		clusters, flat, _ := numericFlat(values)
+		clusters, flat := numericFlat(values)
 
 		prev := math.MaxInt32
 		for _, th := range thresholds {
@@ -72,7 +70,7 @@ func FuzzDetectNumericOutliers(f *testing.F) {
 		if len(values) < minMADSample {
 			return
 		}
-		clusters, flat, _ := numericFlat(values)
+		clusters, flat := numericFlat(values)
 		found, dist := detectNumericOutliers(clusters, flat, "v", "metrics", 3.5)
 		if dist != nil {
 			for _, v := range dist.Values {

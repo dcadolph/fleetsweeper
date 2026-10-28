@@ -84,7 +84,7 @@ type Data struct {
 
 // NewScanner returns a scanner that audits container image references.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		podList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Pods("").List,
 			func(l *corev1.PodList) []corev1.Pod { return l.Items })

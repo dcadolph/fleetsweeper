@@ -17,10 +17,12 @@ func execExport(t *testing.T, dbPath string, args ...string) error {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)
-	full := []string{
+	base := []string{
 		"export", "--scan-id=latest", "--output=", "--cost-csv=", "--seal-key=",
 		"--policy-report-namespace=fleetsweeper",
 	}
+	full := make([]string, 0, len(base)+len(args)+1)
+	full = append(full, base...)
 	full = append(full, args...)
 	full = append(full, "--db="+dbPath)
 	rootCmd.SetArgs(full)

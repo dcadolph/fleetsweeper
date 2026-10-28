@@ -1,3 +1,4 @@
+// Package service implements the scanner that lists services in a cluster.
 package service
 
 import (
@@ -13,8 +14,8 @@ import (
 // Name is the registry key for this scanner.
 const Name = "services"
 
-// ServiceInfo describes a single service.
-type ServiceInfo struct {
+// Info describes a single service.
+type Info struct {
 	// Namespace is the namespace containing the service.
 	Namespace string `json:"namespace"`
 	// Name is the service name.
@@ -40,12 +41,12 @@ type Data struct {
 	// Count is the total number of services.
 	Count int `json:"count"`
 	// Services lists all services across all namespaces.
-	Services []ServiceInfo `json:"services"`
+	Services []Info `json:"services"`
 }
 
 // NewScanner returns a scanner that lists all services in a cluster.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		svcList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(),
 			client.Clientset().CoreV1().Services("").List,
@@ -54,9 +55,9 @@ func NewScanner() scanner.Scanner {
 			svcList = nil
 		}
 
-		services := make([]ServiceInfo, 0, len(svcList))
+		services := make([]Info, 0, len(svcList))
 		for _, svc := range svcList {
-			info := ServiceInfo{
+			info := Info{
 				Namespace: svc.Namespace,
 				Name:      svc.Name,
 				Type:      string(svc.Spec.Type),

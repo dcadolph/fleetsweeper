@@ -1,3 +1,4 @@
+// Package resources implements the scanner that collects node capacity and condition data.
 package resources
 
 import (
@@ -50,7 +51,7 @@ type Data struct {
 
 // NewScanner returns a scanner that collects node resource and condition data.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		var cov scanner.Coverage
 		nodeList, err := scanner.ListAll(ctx, scanner.CacheReadOptions(), client.Clientset().CoreV1().Nodes().List,
 			func(l *corev1.NodeList) []corev1.Node { return l.Items })

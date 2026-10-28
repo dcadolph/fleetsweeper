@@ -151,7 +151,7 @@ func TestStartAuditRetention(t *testing.T) {
 func TestSelectScanners(t *testing.T) {
 	t.Parallel()
 	srv, _ := testServer(t)
-	srv.registry.Register("fake", scanner.ScannerFunc(
+	srv.registry.Register("fake", scanner.Func(
 		func(context.Context, *kube.Client) (scanner.Result, error) {
 			return scanner.Result{Scanner: "fake"}, nil
 		}))

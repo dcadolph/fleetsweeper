@@ -26,7 +26,7 @@ type Data struct {
 
 // NewScanner returns a scanner that retrieves the Kubernetes server version.
 func NewScanner() scanner.Scanner {
-	return scanner.ScannerFunc(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
+	return scanner.Func(func(_ context.Context, client *kube.Client) (scanner.Result, error) {
 		info, err := client.Clientset().Discovery().ServerVersion()
 		if err != nil {
 			return scanner.Result{}, fmt.Errorf("%w: %s: %w", scanner.ErrScan, Name, err)
