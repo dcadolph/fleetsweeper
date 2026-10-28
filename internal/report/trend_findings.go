@@ -16,7 +16,7 @@ func GenerateTrendFindings(clusterTrends []ClusterTrend, fleetTrends []FleetTren
 
 		first := ct.Points[0].Value
 		last := ct.Points[len(ct.Points)-1].Value
-		label := ScannerLabels[ct.Scanner]
+		label := scannerLabels[ct.Scanner]
 		if label == "" {
 			label = ct.Scanner
 		}
@@ -47,7 +47,7 @@ func GenerateTrendFindings(clusterTrends []ClusterTrend, fleetTrends []FleetTren
 
 		first := ft.Points[0].Value
 		last := ft.Points[len(ft.Points)-1].Value
-		label := ScannerLabels[ft.Scanner]
+		label := scannerLabels[ft.Scanner]
 		if label == "" {
 			label = ft.Scanner
 		}
@@ -71,5 +71,5 @@ func GenerateTrendFindings(clusterTrends []ClusterTrend, fleetTrends []FleetTren
 		})
 	}
 
-	return StampFingerprints(findings)
+	return stampFingerprints(findings)
 }

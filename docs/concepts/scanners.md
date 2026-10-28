@@ -32,10 +32,11 @@ fold into the fleet picture.
 | Vulnerabilities      | `vulnerabilities`   | Severity counts aggregated from Trivy Operator VulnerabilityReports            |
 | PolicyReport Ingest  | `policy-reports`    | Fail and warn results from Kyverno, Gatekeeper, and other PolicyReport writers |
 
-For every scanner, fleetsweeper compares the data across clusters and flags
-divergences with severity levels (critical, warning, info). Findings name
-the specific offending nodes, pods, bindings, and images so operators can
-act without spelunking the JSON.
+For every scanner, fleetsweeper compares the data across clusters and lists
+the fields that diverge. Severity belongs to findings, not divergences:
+findings are critical, warning, or info, and name the specific offending
+nodes, pods, bindings, and images so operators can act without spelunking
+the JSON.
 
 ## Membership, not just counts
 

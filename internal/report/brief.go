@@ -17,10 +17,10 @@ type Brief struct {
 	Lines []string `json:"lines,omitempty"`
 }
 
-// GenerateBrief synthesizes an executive summary from a fully built report: the
+// generateBrief synthesizes an executive summary from a fully built report: the
 // score, the worst incident, cohort drift, degraded coverage, and the fixes
 // that matter most.
-func GenerateBrief(r *Report) Brief {
+func generateBrief(r *Report) Brief {
 	crit := countFindingsBySeverity(r.Findings, SeverityCritical)
 	warn := countFindingsBySeverity(r.Findings, SeverityWarning)
 

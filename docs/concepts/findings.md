@@ -84,13 +84,17 @@ across 26 clusters."
 
 ## Severity calibration
 
+Severity belongs to findings. A divergence, a field with more than one value
+across the fleet, carries none, and the report summary's `critical_count` and
+`warning_count` count findings, so every surface states the same numbers.
+
 Severity is conservative on purpose. The goal is for a critical finding to
 be worth an SRE's attention, not a daily false positive.
 
 - **Kubernetes version differences** are info for patch-only skew, warning
   for a single minor, critical only when skew exceeds one minor (outside
   the upstream skew policy).
-- **ClusterRoleCount divergence** is warning, not critical, because cloud
+- **ClusterRoleCount outliers** are warning, not critical, because cloud
   add-ons legitimately differ.
 - **Maximum CPU and memory percentages** are warning, since natural
   per-cluster variation should not page an SRE.

@@ -80,7 +80,7 @@ func New(baseURL string, opts ...Option) *Client {
 type APIError struct {
 	// StatusCode is the HTTP status returned by the server.
 	StatusCode int
-	// Code is the application error code from the JSON body, zero when absent.
+	// Code is the HTTP status the server echoes in its error body, zero when absent.
 	Code int
 	// Message is the server error text, or the raw body when the response was
 	// not the standard error envelope.

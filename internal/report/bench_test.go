@@ -12,7 +12,7 @@ import (
 // per-cluster results map. Useful for catching accidental quadratic behavior
 // in the pipeline (compare → severity → findings → cluster health → outliers).
 func BenchmarkBuild(b *testing.B) {
-	clusters := makeClusterNames(50)
+	clusters := makeClusterNames()
 	results := makeSyntheticResults(clusters)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -20,31 +20,19 @@ func BenchmarkBuild(b *testing.B) {
 	}
 }
 
-// BenchmarkBuild_LargeFleet covers the over-20-cluster path that activates
-// MAD outlier detection so the regression doesn't get hidden by skipping
-// that branch.
-func BenchmarkBuild_LargeFleet(b *testing.B) {
-	clusters := makeClusterNames(200)
-	results := makeSyntheticResults(clusters)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = Build(clusters, results)
-	}
-}
-
-// BenchmarkComputeFleetScore isolates the score math from the surrounding
+// BenchmarkScoreWithAttribution isolates the score math from the surrounding
 // report-build cost.
-func BenchmarkComputeFleetScore(b *testing.B) {
-	r := Build(makeClusterNames(50), makeSyntheticResults(makeClusterNames(50)))
+func BenchmarkScoreWithAttribution(b *testing.B) {
+	r := Build(makeClusterNames(), makeSyntheticResults(makeClusterNames()))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ComputeFleetScore(r)
+		_, _ = scoreWithAttribution(r)
 	}
 }
 
 // BenchmarkComputeClusterScores walks every cluster in a 50-cluster fleet.
 func BenchmarkComputeClusterScores(b *testing.B) {
-	r := Build(makeClusterNames(50), makeSyntheticResults(makeClusterNames(50)))
+	r := Build(makeClusterNames(), makeSyntheticResults(makeClusterNames()))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = ComputeClusterScores(r)
@@ -81,9 +69,12 @@ func BenchmarkOLS(b *testing.B) {
 	}
 }
 
-// makeClusterNames generates n synthetic cluster names with a stable pattern.
-func makeClusterNames(n int) []string {
-	out := make([]string, n)
+// benchFleetSize is the number of synthetic clusters the benchmarks build.
+const benchFleetSize = 50
+
+// makeClusterNames generates benchFleetSize synthetic cluster names with a stable pattern.
+func makeClusterNames() []string {
+	out := make([]string, benchFleetSize)
 	for i := range out {
 		out[i] = fmt.Sprintf("cluster-%03d", i)
 	}

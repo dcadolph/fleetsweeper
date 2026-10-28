@@ -1,10 +1,19 @@
 package report
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
+)
+
+// Capacity status values assigned by analyzeCapacity.
+const (
+	capacityCritical = "critical"
+	capacityStrained = "strained"
+	capacityBusy     = "busy"
+	capacityHealthy  = "healthy"
 )
 
 // CapacityAnalysis holds smart analysis for a single cluster, correlating
@@ -71,9 +80,9 @@ type clusterSignals struct {
 	warnEvents int
 }
 
-// AnalyzeCapacity runs smart capacity analysis across all clusters in a report.
+// analyzeCapacity runs smart capacity analysis across all clusters in a report.
 // Groups can be nil when no grouping is available.
-func AnalyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
+func analyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 	signals := extractAllSignals(r)
 	var analyzes []CapacityAnalysis
 
@@ -128,7 +137,9 @@ func AnalyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 	}
 
 	sort.Slice(analyzes, func(i, j int) bool {
-		order := map[string]int{"critical": 0, "strained": 1, "busy": 2, "healthy": 3}
+		order := map[string]int{
+			capacityCritical: 0, capacityStrained: 1, capacityBusy: 2, capacityHealthy: 3,
+		}
 		return order[analyzes[i].Status] < order[analyzes[j].Status]
 	})
 
@@ -145,35 +156,35 @@ func assessStatus(sig clusterSignals) string {
 
 	// Critical: pressure + failures, or nodes down + high utilization.
 	if hasPressure && hasFailures {
-		return "critical"
+		return capacityCritical
 	}
 	if sig.notReady > 0 && highUtil {
-		return "critical"
+		return capacityCritical
 	}
 	if hasPressure && highUtil {
-		return "critical"
+		return capacityCritical
 	}
 
 	// Strained: pressure or failures without both, or very high utilization.
 	if hasPressure || hasFailures {
-		return "strained"
+		return capacityStrained
 	}
 	if highUtil {
-		return "strained"
+		return capacityStrained
 	}
 
 	// Busy: elevated utilization but no pressure signals. Working hard but healthy.
 	if elevatedUtil {
-		return "busy"
+		return capacityBusy
 	}
 
-	return "healthy"
+	return capacityHealthy
 }
 
 // recommend generates a capacity recommendation based on correlated signals.
 func recommend(sig clusterSignals, status string) string {
 	switch status {
-	case "critical":
+	case capacityCritical:
 		needed := nodesNeeded(sig, 70.0)
 		if sig.oomEvents && sig.memPressure > 0 && needed == 0 {
 			return fmt.Sprintf(
@@ -208,7 +219,7 @@ func recommend(sig clusterSignals, status string) string {
 		}
 		return fmt.Sprintf("Resource exhaustion detected. Add %d node(s) to bring utilization below 70%%.", needed)
 
-	case "strained":
+	case capacityStrained:
 		needed := nodesNeeded(sig, 70.0)
 		if sig.schedFail && needed == 0 {
 			return fmt.Sprintf(
@@ -233,7 +244,7 @@ func recommend(sig clusterSignals, status string) string {
 			"Utilization is elevated (CPU %.0f%%, memory %.0f%%). Monitor closely. %d additional node(s) would bring usage below 70%%.",
 			sig.cpuPct, sig.memPct, needed)
 
-	case "busy":
+	case capacityBusy:
 		return fmt.Sprintf(
 			"Cluster is running at CPU %.0f%%, memory %.0f%% with no pressure conditions. "+
 				"This is healthy but has limited headroom (%.0f%% memory free). "+
@@ -296,8 +307,8 @@ func groupComparison(cluster, groupName string, peers []string, signals map[stri
 		return ""
 	}
 
-	peerMem50 := computeMedian(peerMem)
-	peerCPU50 := computeMedian(peerCPU)
+	peerMem50 := util.Median(peerMem)
+	peerCPU50 := util.Median(peerCPU)
 
 	memDiff := sig.memPct - peerMem50
 	cpuDiff := sig.cpuPct - peerCPU50
@@ -354,17 +365,8 @@ func extractAllSignals(r *Report) map[string]clusterSignals {
 
 // hasEventReason checks if a cluster has warning events with a specific reason.
 func hasEventReason(r *Report, cluster, reason string) bool {
-	sec := r.Sections["events"]
-	if sec == nil {
-		return false
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return false
-	}
-	b, _ := json.Marshal(data)
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
+	m := clusterData(r, "events", cluster)
+	if m == nil {
 		return false
 	}
 	reasons, ok := m["top_warning_reasons"].([]any)

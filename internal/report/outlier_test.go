@@ -1,7 +1,9 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 func TestDetectOutliers(t *testing.T) {
@@ -286,7 +289,7 @@ func TestComputeMedianMAD(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			med := computeMedian(test.Values)
+			med := util.Median(test.Values)
 			if diff := cmp.Diff(test.WantMedian, med, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
 				t.Errorf("median mismatch (-want +got):\n%s", diff)
 			}
@@ -627,6 +630,87 @@ func TestExactNormPhrase(t *testing.T) {
 			t.Parallel()
 			if diff := cmp.Diff(test.WantResult, exactNormPhrase(test.Share, test.N, "0", "the fleet")); diff != "" {
 				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestBuildLeavesPayloadsUnchanged verifies that Build does not modify JSON-decoded map payloads,
+// which the set projection and the availability gate would otherwise write and delete in place.
+func TestBuildLeavesPayloadsUnchanged(t *testing.T) {
+	t.Parallel()
+	decode := func(s string) map[string]any {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			t.Fatalf("decode fixture: %v", err)
+		}
+		return m
+	}
+	clusters := make([]string, 0, 8)
+	results := make(map[string]map[string]scanner.Result, 8)
+	want := make(map[string]map[string]any, 8)
+	for i := range 8 {
+		c := fmt.Sprintf("c%d", i)
+		clusters = append(clusters, c)
+		crds := fmt.Sprintf(`{"count": 2, "crds": [{"name": "a.g"}, {"name": "b%d.g"}]}`, i%2)
+		vulns := fmt.Sprintf(`{"available": %t, "reports": %d, "critical": 0, "high": %d}`,
+			i > 0, i, i)
+		results[c] = map[string]scanner.Result{
+			"crds":            {Data: decode(crds)},
+			"vulnerabilities": {Data: decode(vulns)},
+		}
+		want[c+"/crds"] = decode(crds)
+		want[c+"/vulnerabilities"] = decode(vulns)
+	}
+	Build(clusters, results)
+	got := make(map[string]map[string]any, len(want))
+	for c, byScanner := range results {
+		for name, res := range byScanner {
+			got[c+"/"+name], _ = res.Data.(map[string]any)
+		}
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("payload modified (-want +got):\n%s", diff)
+	}
+}
+
+// TestGenericMap verifies which payloads are shared as is and which take the JSON round trip.
+func TestGenericMap(t *testing.T) {
+	t.Parallel()
+	type typed struct {
+		Count int `json:"count"`
+	}
+	tests := []struct {
+		In         any
+		WantResult map[string]any
+		WantShared bool
+	}{{ // Test 0: A JSON-decoded map is shared.
+		In:         map[string]any{"count": 2.0, "items": []any{"a"}, "ok": true, "x": nil},
+		WantResult: map[string]any{"count": 2.0, "items": []any{"a"}, "ok": true, "x": nil},
+		WantShared: true,
+	}, { // Test 1: A map holding a Go int is converted.
+		In:         map[string]any{"count": 2},
+		WantResult: map[string]any{"count": 2.0},
+	}, { // Test 2: A nested typed slice is converted.
+		In:         map[string]any{"items": []string{"a"}},
+		WantResult: map[string]any{"items": []any{"a"}},
+	}, { // Test 3: A struct is converted.
+		In:         typed{Count: 3},
+		WantResult: map[string]any{"count": 3.0},
+	}, { // Test 4: A NaN does not marshal.
+		In: map[string]any{"v": math.NaN()},
+	}, { // Test 5: A non-object payload does not convert.
+		In: []any{1.0},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got, shared := genericMap(test.In)
+			if diff := cmp.Diff(test.WantResult, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantShared, shared); diff != "" {
+				t.Errorf("shared mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

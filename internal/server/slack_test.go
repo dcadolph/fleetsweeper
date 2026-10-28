@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 func TestFilterCriticals(t *testing.T) {
@@ -186,5 +187,32 @@ func TestNotifySlackForReport_EndToEnd_Mocked(t *testing.T) {
 	s.notifySlackForReport(context.Background(), r)
 	if got.Load() != 1 {
 		t.Errorf("dedup failed; want 1 post total, got %d", got.Load())
+	}
+}
+
+// TestFilterAckedFindings verifies findings with an active ack are dropped and
+// the empty-input guard returns early.
+func TestFilterAckedFindings(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	ctx := context.Background()
+
+	acked := report.Finding{Cluster: "east", Scanner: "version", Rule: "version/skew", Title: "old k8s"}
+	fp := report.FindingFingerprint(acked)
+	if err := ss.SaveAck(ctx, store.AckRecord{
+		Fingerprint: fp, Cluster: "east", Scanner: "version", Title: "old k8s",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed ack: %v", err)
+	}
+	live := report.Finding{Cluster: "west", Scanner: "metrics", Title: "cpu high"}
+
+	got := srv.filterAckedFindings(ctx, []report.Finding{acked, live})
+	if len(got) != 1 || got[0].Title != "cpu high" {
+		t.Errorf("expected only the un-acked finding, got %+v", got)
+	}
+
+	if out := srv.filterAckedFindings(ctx, nil); out != nil {
+		t.Errorf("empty input should return nil, got %+v", out)
 	}
 }

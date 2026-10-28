@@ -76,7 +76,7 @@ func TestScoreAttributionLedger(t *testing.T) { //nolint:funlen // Test function
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			got := ComputeScoreAttribution(test.Report)
+			got := computeScoreAttribution(test.Report)
 			if diff := cmp.Diff(test.WantTerms, got.Terms, approx, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("terms mismatch (-want +got):\n%s", diff)
 			}
@@ -105,7 +105,7 @@ func TestScoreAttributionMatchesScore(t *testing.T) {
 	clusters, results, tags := distributionFleet()
 	reports := []*Report{
 		Build(clusters, results, BuildOptions{ClusterTags: tags}),
-		Build(makeClusterNames(50), makeSyntheticResults(makeClusterNames(50))),
+		Build(makeClusterNames(), makeSyntheticResults(makeClusterNames())),
 	}
 	for i, r := range reports {
 		a := r.ScoreAttribution
@@ -127,8 +127,9 @@ func TestScoreAttributionMatchesScore(t *testing.T) {
 		if diff := cmp.Diff(want, a.ByCluster, cmpopts.EquateApprox(0, 1e-9), cmpopts.EquateEmpty()); diff != "" {
 			t.Errorf("report %d by-cluster mismatch (-want +got):\n%s", i, diff)
 		}
-		if diff := cmp.Diff(ComputeFleetScore(r), r.FleetScore); diff != "" {
-			t.Errorf("report %d: ComputeFleetScore disagrees with Build (-compute +build):\n%s", i, diff)
+		score, _ := scoreWithAttribution(r)
+		if diff := cmp.Diff(score, r.FleetScore); diff != "" {
+			t.Errorf("report %d: scoreWithAttribution disagrees with Build (-compute +build):\n%s", i, diff)
 		}
 	}
 }

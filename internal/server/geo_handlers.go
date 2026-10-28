@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -204,14 +203,11 @@ func extractAutoGeo(results map[string]map[string]scanner.Result, cluster string
 	if !ok {
 		return nil
 	}
-	b, err := json.Marshal(result.Data)
+	fields, err := report.FieldMaps(map[string]scanner.Result{"geo": result})
 	if err != nil {
 		return nil
 	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil
-	}
+	m := fields["geo"]
 	hasLocation, _ := m["has_location"].(bool)
 	if !hasLocation {
 		return nil

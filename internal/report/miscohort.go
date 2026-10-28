@@ -92,17 +92,18 @@ func detectMisCohort(r *Report, tags map[string]string) []MisCohortFinding {
 		if mine == "" || mine == dom {
 			continue
 		}
-		// Find the tag whose dominant auto-cohort matches this cluster's
-		// actual auto-cohort. That is the tag the profile suggests.
-		var matches string
+		// The profile suggests the alphabetically first other tag whose
+		// dominant auto-cohort is this cluster's actual auto-cohort.
+		var candidates []string
 		for otherTag, otherDom := range dominantAuto {
-			if otherTag == tag {
-				continue
+			if otherTag != tag && otherDom == mine {
+				candidates = append(candidates, otherTag)
 			}
-			if otherDom == mine {
-				matches = otherTag
-				break
-			}
+		}
+		var matches string
+		if len(candidates) > 0 {
+			sort.Strings(candidates)
+			matches = candidates[0]
 		}
 		findings = append(findings, MisCohortFinding{
 			Cluster:        cluster,

@@ -178,3 +178,61 @@ func TestListAlertsCarriesAck(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleAckAlert_Branches covers the scope-rejection and malformed-body
+// paths against a seeded alert.
+func TestHandleAckAlert_Branches(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Name       string
+		Body       string
+		Actor      *Actor
+		WantStatus int
+	}{{ // Test 0: Alert cluster outside actor scope.
+		Name: "scope reject", Body: `{}`,
+		Actor:      &Actor{ID: "s", Role: store.RoleOperator, ClusterScope: []string{"other"}},
+		WantStatus: http.StatusForbidden,
+	}, { // Test 1: Malformed JSON body with content present.
+		Name: "bad json", Body: "{", Actor: adminActor(), WantStatus: http.StatusBadRequest,
+	}}
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			srv, ss := testServer(t)
+			seedAlertForAck(t, ss)
+			req := httptest.NewRequest(http.MethodPost, "/api/alerts/alert-fp/ack",
+				strings.NewReader(test.Body))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("fingerprint", "alert-fp")
+			req = req.WithContext(withActor(req.Context(), test.Actor))
+			w := httptest.NewRecorder()
+			srv.handleAckAlert(w, req)
+			if w.Code != test.WantStatus {
+				t.Errorf("want %d, got %d body=%s", test.WantStatus, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandleAckAlert_BadSnooze verifies a malformed snooze timestamp is
+// rejected with 400 even when the alert and actor are valid.
+func TestHandleAckAlert_BadSnooze(t *testing.T) {
+	t.Parallel()
+	srv, ss := testServer(t)
+	if err := ss.UpsertAlert(context.Background(), store.AlertRecord{
+		Fingerprint: "fp-snooze", Cluster: "fleet", Status: "firing",
+		AlertName: "X", Labels: map[string]string{}, Annotations: map[string]string{},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/alerts/fp-snooze/ack",
+		strings.NewReader(`{"snooze_until":"not-a-time"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("fingerprint", "fp-snooze")
+	req = req.WithContext(withActor(req.Context(), adminActor()))
+	w := httptest.NewRecorder()
+	srv.handleAckAlert(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}

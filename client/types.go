@@ -130,6 +130,9 @@ type NormBasis struct {
 	Median float64 `json:"median"`
 	// MAD is the median absolute deviation of a numeric field from Median.
 	MAD float64 `json:"mad"`
+	// Exact marks a numeric norm with zero spread, judged like a string. An exact norm
+	// carries no z-score and no band.
+	Exact bool `json:"exact,omitempty"`
 	// Mode is the most common value of a string field.
 	Mode string `json:"mode,omitempty"`
 	// ModeShare is the fraction of the population holding Mode.
@@ -173,6 +176,9 @@ type ClusterHealth struct {
 	WarningEvents int `json:"warning_events,omitempty"`
 	// NamespaceCount is the number of namespaces.
 	NamespaceCount int `json:"namespace_count,omitempty"`
+	// DegradedScanners is how many scanner runs did not return complete data for
+	// this cluster. Nonzero means the cluster's report rests on partial coverage.
+	DegradedScanners int `json:"degraded_scanners,omitempty"`
 	// FindingCounts maps severity to the number of findings.
 	FindingCounts map[string]int `json:"finding_counts,omitempty"`
 }
@@ -201,6 +207,9 @@ type OutlierResult struct {
 	Median float64 `json:"median"`
 	// MAD is the median absolute deviation of a numeric field from Median.
 	MAD float64 `json:"mad"`
+	// Exact marks a numeric norm with zero spread, judged like a string. An exact norm
+	// carries no z-score and no band.
+	Exact bool `json:"exact,omitempty"`
 	// Mode is the most common value of a string field.
 	Mode string `json:"mode,omitempty"`
 	// ModeShare is the fraction of the population holding Mode.
@@ -215,6 +224,12 @@ type OutlierResult struct {
 	Threshold float64 `json:"threshold"`
 	// Z is the signed modified z-score for a numeric field.
 	Z float64 `json:"z"`
+	// Favorable marks a numeric outlier on the better side of a field with a polarity. It is
+	// reported at info severity.
+	Favorable bool `json:"favorable,omitempty"`
+	// ExplainedBy names the operator-tagged cohort whose own norm holds this
+	// fleet outlier, empty otherwise. An explained outlier raises no finding.
+	ExplainedBy string `json:"explained_by,omitempty"`
 	// LimitedSample marks a norm drawn from a population too small for MAD.
 	LimitedSample bool `json:"limited_sample"`
 }
@@ -239,8 +254,18 @@ type CapacityAnalysis struct {
 	HeadroomMemory float64 `json:"headroom_memory,omitempty"`
 	// HasMemoryPressure reports memory pressure on the cluster.
 	HasMemoryPressure bool `json:"has_memory_pressure,omitempty"`
+	// HasDiskPressure reports disk pressure on the cluster.
+	HasDiskPressure bool `json:"has_disk_pressure"`
+	// HasOOMEvents reports that OOMKilling events were detected.
+	HasOOMEvents bool `json:"has_oom_events"`
+	// HasSchedulingFailures reports that FailedScheduling events were detected.
+	HasSchedulingFailures bool `json:"has_scheduling_failures"`
 	// Recommendation is the suggested capacity action.
 	Recommendation string `json:"recommendation,omitempty"`
+	// NodesNeededForTarget is how many additional nodes would bring memory below 70%.
+	NodesNeededForTarget int `json:"nodes_needed_for_target,omitempty"`
+	// GroupDeviation describes how this cluster compares to its group peers.
+	GroupDeviation string `json:"group_deviation,omitempty"`
 }
 
 // ReportSummary is the headline count block of a Report.
@@ -395,6 +420,8 @@ type AlertRecord struct {
 	Annotations map[string]string `json:"annotations"`
 	// GeneratorURL links to the alert source.
 	GeneratorURL string `json:"generator_url,omitempty"`
+	// Acked reports whether an active acknowledgement covers the alert.
+	Acked bool `json:"acked"`
 }
 
 // ClusterRecord is a known cluster and when it was first and last seen.
@@ -623,6 +650,9 @@ type Distribution struct {
 	Median float64 `json:"median"`
 	// MAD is the median absolute deviation of a numeric field.
 	MAD float64 `json:"mad"`
+	// Exact marks a numeric norm with zero spread, judged like a string. An exact norm
+	// carries no z-score and no band.
+	Exact bool `json:"exact,omitempty"`
 	// Band is how far from the median a numeric value may sit before it flags.
 	Band float64 `json:"band"`
 	// Threshold is the cutoff the detector applied.
@@ -657,6 +687,8 @@ type ClusterValue struct {
 	Z float64 `json:"z,omitempty"`
 	// Outlier is true when the detector flagged this cluster.
 	Outlier bool `json:"outlier,omitempty"`
+	// Explained names the cohort whose own norm explains this outlier, empty otherwise.
+	Explained string `json:"explained,omitempty"`
 }
 
 // DistributionsResponse is the body of GET /api/distributions.

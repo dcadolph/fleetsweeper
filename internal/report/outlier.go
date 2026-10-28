@@ -3,16 +3,18 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // minMADSample is the minimum number of values required before MAD-based
 // outlier detection emits any finding. Below this the median itself is
-// unreliable and false positives dominate; the audit flagged the previous
-// floor of 3 as statistical garbage.
+// unreliable and false positives dominate.
 const minMADSample = 8
 
 // minStringModeMass is the minimum share of the population the mode must hold
@@ -164,54 +166,52 @@ func (o OutlierResult) Basis() *NormBasis {
 	}
 }
 
-// DetectOutliers analyzes a report and returns clusters that deviate from fleet
-// norms. The threshold controls sensitivity for numeric fields: lower values
-// flag more outliers. The function only emits findings when the sample is
-// large enough to be statistically meaningful (see minMADSample).
-func DetectOutliers(r *Report, threshold float64) []OutlierResult {
-	outliers, _ := detectOutliers(r, threshold, NormScopeFleet)
-	return outliers
-}
-
-// detectOutliers runs DetectOutliers over r, returning the distribution behind
-// every field it evaluated as well, and stamps every result and distribution
-// with the scope its norm was computed over.
-func detectOutliers(r *Report, threshold float64, scope string) ([]OutlierResult, []Distribution) {
-	var outliers []OutlierResult
-	var dists []Distribution
-
-	for scannerName, sec := range r.Sections {
-		if sec.Uniform || len(sec.PerCluster) < minMADSample {
+// walkFields flattens every non-uniform section that holds at least minPerCluster clusters over
+// clusters, applies the set projections and availability gate, and calls visit once per field
+// the detectors compare, with the flattened values for that section.
+func walkFields(clusters []string, sections map[string]*SectionReport, minPerCluster int,
+	visit func(scannerName, field string, flat map[string]map[string]any)) {
+	for scannerName, sec := range sections {
+		if sec.Uniform || len(sec.PerCluster) < minPerCluster {
 			continue
 		}
-
-		flat := flattenSection(r.Clusters, sec)
+		flat := flattenSection(clusters, sec)
 		prepareFlat(scannerName, flat)
-		fields := collectFields(flat)
-
-		for _, field := range fields {
+		for _, field := range collectFields(flat) {
 			if _, skip := skipFields[field]; skip {
 				continue
 			}
-
-			var found []OutlierResult
-			var dist *Distribution
-			switch {
-			case isNumericInFlat(r.Clusters, flat, field):
-				found, dist = detectNumericOutliers(r.Clusters, flat, field, scannerName, threshold)
-			case isArrayInFlat(r.Clusters, flat, field):
-				found, dist = detectSetOutliers(r.Clusters, flat, field, scannerName)
-			default:
-				found, dist = detectStringOutliers(r.Clusters, flat, field, scannerName)
-			}
-			outliers = append(outliers, found...)
-			if dist != nil {
-				dist.Scanner = scannerName
-				dist.Field = field
-				dists = append(dists, *dist)
-			}
+			visit(scannerName, field, flat)
 		}
 	}
+}
+
+// detectOutliers runs the MAD, set, and mode detectors over clusters, returning the
+// distribution behind every field it evaluated as well, and stamps every result and
+// distribution with the scope its norm was computed over.
+func detectOutliers(clusters []string, sections map[string]*SectionReport,
+	threshold float64, scope string) ([]OutlierResult, []Distribution) {
+	var outliers []OutlierResult
+	var dists []Distribution
+	visit := func(scannerName, field string, flat map[string]map[string]any) {
+		var found []OutlierResult
+		var dist *Distribution
+		switch {
+		case isNumericInFlat(clusters, flat, field):
+			found, dist = detectNumericOutliers(clusters, flat, field, scannerName, threshold)
+		case isArrayInFlat(clusters, flat, field):
+			found, dist = detectSetOutliers(clusters, flat, field, scannerName)
+		default:
+			found, dist = detectStringOutliers(clusters, flat, field, scannerName)
+		}
+		outliers = append(outliers, found...)
+		if dist != nil {
+			dist.Scanner = scannerName
+			dist.Field = field
+			dists = append(dists, *dist)
+		}
+	}
+	walkFields(clusters, sections, minMADSample, visit)
 
 	for i := range outliers {
 		outliers[i].Scope = scope
@@ -227,10 +227,10 @@ func detectOutliers(r *Report, threshold float64, scope string) ([]OutlierResult
 // sortOutliers orders outliers by severity, then scanner, cluster, and field,
 // so report output is stable across runs.
 func sortOutliers(outliers []OutlierResult) {
-	sevOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	sort.Slice(outliers, func(i, j int) bool {
-		if sevOrder[outliers[i].Severity] != sevOrder[outliers[j].Severity] {
-			return sevOrder[outliers[i].Severity] < sevOrder[outliers[j].Severity]
+		si, sj := util.SeverityRank(outliers[i].Severity), util.SeverityRank(outliers[j].Severity)
+		if si != sj {
+			return si > sj
 		}
 		if outliers[i].Scanner != outliers[j].Scanner {
 			return outliers[i].Scanner < outliers[j].Scanner
@@ -259,7 +259,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		if m == nil {
 			continue
 		}
-		v, ok := toOptionalFloat64(m[field])
+		v, ok := util.Float64(m[field])
 		if !ok {
 			continue
 		}
@@ -272,7 +272,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		return nil, nil
 	}
 
-	median := computeMedian(vals)
+	median := util.Median(vals)
 	mad := computeMAD(vals, median)
 	dist := &Distribution{
 		Kind:       NormKindNumeric,
@@ -460,8 +460,8 @@ func dominantString(counts map[string]int) string {
 
 // detectSetOutliers flags clusters missing items present in the consensus set.
 // Consensus requires an item to appear in at least minSetConsensusShare of
-// clusters, eliminating the discontinuity the previous integer-divide
-// threshold produced at small N. A cluster that does not report the field at
+// clusters, using a share rather than an integer-divide threshold so the
+// cutoff has no discontinuity at small N. A cluster that does not report the field at
 // all is left out of the population; a null list counts as an empty set.
 func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) ([]OutlierResult, *Distribution) {
 	itemCounts := make(map[string]int)
@@ -631,17 +631,57 @@ func flattenSection(clusters []string, sec *SectionReport) map[string]map[string
 		if !ok {
 			continue
 		}
-		b, err := json.Marshal(data)
-		if err != nil {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
-			continue
+		m, shared := genericMap(data)
+		if shared {
+			m = maps.Clone(m)
 		}
 		flat[c] = m
 	}
 	return flat
+}
+
+// genericMap returns data as a map[string]any, or nil when it does not convert. A map that
+// already holds only the value types JSON decoding produces is returned as is and shared reports
+// true. Anything else takes one JSON round trip, so numbers become float64 and slices []any.
+func genericMap(data any) (m map[string]any, shared bool) {
+	if m, ok := data.(map[string]any); ok && jsonShaped(m) {
+		return m, true
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return nil, false
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, false
+	}
+	return m, false
+}
+
+// jsonShaped reports whether v holds only the types encoding/json decodes into an any: nil,
+// bool, string, finite float64, []any, and map[string]any.
+func jsonShaped(v any) bool {
+	switch t := v.(type) {
+	case nil, bool, string:
+		return true
+	case float64:
+		return !math.IsNaN(t) && !math.IsInf(t, 0)
+	case []any:
+		for _, e := range t {
+			if !jsonShaped(e) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		for _, e := range t {
+			if !jsonShaped(e) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // collectFields gathers unique field names across all clusters.
@@ -661,9 +701,8 @@ func collectFields(flat map[string]map[string]any) []string {
 }
 
 // isNumericInFlat reports whether a field is numeric in at least one cluster
-// and not non-numeric in any cluster. Earlier this consulted only the first
-// cluster, so a leading nil silently classified an otherwise numeric field as
-// non-numeric.
+// and not non-numeric in any cluster. Every cluster is consulted, so a leading
+// nil does not classify an otherwise numeric field as non-numeric.
 func isNumericInFlat(clusters []string, flat map[string]map[string]any, field string) bool {
 	sawNumeric := false
 	for _, c := range clusters {
@@ -706,37 +745,11 @@ func isArrayInFlat(clusters []string, flat map[string]map[string]any, field stri
 	return sawArray
 }
 
-// toOptionalFloat64 attempts to convert a value to float64.
-func toOptionalFloat64(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	default:
-		return 0, false
-	}
-}
-
-// computeMedian returns the median of a sorted copy of vals.
-func computeMedian(vals []float64) float64 {
-	sorted := make([]float64, len(vals))
-	copy(sorted, vals)
-	sort.Float64s(sorted)
-	n := len(sorted)
-	if n%2 == 0 {
-		return (sorted[n/2-1] + sorted[n/2]) / 2
-	}
-	return sorted[n/2]
-}
-
 // computeMAD returns the median absolute deviation from the median.
 func computeMAD(vals []float64, median float64) float64 {
 	deviations := make([]float64, len(vals))
 	for i, v := range vals {
 		deviations[i] = math.Abs(v - median)
 	}
-	return computeMedian(deviations)
+	return util.Median(deviations)
 }

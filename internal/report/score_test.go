@@ -8,7 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestComputeFleetScore(t *testing.T) {
+func TestScoreWithAttribution(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		Name      string
@@ -115,7 +115,7 @@ func TestComputeFleetScore(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
-			got := ComputeFleetScore(test.In)
+			got, _ := scoreWithAttribution(test.In)
 			if got.Score != test.WantScore {
 				t.Errorf("score: want %d, got %d", test.WantScore, got.Score)
 			}
@@ -131,7 +131,7 @@ func TestComputeFleetScore(t *testing.T) {
 	}
 }
 
-func TestComputeFleetScore_Drivers_Sorted(t *testing.T) {
+func TestFleetScoreDriversSorted(t *testing.T) {
 	t.Parallel()
 	r := &Report{
 		Clusters: []string{"a", "b", "c", "d"},
@@ -147,7 +147,7 @@ func TestComputeFleetScore_Drivers_Sorted(t *testing.T) {
 			{Name: "d", Status: "healthy", NodeCount: 3, HealthyNodes: 3},
 		},
 	}
-	got := ComputeFleetScore(r)
+	got, _ := scoreWithAttribution(r)
 	if len(got.Drivers) == 0 {
 		t.Fatalf("expected at least one driver, got none")
 	}
@@ -237,7 +237,7 @@ func TestFleetScoreProvenance(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
-			got := ComputeFleetScore(test.In)
+			got, _ := scoreWithAttribution(test.In)
 			want := FleetScore{
 				SampleSize:       test.WantSample,
 				Dimensions:       test.WantDims,
@@ -263,9 +263,9 @@ func makeFindings(sev string, n int) []Finding {
 	return out
 }
 
-// TestComputeFleetScoreGolden pins each weight, cap, and rounding rule with
+// TestFleetScoreGolden pins each weight, cap, and rounding rule with
 // expectations computed by hand from the constants in score.go.
-func TestComputeFleetScoreGolden(t *testing.T) { //nolint:funlen // Test function.
+func TestFleetScoreGolden(t *testing.T) { //nolint:funlen // Test function.
 	t.Parallel()
 
 	flat := func(names ...string) []ClusterHealth {
@@ -381,7 +381,7 @@ func TestComputeFleetScoreGolden(t *testing.T) { //nolint:funlen // Test functio
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
-			got := ComputeFleetScore(test.In)
+			got, _ := scoreWithAttribution(test.In)
 			want := FleetScore{Score: test.WantScore, Grade: test.WantGrade, Drivers: test.WantDrivers}
 			opts := []cmp.Option{
 				cmpopts.EquateEmpty(),
