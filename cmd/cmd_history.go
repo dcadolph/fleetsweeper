@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -356,16 +355,16 @@ func runHistoryTrend(cmd *cobra.Command, _ []string) error {
 		}
 		perCluster := make(map[string]map[string]any)
 		for cluster, scanners := range raw {
-			for scannerName, result := range scanners {
-				if perCluster[cluster] == nil {
-					perCluster[cluster] = make(map[string]any)
-				}
-				// Re-marshal/unmarshal to get flat map[string]any.
-				b, _ := json.Marshal(result.Data)
-				var m map[string]any
-				if err := json.Unmarshal(b, &m); err == nil {
-					perCluster[cluster][scannerName] = m
-				}
+			fields, err := report.FieldMaps(scanners)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: cluster %s: %v\n", cluster, err)
+			}
+			if len(scanners) == 0 {
+				continue
+			}
+			perCluster[cluster] = make(map[string]any, len(fields))
+			for name, m := range fields {
+				perCluster[cluster][name] = m
 			}
 		}
 		resultsByScan[scan.ID] = perCluster

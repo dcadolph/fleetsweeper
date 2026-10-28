@@ -489,19 +489,16 @@ func (s *Server) handleGetTrends(w http.ResponseWriter, r *http.Request) {
 		}
 		clusterData := make(map[string]map[string]any)
 		for cluster, scanners := range raw {
-			scannerFields := make(map[string]any)
-			for scannerName, result := range scanners {
-				b, err := json.Marshal(result.Data)
-				if err != nil {
-					continue
-				}
-				var m map[string]any
-				if err := json.Unmarshal(b, &m); err != nil {
-					continue
-				}
-				scannerFields[scannerName] = m
+			scannerFields, err := report.FieldMaps(scanners)
+			if err != nil {
+				s.log.Warn("trends: convert scanner results", zap.String("cluster", cluster),
+					zap.Error(err))
 			}
-			clusterData[cluster] = scannerFields
+			fields := make(map[string]any, len(scannerFields))
+			for name, m := range scannerFields {
+				fields[name] = m
+			}
+			clusterData[cluster] = fields
 		}
 		fleetResults[scan.ID] = clusterData
 	}
@@ -537,17 +534,10 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if clusterScanners, ok := raw[cluster]; ok {
-			scannerData := make(map[string]map[string]any)
-			for scannerName, result := range clusterScanners {
-				b, err := json.Marshal(result.Data)
-				if err != nil {
-					continue
-				}
-				var m map[string]any
-				if err := json.Unmarshal(b, &m); err != nil {
-					continue
-				}
-				scannerData[scannerName] = m
+			scannerData, err := report.FieldMaps(clusterScanners)
+			if err != nil {
+				s.log.Warn("cluster trends: convert scanner results", zap.String("cluster", cluster),
+					zap.Error(err))
 			}
 			clusterResults[scan.ID] = scannerData
 		}

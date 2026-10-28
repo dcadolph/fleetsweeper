@@ -2,9 +2,13 @@ package report
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // TrendDirection indicates whether a metric is improving, worsening, or stable.
@@ -70,6 +74,27 @@ type ScanMeta struct {
 	ID string
 	// Timestamp is when the scan ran.
 	Timestamp time.Time
+}
+
+// FieldMaps converts each scanner result's Data into a generic field map.
+// Scanners that fail to convert are omitted from the returned map and named in the joined error.
+func FieldMaps(results map[string]scanner.Result) (map[string]map[string]any, error) {
+	out := make(map[string]map[string]any, len(results))
+	var errs []error
+	for name, result := range results {
+		b, err := json.Marshal(result.Data)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("scanner %s: marshal data: %w", name, err))
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			errs = append(errs, fmt.Errorf("scanner %s: unmarshal data: %w", name, err))
+			continue
+		}
+		out[name] = m
+	}
+	return out, errors.Join(errs...)
 }
 
 // ComputeClusterTrends builds trends for a single cluster from historical scan
