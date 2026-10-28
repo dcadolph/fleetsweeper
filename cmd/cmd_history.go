@@ -299,12 +299,11 @@ func buildScanDiff(idA, idB string, a, b *report.Report) *scanDiff {
 	return d
 }
 
-// findingSet creates a map keyed by a finding's identity for diffing.
+// findingSet creates a map keyed by finding fingerprint for diffing.
 func findingSet(findings []report.Finding) map[string]report.Finding {
 	m := make(map[string]report.Finding, len(findings))
 	for _, f := range findings {
-		key := f.Severity + "|" + f.Cluster + "|" + f.Scanner + "|" + f.Title
-		m[key] = f
+		m[report.FindingFingerprint(f)] = f
 	}
 	return m
 }
