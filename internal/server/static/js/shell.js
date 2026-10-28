@@ -51,7 +51,7 @@ export async function refreshBadges() {
 
 // renderSidebar draws the navigation for the current page.
 export function renderSidebar(page) {
-  let h = '<a class="sb-brand" href="#/" title="Back to dashboard"><img class="sb-logo" src="logo.jpg" alt=""><h1>Fleetsweeper</h1></a>';
+  let h = '<a class="sb-brand" href="#/" title="Back to dashboard"><img class="sb-logo" src="logo.svg" alt=""><h1>Fleetsweeper</h1></a>';
   let group = null;
   ROUTES.filter((r) => r.group).forEach((r) => {
     if (r.group !== group) {

@@ -307,7 +307,7 @@ function renderStep(step, el) {
     positionSpotlight(el);
   }
 
-  var heroLogo = isHero ? '<img class="tour-hero-logo" src="logo.jpg" alt="">' : '';
+  var heroLogo = isHero ? '<img class="tour-hero-logo" src="logo.svg" alt="">' : '';
 
   card.innerHTML =
     heroLogo +

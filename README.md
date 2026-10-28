@@ -37,6 +37,60 @@ across your own clusters does the work.
 - An optional **admission webhook** that flags pods deviating from your fleet's actual norm, not from a static checklist. It warns by default and never denies until you have read the warnings and opted into enforcement; the [rollout path](docs/operator/admission-webhook.md) is warn first, enforce on purpose.
 - One unified stream for inbound signal: scan findings, AlertManager, Falco, Trivy CVEs, Kyverno and Gatekeeper [PolicyReports](https://github.com/kubernetes-sigs/wg-policy-prototypes).
 
+## How scoring works
+
+A scan scores your fleet in two steps.
+
+**1. Find the clusters that differ from the rest.** Every scanner reports
+fields per cluster, and each field is compared across the fleet and across
+each tagged cohort.
+
+- Numbers (privileged containers, CRD count, pod restarts) use the
+  modified z-score, `0.6745 * (value - median) / MAD`. A cluster is flagged
+  when that score passes 3.5 in either direction. The median and MAD come
+  from your own clusters, so one broken cluster cannot widen the band that
+  is meant to catch it.
+- Strings (PSA mode, ingress class) flag every cluster off the most common
+  value, once that value holds at least 60% of the fleet.
+- Lists (installed CRDs) flag a cluster missing any item that at least 60%
+  of the fleet has.
+
+What moves the result:
+
+- **Fleet size.** The z-score needs 8 or more clusters. Fleets of 3 to 7 use
+  a stricter leave-one-out rule that flags at most one cluster per field and
+  caps it at warning. Under 3 clusters nothing is flagged, and the report
+  says why.
+- **Agreement.** A field where nearly every cluster holds the same value
+  (MAD of zero) or no value reaches 60% is skipped. There is no norm to
+  break.
+- **Cohorts.** A cluster that matches its own tagged cohort (edge sites,
+  say) is not charged for differing from the rest of the fleet.
+- **Sensitivity.** `scan --outlier-threshold` and `?threshold=` on
+  `/api/outliers` change the 3.5 cutoff. Lower flags more.
+
+**2. Turn what was found into a score.** A flagged field becomes a finding.
+Its severity comes from which field drifted, not from how far. Privileged
+containers or cluster-admin bindings are critical, node counts are a
+warning, and most other fields are info. The Fleet Score starts at 100 and
+subtracts:
+
+| Cost                                   | Points                             |
+|----------------------------------------|------------------------------------|
+| Each critical, warning, info finding   | 6, 1.5, 0.25 (capped at 36, 24, 5) |
+| Share of clusters in critical status   | Up to 20                           |
+| Share of clusters degraded or strained | Up to 10                           |
+| Kubernetes minor version skew          | 10 for two or more, 3 for one      |
+| Unhealthy nodes in the worst cluster   | Up to 10                           |
+
+The three largest costs come back as the score's drivers, so the number
+always arrives with the reason for it.
+
+The details are in [Outliers](docs/concepts/outliers.md) for the detection
+math, [Fleet Score](docs/concepts/fleet-score.md) for every cost and cap, and
+[Findings](docs/concepts/findings.md#severity-calibration) for how severity
+is chosen.
+
 ## Consistency is not correctness
 
 The Fleet Score measures one thing: how much your clusters deviate from
