@@ -140,14 +140,15 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 			promLabelEscape(ch.Name), ch.AvgMemory))
 	}
 
-	emitPolicyReportMetrics(w, r)
+	emitPolicyReportMetrics(w, r, s.log)
 
 	controller.WriteMetrics(w)
 }
 
 // emitPolicyReportMetrics walks the policy-reports scanner output and
-// exposes per-source result tallies as Prometheus gauges.
-func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
+// exposes per-source result tallies as Prometheus gauges. Clusters whose data
+// cannot be decoded are counted and reported once at Warn.
+func emitPolicyReportMetrics(w io.Writer, r *report.Report, log *zap.Logger) {
 	if r == nil || r.Sections == nil {
 		return
 	}
@@ -160,13 +161,16 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
 		Source, Result string
 	}
 	totals := map[tallyKey]int{}
+	decodeFailures := 0
 	for _, raw := range sec.PerCluster {
 		blob, err := json.Marshal(raw)
 		if err != nil {
+			decodeFailures++
 			continue
 		}
-		var d policyReportData
+		var d policyreportingest.Data
 		if err := json.Unmarshal(blob, &d); err != nil {
+			decodeFailures++
 			continue
 		}
 		if !d.Available {
@@ -180,6 +184,9 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
 			totals[tallyKey{ts.Source, "skip"}] += ts.Skip
 		}
 	}
+	if decodeFailures > 0 {
+		log.Warn("metrics: decode policy report data", zap.Int("failures", decodeFailures))
+	}
 	if len(totals) == 0 {
 		return
 	}
@@ -189,21 +196,6 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
 		emit(w, fmt.Sprintf(`fleetsweeper_policy_results_total{source=%q,result=%q} %d`,
 			promLabelEscape(k.Source), promLabelEscape(k.Result), n))
 	}
-}
-
-// policyReportData mirrors the shape policyreportingest.Data marshals
-// into. Decoded locally so this file doesn't have to depend on the
-// scanner package's struct internals — only its top-level keys.
-type policyReportData struct {
-	Available bool `json:"available"`
-	BySource  []struct {
-		Source string `json:"source"`
-		Pass   int    `json:"pass"`
-		Fail   int    `json:"fail"`
-		Warn   int    `json:"warn"`
-		Error  int    `json:"error"`
-		Skip   int    `json:"skip"`
-	} `json:"by_source"`
 }
 
 // latestReportForMetrics returns the rebuilt report for the most recent scan,
