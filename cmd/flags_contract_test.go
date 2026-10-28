@@ -126,7 +126,11 @@ func TestFlagsDefinedAndRead(t *testing.T) {
 	t.Parallel()
 	all := map[string]bool{}
 	local := map[string]bool{}
-	collectDefinedFlags(rootCmd, all, local)
+	// Commands sorts its slice in place, so the walk holds the lock like every Execute.
+	func() {
+		defer lockRootCmd(t)()
+		collectDefinedFlags(rootCmd, all, local)
+	}()
 	reads := collectFlagReads(t, ".")
 	if len(reads) == 0 || len(all) == 0 {
 		t.Fatalf("empty fixture: %d reads, %d defined flags", len(reads), len(all))
