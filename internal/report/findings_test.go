@@ -611,6 +611,52 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	})
 }
 
+// TestSummaryCountsFindings verifies the summary's critical and warning counts are the
+// finding counts after Build and after Rescore.
+func TestSummaryCountsFindings(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Scanner      string
+		Field        string
+		Vals         []any
+		WantCritical int
+		WantWarning  int
+	}{{ // Test 0: A privileged outlier raises critical findings that the summary counts.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals: []any{0, 0, 0, 0, 0, 0, 0, 0, 30}, WantCritical: 1,
+	}, { // Test 1: Five clusters with a privileged container are five critical findings.
+		Scanner: "workload-security", Field: "privileged_containers",
+		Vals: []any{0, 0, 0, 0, 1, 1, 1, 1, 1}, WantCritical: 5,
+	}, { // Test 2: A namespace count outlier and the fleet count finding are two warnings.
+		Scanner: "namespaces", Field: "count",
+		Vals: []any{20, 22, 24, 24, 24, 26, 26, 28, 80}, WantWarning: 2,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clusters, results := fieldFleet(test.Scanner, test.Field, test.Vals...)
+			r := Build(clusters, results)
+			got := []int{r.Summary.CriticalCount, r.Summary.WarningCount}
+			want := []int{
+				countFindingsBySeverity(r.Findings, SeverityCritical),
+				countFindingsBySeverity(r.Findings, SeverityWarning),
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("summary against findings (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff([]int{test.WantCritical, test.WantWarning}, got); diff != "" {
+				t.Errorf("summary counts (-want +got):\n%s", diff)
+			}
+			r.Findings = append(r.Findings, Finding{Severity: SeverityCritical})
+			Rescore(r)
+			if r.Summary.CriticalCount != test.WantCritical+1 {
+				t.Errorf("after Rescore critical_count = %d, want %d", r.Summary.CriticalCount,
+					test.WantCritical+1)
+			}
+		})
+	}
+}
+
 // testNormFinding returns a fleet norm finding on scanner/field for cluster at sev.
 func testNormFinding(cluster, scanner, field, sev string) Finding {
 	return Finding{

@@ -71,13 +71,14 @@ func ComputeFleetScore(r *Report) FleetScore {
 	return score
 }
 
-// Rescore sets r's fleet score and its attribution from r's current findings
-// and cluster health, so a caller that changes findings after Build keeps the
-// score and its ledger in agreement. Safe to call on nil.
+// Rescore sets r's fleet score, its attribution, and the summary's finding
+// counts from r's current findings and cluster health, so a caller that
+// changes findings after Build keeps them in agreement. Safe to call on nil.
 func Rescore(r *Report) {
 	if r == nil {
 		return
 	}
+	countFindings(&r.Summary, r.Findings)
 	var attribution ScoreAttribution
 	r.FleetScore, attribution = scoreWithAttribution(r)
 	r.ScoreAttribution = &attribution

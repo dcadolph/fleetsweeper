@@ -5,15 +5,8 @@ import (
 	"strings"
 )
 
-// applySeverity assigns severity levels to all divergences in a section based
-// on the scanner name and field.
-func applySeverity(scannerName string, section *SectionReport) {
-	for i := range section.Divergences {
-		section.Divergences[i].Severity = classifySeverity(scannerName, section.Divergences[i].Field)
-	}
-}
-
-// classifySeverity determines the severity for a divergent field.
+// classifySeverity returns the declared severity of scanner/field, or info when it declares
+// none.
 func classifySeverity(scannerName, field string) string {
 	if fields, ok := criticalFields[scannerName]; ok {
 		if _, ok := fields[field]; ok {

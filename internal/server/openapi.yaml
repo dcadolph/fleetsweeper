@@ -232,8 +232,8 @@ components:
             uniform_count: {type: integer}
             divergent_count: {type: integer}
             total_divergences: {type: integer}
-            critical_count: {type: integer}
-            warning_count: {type: integer}
+            critical_count: {type: integer, description: Number of critical findings.}
+            warning_count: {type: integer, description: Number of warning findings.}
         fleet_score: {$ref: "#/components/schemas/FleetScore"}
         findings:
           type: array

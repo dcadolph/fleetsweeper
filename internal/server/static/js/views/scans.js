@@ -1,7 +1,7 @@
 // Scan history and the report of one stored scan.
 
 import { api, scannerLabel } from '../api.js';
-import { esc, scanHref, clusterHref, statusTone, sevTone, byId, emptyState } from '../dom.js';
+import { esc, scanHref, clusterHref, statusTone, byId, emptyState } from '../dom.js';
 import { dateTime } from '../format.js';
 import { TIPS, tip } from '../glossary.js';
 import { renderBar } from '../shell.js';
@@ -86,13 +86,11 @@ function showScannerDivergences(key) {
   const clusters = rpt.clusters || [];
   let h = '<div class="panel inset mt-12"><div class="flex between items-center mb-8">' +
     `<h4>${esc(scannerLabel(key))} divergences</h4><button class="btn btn-sm" data-action="clear" data-target="scannerDivDetail">Close</button></div>`;
-  h += `<div class="tw"><table><thead><tr><th scope="col" data-tip="${esc(TIPS.sev_critical)}">Severity</th><th scope="col">Field</th>` +
+  h += '<div class="tw"><table><thead><tr><th scope="col">Field</th>' +
     clusters.map((c) => `<th scope="col"><a href="${esc(clusterHref(c))}">${esc(c)}</a></th>`).join('') + '</tr></thead><tbody>';
   sec.divergences.forEach((d) => {
-    const tone = sevTone(d.severity);
     const first = d.values && d.values[clusters[0]] ? d.values[clusters[0]] : '';
-    h += `<tr><td data-tip="${esc(tip('sev_' + d.severity))}"><span class="flex items-center gap-4"><span aria-hidden="true" class="dot fill-${tone}"></span><span class="fs-12">${esc(d.severity)}</span></span></td>` +
-      `<td class="fw-500"${tip(d.field) ? ` data-tip="${esc(tip(d.field))}"` : ''}>${esc(d.field)}</td>`;
+    h += `<tr><td class="fw-500"${tip(d.field) ? ` data-tip="${esc(tip(d.field))}"` : ''}>${esc(d.field)}</td>`;
     clusters.forEach((c) => {
       const val = d.values && d.values[c] ? d.values[c] : '-';
       const diff = val !== first && val !== '-';
