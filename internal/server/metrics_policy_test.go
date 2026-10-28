@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/policyreportingest"
 )
@@ -37,7 +39,7 @@ func TestEmitPolicyReportMetrics_AggregatesAcrossClusters(t *testing.T) {
 		},
 	}
 	buf := &bytes.Buffer{}
-	emitPolicyReportMetrics(buf, rpt)
+	emitPolicyReportMetrics(buf, rpt, zap.NewNop())
 	out := buf.String()
 	wants := []string{
 		`fleetsweeper_policy_results_total{source="kyverno",result="pass"} 300`,
@@ -65,7 +67,7 @@ func TestEmitPolicyReportMetrics_NoOpWhenUnavailable(t *testing.T) {
 		},
 	}
 	buf := &bytes.Buffer{}
-	emitPolicyReportMetrics(buf, rpt)
+	emitPolicyReportMetrics(buf, rpt, zap.NewNop())
 	if buf.Len() != 0 {
 		t.Errorf("expected no output, got %q", buf.String())
 	}
@@ -76,7 +78,7 @@ func TestEmitPolicyReportMetrics_NoOpWhenUnavailable(t *testing.T) {
 func TestEmitPolicyReportMetrics_NoOpWhenMissingSection(t *testing.T) {
 	t.Parallel()
 	buf := &bytes.Buffer{}
-	emitPolicyReportMetrics(buf, &report.Report{})
+	emitPolicyReportMetrics(buf, &report.Report{}, zap.NewNop())
 	if buf.Len() != 0 {
 		t.Errorf("expected no output, got %q", buf.String())
 	}

@@ -258,6 +258,41 @@ func TestContract(t *testing.T) {
 		}
 		okOrAPIError(t, "contexts", func() error { _, err := c.Contexts(ctx); return err }())
 	})
+
+	t.Run("trigger scan empty", func(t *testing.T) {
+		_, err := c.TriggerScan(ctx, client.TriggerScanRequest{})
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("trigger scan: want *APIError, got %v", err)
+		}
+		if apiErr.StatusCode != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
+		}
+		if apiErr.Message != "no contexts specified" {
+			t.Errorf("message = %q, want %q", apiErr.Message, "no contexts specified")
+		}
+	})
+
+	t.Run("ack alert unknown", func(t *testing.T) {
+		_, err := c.AckAlert(ctx, "fp-unknown", client.AckAlertRequest{AckBy: "tester"})
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("ack alert: want *APIError, got %v", err)
+		}
+		if apiErr.StatusCode != http.StatusNotFound {
+			t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusNotFound)
+		}
+	})
+
+	t.Run("cluster trends", func(t *testing.T) {
+		raw, err := c.ClusterTrends(ctx, "prod-a")
+		if err != nil {
+			t.Fatalf("cluster trends: %v", err)
+		}
+		if !strings.Contains(string(raw), `"cluster":"prod-a"`) {
+			t.Errorf("cluster trends = %s, want it to contain %q", raw, `"cluster":"prod-a"`)
+		}
+	})
 }
 
 // TestContractAuth confirms the client sends its bearer token and that the
@@ -574,6 +609,74 @@ func TestContractDemoStrict(t *testing.T) {
 			dec.DisallowUnknownFields()
 			if err := dec.Decode(test.Dest()); err != nil {
 				t.Errorf("strict decode: %v", err)
+			}
+		})
+	}
+}
+
+// countingTransport counts round trips and delegates to the default transport.
+type countingTransport struct {
+	// Count is the number of requests sent through the transport.
+	Count int
+}
+
+// RoundTrip counts the request and forwards it.
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.Count++
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestClientOptions confirms WithUserAgent and WithHTTPClient reach the wire.
+func TestClientOptions(t *testing.T) {
+	t.Parallel()
+	var gotUA string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(ts.Close)
+	ctx := context.Background()
+
+	t.Run("user agent", func(t *testing.T) {
+		c := client.New(ts.URL, client.WithUserAgent("custom-agent/9"))
+		if err := c.Healthz(ctx); err != nil {
+			t.Fatalf("healthz: %v", err)
+		}
+		if gotUA != "custom-agent/9" {
+			t.Errorf("User-Agent = %q, want %q", gotUA, "custom-agent/9")
+		}
+	})
+
+	t.Run("http client", func(t *testing.T) {
+		rt := &countingTransport{}
+		c := client.New(ts.URL, client.WithHTTPClient(&http.Client{Transport: rt}))
+		if err := c.Healthz(ctx); err != nil {
+			t.Fatalf("healthz: %v", err)
+		}
+		if rt.Count != 1 {
+			t.Errorf("round trips = %d, want 1", rt.Count)
+		}
+	})
+}
+
+// TestAPIErrorError checks the exact error strings.
+func TestAPIErrorError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		WantString string
+		Err        client.APIError
+	}{{ // Test 0: Message present.
+		Err:        client.APIError{StatusCode: 404, Message: "not found"},
+		WantString: "fleetsweeper: http 404: not found",
+	}, { // Test 1: Empty message.
+		Err:        client.APIError{StatusCode: 502},
+		WantString: "fleetsweeper: http 502",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			if diff := cmp.Diff(test.WantString, test.Err.Error(), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

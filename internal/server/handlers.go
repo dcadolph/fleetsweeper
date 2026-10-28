@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -556,84 +557,68 @@ func (s *Server) handleGetClusterTrends(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleGetOutliers runs outlier detection on the most recent scan.
+// defaultOutlierThreshold is the robust z-score cutoff used when a request names none.
+const defaultOutlierThreshold = 3.5
+
+// queryThreshold reads the threshold query parameter. It returns the default when the parameter
+// is absent and an error when the value is not a positive number.
+func queryThreshold(r *http.Request) (float64, error) {
+	v := r.URL.Query().Get("threshold")
+	if v == "" {
+		return defaultOutlierThreshold, nil
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 {
+		return 0, errors.New("threshold must be a positive number")
+	}
+	return f, nil
+}
+
+// handleGetOutliers runs outlier detection on the latest scan, or the one named by ?scan=.
 func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
-	latest, ok := s.latestScan(w, r, "outliers: list scans")
+	threshold, err := queryThreshold(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	in, ok := s.loadScanInput(w, r, "outliers")
 	if !ok {
 		return
 	}
-	if latest == nil {
-		writeError(w, http.StatusNotFound, "no scans available")
-		return
-	}
-
-	results, err := s.store.GetScanResults(r.Context(), latest.ID)
-	if err != nil {
-		s.log.Error("outliers: get results", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "get scan results failed")
-		return
-	}
-
-	threshold := 3.5
-	if v := r.URL.Query().Get("threshold"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-			threshold = f
+	in.Opts.OutlierThreshold = threshold
+	rpt := in.build()
+	findings := make([]report.Finding, 0, len(rpt.Findings))
+	for _, f := range rpt.Findings {
+		if f.Norm != nil {
+			findings = append(findings, f)
 		}
 	}
-
-	opts := s.reportOptions(r.Context(), s.log)
-	opts.Timestamp, opts.OutlierThreshold = latest.Timestamp, threshold
-	rpt := report.Build(latest.Clusters, results, opts)
-	s.markAcked(r.Context(), rpt.Findings)
+	s.markAcked(r.Context(), findings)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"scan_id":  latest.ID,
+		"scan_id":  in.ID,
 		"outliers": rpt.Outliers,
-		"findings": rpt.Findings,
+		"findings": findings,
 	})
 }
 
-// handleGetCohorts returns the cohort partitioning of the most recent scan.
-// Cohorts are derived from user-supplied cluster tags first, then from
-// agglomerative clustering on scanner-derived features. Each cohort includes
-// the outliers that show up within its own baseline, which is the signal that
-// the fleet-level view washes out.
+// handleGetCohorts returns the cohort partitioning of the latest scan, or the one named by
+// ?scan=. Cohorts are derived from user-supplied cluster tags first, then from agglomerative
+// clustering on scanner-derived features. Each cohort includes the outliers that show up within
+// its own baseline, which is the signal that the fleet-level view washes out.
 func (s *Server) handleGetCohorts(w http.ResponseWriter, r *http.Request) {
-	latest, ok := s.latestScan(w, r, "cohorts: list scans")
+	threshold, err := queryThreshold(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	in, ok := s.loadScanInput(w, r, "cohorts")
 	if !ok {
 		return
 	}
-	if latest == nil {
-		writeError(w, http.StatusNotFound, "no scans available")
-		return
-	}
-
-	results, err := s.store.GetScanResults(r.Context(), latest.ID)
-	if err != nil {
-		s.log.Error("cohorts: get results", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "get scan results failed")
-		return
-	}
-
-	tags, err := projectCohortTags(r.Context(), s.store, cohortTagKey)
-	if err != nil {
-		s.writeStoreError(w, err, "cohorts: list tags", "cluster tags not found")
-		return
-	}
-
-	threshold := 3.5
-	if v := r.URL.Query().Get("threshold"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-			threshold = f
-		}
-	}
-
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{
-		OutlierThreshold: threshold,
-		ClusterTags:      tags,
-		Timestamp:        latest.Timestamp,
-	})
+	in.Opts.OutlierThreshold = threshold
+	rpt := in.build()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"scan_id": latest.ID,
+		"scan_id": in.ID,
 		"cohorts": rpt.Cohorts,
 	})
 }
@@ -660,35 +645,13 @@ func projectCohortTags(ctx context.Context, st store.Store, key string) (map[str
 
 // handleGetCapacity returns capacity analysis with correlated signals.
 func (s *Server) handleGetCapacity(w http.ResponseWriter, r *http.Request) {
-	latest, ok := s.latestScan(w, r, "capacity: list scans")
+	in, ok := s.loadScanInput(w, r, "capacity")
 	if !ok {
 		return
 	}
-	if latest == nil {
-		writeError(w, http.StatusNotFound, "no scans available")
-		return
-	}
-
-	results, err := s.store.GetScanResults(r.Context(), latest.ID)
-	if err != nil {
-		s.log.Error("capacity: get results", zap.Error(err))
-		writeError(w, http.StatusInternalServerError, "get scan results failed")
-		return
-	}
-
-	groups, err := s.store.ListGroups(r.Context())
-	if err != nil {
-		s.writeStoreError(w, err, "capacity: list groups", "groups not found")
-		return
-	}
-	groupMap := make(map[string][]string, len(groups))
-	for _, g := range groups {
-		groupMap[g.Name] = g.Clusters
-	}
-
-	rpt := report.Build(latest.Clusters, results, report.BuildOptions{Groups: groupMap, Timestamp: latest.Timestamp})
+	rpt := in.build()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"scan_id":  latest.ID,
+		"scan_id":  in.ID,
 		"capacity": rpt.Capacity,
 	})
 }

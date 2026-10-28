@@ -805,8 +805,10 @@ paths:
                     type: array
                     items: {$ref: "#/components/schemas/OutlierResult"}
                   findings:
+                    description: Findings raised by the fleet and cohort outlier detectors.
                     type: array
                     items: {$ref: "#/components/schemas/Finding"}
+        "400": {description: The threshold is not a positive number}
 
   /api/capacity:
     get:
@@ -1334,6 +1336,7 @@ paths:
                   cohorts:
                     type: array
                     items: {$ref: "#/components/schemas/CohortSummary"}
+        "400": {description: The threshold is not a positive number}
         "404": {description: No scans, or the named scan does not exist}
 
   /api/tags:
