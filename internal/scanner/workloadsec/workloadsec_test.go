@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -286,5 +288,32 @@ func TestScanForbiddenIsErrored(t *testing.T) {
 	}
 	if result.State != scanner.StateErrored || result.Data != nil {
 		t.Errorf("result = %+v, want errored with no data", result)
+	}
+}
+
+// TestTopNPermutation verifies the fifty high-risk pods the scanner keeps do not depend on input
+// order when sixty containers tie on risk count. The fake clientset always lists in one order,
+// so the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]PodRisk, 0, 60)
+	for i := range 60 {
+		items = append(items, PodRisk{
+			Namespace: fmt.Sprintf("ns-%d", i/30),
+			Pod:       fmt.Sprintf("pod-%d", i/3%10),
+			Container: fmt.Sprintf("c-%d", i%3),
+			Risks:     []string{"privileged"},
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 50, comparePodRisks)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 50, comparePodRisks)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }

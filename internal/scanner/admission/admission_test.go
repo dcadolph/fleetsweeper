@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -293,5 +295,35 @@ func TestEndpointsReadFailure(t *testing.T) {
 				t.Errorf("unhealthy mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestTopNPermutation verifies the hundred webhooks the scanner keeps do not depend on input
+// order. Configuration "a" with webhook "bc" and configuration "ab" with webhook "c" join to one
+// string, and each configuration holds two webhooks. The fake clientset always lists in one
+// order, so the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]Webhook, 0, 110)
+	items = append(items,
+		Webhook{Configuration: "a", Webhook: "bc", Type: "validating"},
+		Webhook{Configuration: "ab", Webhook: "c", Type: "mutating"},
+	)
+	for i := range 108 {
+		items = append(items, Webhook{
+			Configuration: fmt.Sprintf("vwc-%02d", i/2),
+			Webhook:       []string{"v.example.com", "w.example.com"}[i%2],
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 100, compareWebhooks)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 100, compareWebhooks)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"testing"
 	"time"
 
@@ -263,5 +265,56 @@ func TestScanListErrors(t *testing.T) {
 				t.Errorf("state = %q, want %q", result.State, test.WantState)
 			}
 		})
+	}
+}
+
+// TestTopNPermutation verifies the fifty recent warnings the scanner keeps do not depend on
+// input order when sixty warnings share one last-seen time. The fake clientset always lists in
+// one order, so the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]EventInfo, 0, 60)
+	for i := range 60 {
+		items = append(items, EventInfo{
+			Namespace:      fmt.Sprintf("ns-%d", i/30),
+			Kind:           []string{"Pod", "Node"}[i/15%2],
+			InvolvedObject: fmt.Sprintf("obj-%d", i/5%3),
+			Reason:         "BackOff",
+			Message:        fmt.Sprintf("message %d", i%5),
+			LastSeen:       "2026-10-28T10:00:00Z",
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), maxRecentWarnings, compareWarnings)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		got := scanner.TopN(shuffled, maxRecentWarnings, compareWarnings)
+		if diff := cmp.Diff(first, got); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
+	}
+}
+
+// TestCompareReasonsTieBreak verifies the ten warning reasons the scanner keeps do not depend
+// on input order when fifteen reasons tie on count.
+func TestCompareReasonsTieBreak(t *testing.T) {
+	t.Parallel()
+	items := make([]ReasonSummary, 0, 15)
+	for i := range 15 {
+		items = append(items, ReasonSummary{Reason: fmt.Sprintf("Reason%02d", i), Count: 3})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 10, compareReasons)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 10, compareReasons)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }

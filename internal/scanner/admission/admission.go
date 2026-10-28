@@ -7,11 +7,11 @@
 package admission
 
 import (
+	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"sort"
 	"time"
 
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -115,12 +115,7 @@ func NewScanner() scanner.Scanner {
 			}
 		}
 
-		sort.Slice(data.Webhooks, func(i, j int) bool {
-			return data.Webhooks[i].Configuration+data.Webhooks[i].Webhook < data.Webhooks[j].Configuration+data.Webhooks[j].Webhook
-		})
-		if len(data.Webhooks) > 100 {
-			data.Webhooks = data.Webhooks[:100]
-		}
+		data.Webhooks = scanner.TopN(data.Webhooks, 100, compareWebhooks)
 
 		return cov.Finish(Name, data)
 	})
@@ -214,4 +209,9 @@ func earliestExpiry(bundle []byte) (time.Time, bool) {
 		}
 	}
 	return earliest, found
+}
+
+// compareWebhooks orders webhooks by configuration, then by webhook name.
+func compareWebhooks(a, b Webhook) int {
+	return cmp.Or(cmp.Compare(a.Configuration, b.Configuration), cmp.Compare(a.Webhook, b.Webhook))
 }

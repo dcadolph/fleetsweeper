@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -767,5 +769,33 @@ func TestScanListErrors(t *testing.T) {
 				t.Errorf("state = %q, want %q", result.State, test.WantState)
 			}
 		})
+	}
+}
+
+// TestTopNPermutation verifies the fifty image risks the scanner keeps do not depend on input
+// order when sixty containers tie on risk count and share images. The fake clientset always
+// lists in one order, so the test shuffles the items itself.
+func TestTopNPermutation(t *testing.T) {
+	t.Parallel()
+	items := make([]ImageRisk, 0, 60)
+	for i := range 60 {
+		items = append(items, ImageRisk{
+			Namespace: fmt.Sprintf("ns-%d", i%2),
+			Pod:       fmt.Sprintf("pod-%02d", i%10),
+			Container: fmt.Sprintf("c-%d", i%3),
+			Image:     fmt.Sprintf("registry.example.com/app-%d", i%4),
+			Risks:     make([]string, 1+i%2),
+		})
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	first := scanner.TopN(slices.Clone(items), 50, compareImageRisks)
+	for run := range 20 {
+		shuffled := slices.Clone(items)
+		rng.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		if diff := cmp.Diff(first, scanner.TopN(shuffled, 50, compareImageRisks)); diff != "" {
+			t.Fatalf("shuffle %d differs (-first +got):\n%s", run, diff)
+		}
 	}
 }
