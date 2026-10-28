@@ -34,7 +34,7 @@ type AckRecord struct {
 
 // SaveAck upserts an acknowledgement. The fingerprint is the primary key, so
 // re-acking an already-acked finding refreshes its metadata in place.
-func (s *SQLite) SaveAck(ctx context.Context, rec AckRecord) error {
+func (s *sqlStore) SaveAck(ctx context.Context, rec AckRecord) error {
 	if rec.Fingerprint == "" {
 		return errors.New("ack: fingerprint required")
 	}
@@ -45,7 +45,7 @@ func (s *SQLite) SaveAck(ctx context.Context, rec AckRecord) error {
 	if !rec.SnoozeUntil.IsZero() {
 		snoozeStr = sql.NullString{String: rec.SnoozeUntil.UTC().Format(time.RFC3339), Valid: true}
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.exec(ctx, `
 INSERT INTO finding_acks (fingerprint, cluster, scanner, title, ack_by, reason, snooze_until, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(fingerprint) DO UPDATE SET
@@ -68,8 +68,8 @@ ON CONFLICT(fingerprint) DO UPDATE SET
 // DeleteAck removes an acknowledgement by fingerprint. Idempotent: a missing
 // row is not an error so callers can call from a "clear" button without
 // worrying about state.
-func (s *SQLite) DeleteAck(ctx context.Context, fingerprint string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM finding_acks WHERE fingerprint = ?", fingerprint)
+func (s *sqlStore) DeleteAck(ctx context.Context, fingerprint string) error {
+	_, err := s.exec(ctx, "DELETE FROM finding_acks WHERE fingerprint = ?", fingerprint)
 	if err != nil {
 		return fmt.Errorf("%w: delete ack: %w", ErrStore, err)
 	}
@@ -78,11 +78,11 @@ func (s *SQLite) DeleteAck(ctx context.Context, fingerprint string) error {
 
 // ListAcks returns every active ack. Expired snoozes are filtered out and
 // removed from the database as a side effect so the table stays small.
-func (s *SQLite) ListAcks(ctx context.Context) ([]AckRecord, error) {
+func (s *sqlStore) ListAcks(ctx context.Context) ([]AckRecord, error) {
 	if err := s.pruneExpiredAcks(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.query(ctx, `
 SELECT fingerprint, cluster, scanner, title, ack_by, reason, snooze_until, created_at
 FROM finding_acks
 ORDER BY created_at DESC`)
@@ -103,12 +103,12 @@ ORDER BY created_at DESC`)
 
 // IsAcked reports whether a finding identified by fingerprint has an active
 // (non-expired) ack.
-func (s *SQLite) IsAcked(ctx context.Context, fingerprint string) (bool, error) {
+func (s *sqlStore) IsAcked(ctx context.Context, fingerprint string) (bool, error) {
 	if err := s.pruneExpiredAcks(ctx); err != nil {
 		return false, err
 	}
 	var n int
-	err := s.db.QueryRowContext(ctx,
+	err := s.queryRow(ctx,
 		"SELECT COUNT(1) FROM finding_acks WHERE fingerprint = ?", fingerprint,
 	).Scan(&n)
 	if err != nil {
@@ -118,10 +118,10 @@ func (s *SQLite) IsAcked(ctx context.Context, fingerprint string) (bool, error) 
 }
 
 // pruneExpiredAcks deletes acks whose snooze has elapsed.
-func (s *SQLite) pruneExpiredAcks(ctx context.Context) error {
+func (s *sqlStore) pruneExpiredAcks(ctx context.Context) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM finding_acks WHERE snooze_until IS NOT NULL AND snooze_until != '' AND snooze_until < ?",
+	_, err := s.exec(ctx,
+		"DELETE FROM finding_acks WHERE snooze_until IS NOT NULL AND snooze_until <> '' AND snooze_until < ?",
 		now)
 	if err != nil {
 		return fmt.Errorf("%w: prune expired acks: %w", ErrStore, err)
