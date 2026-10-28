@@ -171,15 +171,16 @@ func TestDistributionValues(t *testing.T) {
 		t.Errorf("c05 z mismatch (-want +got):\n%s", diff)
 	}
 
-	// quota_count is 6 everywhere but c03, so MAD is zero: the distribution
-	// is kept, with no band, no z, and nothing flagged.
+	// quota_count is 6 everywhere but c03, so MAD is zero and the norm is exact: 11 of 12
+	// hold the median, c03 is flagged with no z, and its mass is the full maxMassZ.
 	quota := findDistribution(t, r, NormScopeFleet, "resource-quotas", "quota_count")
-	if quota.MAD != 0 || quota.Band != 0 || quota.Mass != 0 || quota.Median != 6 {
-		t.Errorf("quota_count: want median 6 and zero MAD, band, mass; got %+v", quota)
+	if !quota.Exact || quota.MAD != 0 || quota.Band != 0 || quota.Mass != maxMassZ || quota.Median != 6 ||
+		math.Abs(quota.ModeShare-11.0/12) > 1e-12 {
+		t.Errorf("quota_count: want an exact norm at 6 held by 11/12, mass %v; got %+v", maxMassZ, quota)
 	}
 	for _, v := range quota.Values {
-		if v.Outlier || v.Z != 0 {
-			t.Errorf("quota_count %s: want unflagged with zero z, got %+v", v.Cluster, v)
+		if v.Outlier != (v.Cluster == "c03") || v.Z != 0 {
+			t.Errorf("quota_count %s: want only c03 flagged, all with zero z, got %+v", v.Cluster, v)
 		}
 	}
 

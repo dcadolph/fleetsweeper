@@ -46,6 +46,10 @@ type Distribution struct {
 	Consensus []string `json:"consensus,omitempty"`
 	// SampleSize is the number of clusters in the population.
 	SampleSize int `json:"sample_size"`
+	// Exact marks a numeric distribution with zero spread, judged like a string: at least
+	// minStringModeMass of the population holds Median exactly and any other value is off it.
+	// An exact norm carries no z-score and no band.
+	Exact bool `json:"exact,omitempty"`
 	// LimitedSample marks a population too small for MAD, judged by the
 	// leave-one-out majority diff.
 	LimitedSample bool `json:"limited_sample,omitempty"`
@@ -78,13 +82,23 @@ type ClusterValue struct {
 	Explained string `json:"explained,omitempty"`
 }
 
-// massOf returns the sum over values of |Z| capped at maxMassZ.
-func massOf(values []ClusterValue) float64 {
+// massOf returns the sum over d's values of their capped mass (see valueMass).
+func massOf(d Distribution) float64 {
 	var mass float64
-	for _, v := range values {
-		mass += math.Min(math.Abs(v.Z), maxMassZ)
+	for _, v := range d.Values {
+		mass += valueMass(d, v)
 	}
 	return mass
+}
+
+// valueMass is how much one value adds to a distribution's mass and a cluster's deviation
+// mass: |Z| capped at maxMassZ, or the full maxMassZ for a flagged value of an exact
+// distribution, so a flat field with one deviant ranks above a noisy field with none.
+func valueMass(d Distribution, v ClusterValue) float64 {
+	if d.Exact && v.Outlier {
+		return maxMassZ
+	}
+	return math.Min(math.Abs(v.Z), maxMassZ)
 }
 
 // markOutliers sets Outlier, and Z when z is true, on the values of d whose

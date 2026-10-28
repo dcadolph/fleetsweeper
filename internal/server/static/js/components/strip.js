@@ -5,7 +5,7 @@
 
 import { esc, clusterHref } from '../dom.js';
 import { linear, jitter, fieldLabel } from '../viz.js';
-import { num, coord } from '../format.js';
+import { num, coord, pct } from '../format.js';
 
 const W = 800;
 const H = 46;
@@ -42,7 +42,7 @@ function numericSVG(d, highlight) {
     hi += 1;
   }
   const x = linear(lo, hi, PAD, W - PAD);
-  let svg = `<svg class="strip-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(fieldLabel(d))}: median ${esc(num(d.median))}, ${d.values.filter((v) => v.outlier).length} outliers">`;
+  let svg = `<svg class="strip-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(fieldLabel(d))}: median ${esc(num(d.median))}, ${d.values.filter((v) => v.outlier && !v.explained).length} outliers">`;
   if (d.band > 0) {
     const x0 = x(Math.max(lo, d.median - d.band));
     const x1 = x(Math.min(hi, d.median + d.band));
@@ -56,23 +56,33 @@ function numericSVG(d, highlight) {
     if (typeof v.number !== 'number') return;
     const cy = H / 2 + jitter(d.scanner + d.field + v.cluster) * (H / 2 - 10);
     const ring = v.cluster === highlight;
-    const state = v.explained ? `, outside the fleet norm, inside cohort ${v.explained}` : v.outlier ? ', outside the norm' : '';
+    const off = d.exact ? ', off the exact norm' : ', outside the norm';
+    const state = v.explained ? `, outside the fleet norm, inside cohort ${v.explained}` : v.outlier ? off : '';
     const tipText = `${v.cluster}: ${num(v.number)}${v.z ? ' (z ' + num(v.z) + ')' : ''}${state}`;
     const cls = v.explained ? ' held' : v.outlier ? ' out' : '';
     svg += `<a href="${esc(clusterHref(v.cluster))}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}">` +
       `<circle class="dot-pt${cls}${ring ? ' ring' : ''}" cx="${coord(x(v.number))}" cy="${coord(cy)}" r="${ring ? 6 : v.outlier ? 5 : 3.5}"/></a>`;
   });
   svg += '</svg>';
-  const scale = `<div class="strip-scale"><span>${esc(num(lo))}</span><span>median ${esc(num(d.median))}${d.band > 0 ? ' ± ' + esc(num(d.band)) : ', MAD 0, no band'}</span><span>${esc(num(hi))}</span></div>`;
+  const scale = `<div class="strip-scale"><span>${esc(num(lo))}</span><span>${esc(scaleNorm(d))}</span><span>${esc(num(hi))}</span></div>`;
   return svg + scale;
+}
+
+// scaleNorm describes a numeric norm under its strip: the median and band, or for a field
+// with no spread the share holding the median exactly.
+function scaleNorm(d) {
+  if (d.exact) return `exact: ${pct(d.mode_share * 100)} report ${num(d.median)}, any other value is off it`;
+  return `median ${num(d.median)}${d.band > 0 ? ' ± ' + num(d.band) : ''}`;
 }
 
 // categorical summarizes a string or set distribution.
 function categorical(d, highlight) {
   const out = d.values.filter((v) => v.outlier && !v.explained);
+  const heldN = d.values.filter((v) => v.explained).length;
+  const none = d.values.some((v) => v.outlier) ? `<span class="note">${heldN} held by their cohort</span>` : '<span class="note">everyone agrees</span>';
   const norm = d.kind === 'string'
     ? `mode <span class="mono">${esc(d.mode)}</span> held by ${Math.round((d.mode_share || 0) * 100)}%`
     : `${(d.consensus || []).length} members most clusters have`;
   const chips = out.map((v) => `<a class="chip${v.cluster === highlight ? ' chip-ring' : ''}" href="${esc(clusterHref(v.cluster))}" data-tip="${esc(d.kind === 'set' ? 'missing ' + (v.missing || []).join(', ') : v.text)}">${esc(v.cluster)}</a>`).join('');
-  return `<div class="strip-cat"><span>${norm}</span>${out.length ? '<span class="note">outside:</span>' + chips : '<span class="note">everyone agrees</span>'}</div>`;
+  return `<div class="strip-cat"><span>${norm}</span>${out.length ? '<span class="note">outside:</span>' + chips : none}</div>`;
 }

@@ -44,8 +44,8 @@ Paths below are under `/api` unless they start with a root path.
 | GET, POST | `/groups` | List or create cluster groups. |
 | DELETE | `/groups/{name}` | Delete a group. |
 | GET | `/trends`, `/trends/{cluster}` | Fleet and per-cluster trends over recent scans. |
-| GET | `/outliers` | Outliers of the latest scan. `?threshold=` overrides 3.5. |
-| GET | `/cohorts` | Cohorts of the latest scan with their outliers. |
+| GET | `/outliers` | Outliers of the latest scan. `?threshold=` overrides 3.5, and a non-positive or non-numeric value returns 400. |
+| GET | `/cohorts` | Cohorts of the latest scan with their outliers. `?threshold=` as for `/outliers`. |
 | GET | `/cohorts/map` | The two-dimensional cohort map with nearest peers. |
 | GET | `/distributions` | The distributions behind the norm. `?scope=`, `?scanner=`, `?field=`. |
 | GET | `/distributions/history` | One field's distribution over recent scans. |

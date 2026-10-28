@@ -23,7 +23,7 @@ func TestFuseIncidents(t *testing.T) {
 		{Title: "fleet version skew", Severity: SeverityWarning, Cluster: "fleet", Scanner: "version"},
 	}
 
-	got := FuseIncidents(findings)
+	got := fuseIncidents(findings)
 
 	// Test 0: exactly one incident (the node-pressure trio).
 	if len(got) != 1 {

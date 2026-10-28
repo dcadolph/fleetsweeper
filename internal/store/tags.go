@@ -9,11 +9,11 @@ import (
 // SetClusterTag upserts one key/value tag on a cluster. Keys are
 // case-sensitive and free-form; common conventions are `env=prod`,
 // `tier=critical`, `owner=team-a`.
-func (s *SQLite) SetClusterTag(ctx context.Context, cluster, key, value string) error {
+func (s *sqlStore) SetClusterTag(ctx context.Context, cluster, key, value string) error {
 	if cluster == "" || key == "" {
 		return fmt.Errorf("%w: cluster and key required", ErrStore)
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.exec(ctx, `
 INSERT INTO cluster_tags (cluster, key, value, updated_at)
 VALUES (?, ?, ?, ?)
 ON CONFLICT(cluster, key) DO UPDATE SET
@@ -27,8 +27,8 @@ ON CONFLICT(cluster, key) DO UPDATE SET
 }
 
 // DeleteClusterTag removes one key from a cluster's tag set.
-func (s *SQLite) DeleteClusterTag(ctx context.Context, cluster, key string) error {
-	_, err := s.db.ExecContext(ctx,
+func (s *sqlStore) DeleteClusterTag(ctx context.Context, cluster, key string) error {
+	_, err := s.exec(ctx,
 		"DELETE FROM cluster_tags WHERE cluster = ? AND key = ?",
 		cluster, key)
 	if err != nil {
@@ -38,8 +38,8 @@ func (s *SQLite) DeleteClusterTag(ctx context.Context, cluster, key string) erro
 }
 
 // GetClusterTags returns every tag pair on a cluster.
-func (s *SQLite) GetClusterTags(ctx context.Context, cluster string) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx,
+func (s *sqlStore) GetClusterTags(ctx context.Context, cluster string) (map[string]string, error) {
+	rows, err := s.query(ctx,
 		"SELECT key, value FROM cluster_tags WHERE cluster = ?",
 		cluster)
 	if err != nil {
@@ -58,8 +58,8 @@ func (s *SQLite) GetClusterTags(ctx context.Context, cluster string) (map[string
 }
 
 // ListClusterTags returns every tag across the fleet, grouped by cluster.
-func (s *SQLite) ListClusterTags(ctx context.Context) (map[string]map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx,
+func (s *sqlStore) ListClusterTags(ctx context.Context) (map[string]map[string]string, error) {
+	rows, err := s.query(ctx,
 		"SELECT cluster, key, value FROM cluster_tags")
 	if err != nil {
 		return nil, fmt.Errorf("%w: list cluster tags: %w", ErrQuery, err)

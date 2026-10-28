@@ -6,6 +6,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260714215040-dc233986426f
 	github.com/chromedp/chromedp v0.16.0
 	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-containerregistry v0.21.5
 	github.com/jackc/pgx/v5 v5.9.2
@@ -41,7 +42,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

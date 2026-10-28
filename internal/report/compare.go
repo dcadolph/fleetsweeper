@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // setFields are field names known to contain lists that should be compared as sets.
@@ -83,21 +85,12 @@ func findDivergences(clusters []string, encoded map[string][]byte) []Divergence 
 		flat[cluster] = m
 	}
 
-	allFields := make(map[string]struct{})
-	for _, m := range flat {
-		for k := range m {
-			allFields[k] = struct{}{}
+	fields := make([]string, 0)
+	for _, f := range collectFields(flat) {
+		if _, skip := skipFields[f]; !skip {
+			fields = append(fields, f)
 		}
 	}
-
-	fields := make([]string, 0, len(allFields))
-	for f := range allFields {
-		if _, skip := skipFields[f]; skip {
-			continue
-		}
-		fields = append(fields, f)
-	}
-	sort.Strings(fields)
 
 	var divergences []Divergence
 	for _, field := range fields {
@@ -108,7 +101,7 @@ func findDivergences(clusters []string, encoded map[string][]byte) []Divergence 
 			continue
 		}
 
-		if isNumericField(clusters, flat, field) {
+		if isNumericInFlat(clusters, flat, field) {
 			if d := compareNumericField(clusters, flat, field); d != nil {
 				divergences = append(divergences, *d)
 			}
@@ -127,6 +120,7 @@ func findDivergences(clusters []string, encoded map[string][]byte) []Divergence 
 func compareStringField(clusters []string, flat map[string]map[string]any, field string) *Divergence {
 	values := make(map[string]string, len(clusters))
 	var ref string
+	first := true
 	uniform := true
 	for _, cluster := range clusters {
 		m, ok := flat[cluster]
@@ -137,8 +131,9 @@ func compareStringField(clusters []string, flat map[string]map[string]any, field
 		}
 		v := fmt.Sprintf("%v", m[field])
 		values[cluster] = v
-		if ref == "" {
+		if first {
 			ref = v
+			first = false
 		} else if v != ref {
 			uniform = false
 		}
@@ -149,31 +144,14 @@ func compareStringField(clusters []string, flat map[string]map[string]any, field
 	return &Divergence{Field: field, Values: values}
 }
 
-// isNumericField checks if a field contains numeric values across clusters.
-func isNumericField(clusters []string, flat map[string]map[string]any, field string) bool {
-	for _, cluster := range clusters {
-		m, ok := flat[cluster]
-		if !ok {
-			continue
-		}
-		switch m[field].(type) {
-		case float64, int, int64:
-			return true
-		}
-		return false
-	}
-	return false
-}
-
 // compareNumericField compares numeric values and annotates the divergence with
 // min/max/range information.
 func compareNumericField(clusters []string, flat map[string]map[string]any, field string) *Divergence {
 	values := make(map[string]string, len(clusters))
 	nums := make(map[string]float64, len(clusters))
-	var min, max float64
+	var ref float64
 	first := true
 	uniform := true
-	var ref float64
 
 	for _, cluster := range clusters {
 		m, ok := flat[cluster]
@@ -182,24 +160,16 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 			uniform = false
 			continue
 		}
-		n := toFloat64(m[field])
+		n, _ := util.Float64(m[field])
 		nums[cluster] = n
 		values[cluster] = formatNum(n)
 		if first {
 			ref = n
-			min = n
-			max = n
 			first = false
-		} else {
-			if n != ref {
-				uniform = false
-			}
-			if n < min {
-				min = n
-			}
-			if n > max {
-				max = n
-			}
+			continue
+		}
+		if n != ref {
+			uniform = false
 		}
 	}
 
@@ -207,50 +177,42 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 		return nil
 	}
 
-	// Find the outlier cluster(s) — the one(s) furthest from the mean.
-	// Walk clusters in report order, not map order, so the float sum and a tie for the
-	// furthest value resolve the same way on every build.
-	var sum float64
-	for _, cluster := range clusters {
-		if n, ok := nums[cluster]; ok {
-			sum += n
-		}
-	}
-	mean := sum / float64(len(nums))
+	annotateNumeric(clusters, nums, values)
+	return &Divergence{Field: field, Values: values}
+}
 
-	var outlier string
-	maxDist := 0.0
+// annotateNumeric tags the highest and lowest values of the clusters present in nums.
+func annotateNumeric(clusters []string, nums map[string]float64, values map[string]string) {
+	first := true
+	var min, max float64
 	for _, cluster := range clusters {
 		n, ok := nums[cluster]
 		if !ok {
 			continue
 		}
-		if dist := math.Abs(n - mean); dist > maxDist {
-			maxDist = dist
-			outlier = cluster
+		if first {
+			min, max = n, n
+			first = false
+			continue
+		}
+		min = math.Min(min, n)
+		max = math.Max(max, n)
+	}
+	if max == min {
+		return
+	}
+	for _, cluster := range clusters {
+		n, ok := nums[cluster]
+		if !ok {
+			continue
+		}
+		switch n {
+		case max:
+			values[cluster] += " [highest]"
+		case min:
+			values[cluster] += " [lowest]"
 		}
 	}
-
-	// Annotate each cluster value with context.
-	for cluster := range values {
-		n := nums[cluster]
-		annotation := ""
-		if cluster == outlier && len(nums) > 2 {
-			annotation = " [outlier]"
-		}
-		if n == max && max != min {
-			annotation += " [highest]"
-		}
-		if n == min && max != min {
-			annotation += " [lowest]"
-		}
-		values[cluster] = formatNum(n) + strings.TrimSpace(annotation)
-		if annotation != "" {
-			values[cluster] = formatNum(n) + " " + strings.TrimSpace(annotation)
-		}
-	}
-
-	return &Divergence{Field: field, Values: values}
 }
 
 // compareSetField compares list/array fields as sets and reports items that
@@ -314,20 +276,6 @@ func compareSetField(clusters []string, flat map[string]map[string]any, field st
 	}
 
 	return &Divergence{Field: field, Values: values}
-}
-
-// toFloat64 converts a JSON number to float64.
-func toFloat64(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int:
-		return float64(n)
-	case int64:
-		return float64(n)
-	default:
-		return 0
-	}
 }
 
 // formatNum formats a number, dropping the decimal for whole numbers.

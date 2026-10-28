@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/report"
-	"github.com/dcadolph/fleetsweeper/internal/server"
 )
 
 // whatifCmd projects how the fleet norm and score move if one cluster's field
@@ -58,27 +57,16 @@ func runWhatif(cmd *cobra.Command, _ []string) error {
 	defer st.Close()
 	ctx := cmdContext(cmd)
 
-	if scanID == "latest" {
-		if scanID, err = latestScanID(ctx, st); err != nil {
-			return err
-		}
+	if scanID, err = resolveScanRef(ctx, st, scanID); err != nil {
+		return err
 	}
-	scan, err := st.GetScan(ctx, scanID)
+	sc, err := loadStoredScan(ctx, st, scanID)
 	if err != nil {
-		return fmt.Errorf("get scan %s: %w", scanID, err)
+		return err
 	}
-	results, err := st.GetScanResults(ctx, scanID)
-	if err != nil {
-		return fmt.Errorf("get scan results %s: %w", scanID, err)
-	}
-	opts, err := server.StoreReportOptions(ctx, st)
-	if err != nil {
-		return fmt.Errorf("load report options: %w", err)
-	}
-	opts.Timestamp = scan.Timestamp
 
 	fix := report.Fix{Cluster: cluster, Scanner: scannerName, Field: fieldName, Kind: kind, Scope: norm}
-	out, err := report.WhatIf(scan.Clusters, results, opts, fix)
+	out, err := report.WhatIf(sc.Record.Clusters, sc.Results, sc.Opts, fix)
 	if err != nil {
 		return err
 	}

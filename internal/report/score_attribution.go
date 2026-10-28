@@ -8,7 +8,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// Score terms name the cost categories ComputeFleetScore charges.
+// Score terms name the cost categories the fleet score charges.
 const (
 	TermCriticalFindings = "critical-findings"
 	TermWarningFindings  = "warning-findings"
@@ -69,9 +69,9 @@ type ScoreEntry struct {
 	Cost float64 `json:"cost"`
 }
 
-// ComputeScoreAttribution returns the cost ledger for r. Safe to call on nil;
+// computeScoreAttribution returns the cost ledger for r. Safe to call on nil;
 // returns an empty ledger.
-func ComputeScoreAttribution(r *Report) ScoreAttribution {
+func computeScoreAttribution(r *Report) ScoreAttribution {
 	var a ScoreAttribution
 	if r == nil {
 		return a
@@ -212,7 +212,7 @@ func (a *ScoreAttribution) addClusterHealthTerms(healths []ClusterHealth) {
 }
 
 // addVersionSkewTerm charges a fleet-wide cost for Kubernetes version skew,
-// using the severity calibration of VersionSkewSeverity.
+// using the severity calibration of versionSkewSeverity.
 func (a *ScoreAttribution) addVersionSkewTerm(healths []ClusterHealth) {
 	if len(healths) < 2 {
 		return
@@ -223,7 +223,7 @@ func (a *ScoreAttribution) addVersionSkewTerm(healths []ClusterHealth) {
 			versions = append(versions, h.KubernetesVersion)
 		}
 	}
-	switch VersionSkewSeverity(versions) {
+	switch versionSkewSeverity(versions) {
 	case SeverityCritical:
 		a.addTerm(TermVersionSkew, "Kubernetes version skew exceeds one minor", 1, 0,
 			[]ScoreEntry{{Rule: "version/skew", Raw: scoreVersionCritSev}})

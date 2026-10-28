@@ -81,6 +81,12 @@ that cohort's norm:
 Untagged clusters are grouped automatically, and auto cohorts do not hold
 fleet outliers: only a cohort an operator declared does.
 
+A tagged cohort of two has no norm of its own, so its members hold each other
+when they agree: two edge clusters that both run far fewer nodes than the
+fleet are held, while one high and one low are each flagged. A cohort of one
+cluster holds nothing, and the report's notes say so. Tag a third cluster to
+give the cohort a real norm.
+
 Location is identity, not configuration. The geo scanner's fields are neither
 divergences nor norms.
 

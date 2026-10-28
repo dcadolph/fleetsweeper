@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -15,44 +14,6 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner/policyreportingest"
 )
-
-// metricsTTL is the soft cache window for the rebuilt report behind /metrics.
-// Prometheus typically scrapes every 15-30 seconds; rebuilding a report on
-// every scrape would do unbounded work. The cache is best-effort: on a write
-// (new scan) the next scrape rebuilds.
-const metricsTTL = 20 * time.Second
-
-// metricsCache memoizes the latest report build keyed by scan ID so two
-// scrapes within metricsTTL only do the work once. Safe for concurrent use.
-type metricsCache struct {
-	mu      sync.Mutex
-	scanID  string
-	report  *report.Report
-	fetched time.Time
-}
-
-// loadFresh returns the cached report if it covers the given scan ID and is
-// younger than ttl. Returns nil to signal the caller must rebuild.
-func (c *metricsCache) loadFresh(scanID string, ttl time.Duration) *report.Report {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.scanID != scanID {
-		return nil
-	}
-	if time.Since(c.fetched) > ttl {
-		return nil
-	}
-	return c.report
-}
-
-// store records the rebuilt report and its scan ID.
-func (c *metricsCache) store(scanID string, r *report.Report) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.scanID = scanID
-	c.report = r
-	c.fetched = time.Now()
-}
 
 // writeMetrics emits the Prometheus exposition for the server's current state
 // to w. The function is structured top-down: counters that always exist first,
@@ -155,9 +116,12 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 	}
 
 	if len(r.Outliers) > 0 {
-		emit(w, "# HELP fleetsweeper_outlier_score Modified z-score of an outlying cluster value.")
+		emit(w, "# HELP fleetsweeper_outlier_score Modified z-score of an outlying cluster value. Outliers explained by a cohort are excluded.")
 		emit(w, "# TYPE fleetsweeper_outlier_score gauge")
 		for _, o := range r.Outliers {
+			if len(o.ExplainedBy) > 0 {
+				continue
+			}
 			emit(w, fmt.Sprintf(
 				`fleetsweeper_outlier_score{cluster=%q,scanner=%q,field=%q,severity=%q} %.3f`,
 				promLabelEscape(o.Cluster), promLabelEscape(o.Scanner),
@@ -176,14 +140,15 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 			promLabelEscape(ch.Name), ch.AvgMemory))
 	}
 
-	emitPolicyReportMetrics(w, r)
+	emitPolicyReportMetrics(w, r, s.log)
 
 	controller.WriteMetrics(w)
 }
 
 // emitPolicyReportMetrics walks the policy-reports scanner output and
-// exposes per-source result tallies as Prometheus gauges.
-func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
+// exposes per-source result tallies as Prometheus gauges. Clusters whose data
+// cannot be decoded are counted and reported once at Warn.
+func emitPolicyReportMetrics(w io.Writer, r *report.Report, log *zap.Logger) {
 	if r == nil || r.Sections == nil {
 		return
 	}
@@ -196,13 +161,16 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
 		Source, Result string
 	}
 	totals := map[tallyKey]int{}
+	decodeFailures := 0
 	for _, raw := range sec.PerCluster {
 		blob, err := json.Marshal(raw)
 		if err != nil {
+			decodeFailures++
 			continue
 		}
-		var d policyReportData
+		var d policyreportingest.Data
 		if err := json.Unmarshal(blob, &d); err != nil {
+			decodeFailures++
 			continue
 		}
 		if !d.Available {
@@ -216,6 +184,9 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
 			totals[tallyKey{ts.Source, "skip"}] += ts.Skip
 		}
 	}
+	if decodeFailures > 0 {
+		log.Warn("metrics: decode policy report data", zap.Int("failures", decodeFailures))
+	}
 	if len(totals) == 0 {
 		return
 	}
@@ -225,21 +196,6 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report) {
 		emit(w, fmt.Sprintf(`fleetsweeper_policy_results_total{source=%q,result=%q} %d`,
 			promLabelEscape(k.Source), promLabelEscape(k.Result), n))
 	}
-}
-
-// policyReportData mirrors the shape policyreportingest.Data marshals
-// into. Decoded locally so this file doesn't have to depend on the
-// scanner package's struct internals — only its top-level keys.
-type policyReportData struct {
-	Available bool `json:"available"`
-	BySource  []struct {
-		Source string `json:"source"`
-		Pass   int    `json:"pass"`
-		Fail   int    `json:"fail"`
-		Warn   int    `json:"warn"`
-		Error  int    `json:"error"`
-		Skip   int    `json:"skip"`
-	} `json:"by_source"`
 }
 
 // latestReportForMetrics returns the rebuilt report for the most recent scan,
@@ -255,18 +211,14 @@ func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
 	}
 
 	latest := scans[0]
-	if cached := s.metricsCache.loadFresh(latest.ID, metricsTTL); cached != nil {
-		return cached
-	}
-
 	results, err := s.store.GetScanResults(ctx, latest.ID)
 	if err != nil {
 		s.log.Warn("metrics: get scan results", zap.Error(err))
 		return nil
 	}
-	r := s.buildReport(ctx, latest, results)
-	s.metricsCache.store(latest.ID, r)
-	return r
+	opts := s.reportOptions(ctx, s.log)
+	opts.Timestamp = latest.Timestamp
+	return s.reports.get(latest.ID, latest.Clusters, results, opts)
 }
 
 // emit writes one line of Prometheus exposition followed by a newline.

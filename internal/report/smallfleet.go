@@ -3,6 +3,9 @@ package report
 import (
 	"fmt"
 	"math"
+	"strconv"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // minMajoritySample is the smallest population the leave-one-out majority
@@ -10,61 +13,57 @@ import (
 // one the outlier.
 const minMajoritySample = 3
 
-// detectMajorityOutliers runs the leave-one-out majority diff over every
-// non-uniform section of r. It is the outlier detector for populations of
+// detectMajorityOutliers runs the leave-one-out majority diff over clusters in every
+// non-uniform section. It is the outlier detector for populations of
 // minMajoritySample to minMADSample-1 clusters, where MAD over the whole
 // population is unstable. Every result is marked LimitedSample, its severity
 // is capped at warning, and its Scope is scope. It also returns the
 // distribution behind every numeric and string field it evaluated.
-func detectMajorityOutliers(r *Report, threshold float64, scope string) ([]OutlierResult, []Distribution) {
+func detectMajorityOutliers(clusters []string, sections map[string]*SectionReport,
+	threshold float64, scope string) ([]OutlierResult, []Distribution) {
 	var outliers []OutlierResult
 	var dists []Distribution
-	for scannerName, sec := range r.Sections {
-		if sec.Uniform {
-			continue
+	visit := func(scannerName, field string, flat map[string]map[string]any) {
+		var o *OutlierResult
+		var dist *Distribution
+		switch {
+		case isNumericInFlat(clusters, flat, field):
+			o = majorityNumericOutlier(clusters, flat, field, threshold)
+			dist = majorityNumericDistribution(clusters, flat, field, threshold)
+		case isArrayInFlat(clusters, flat, field):
+			return
+		default:
+			o = majorityStringOutlier(clusters, flat, field)
+			dist = majorityStringDistribution(clusters, flat, field)
 		}
-		flat := flattenSection(r.Clusters, sec)
-		prepareFlat(scannerName, flat)
-		for _, field := range collectFields(flat) {
-			if _, skip := skipFields[field]; skip {
-				continue
+		if dist != nil {
+			dist.Scanner = scannerName
+			dist.Field = field
+			dist.Scope = scope
+			if o != nil {
+				markOutliers(dist, []OutlierResult{*o}, true)
 			}
-			var o *OutlierResult
-			var dist *Distribution
-			switch {
-			case isNumericInFlat(r.Clusters, flat, field):
-				o = majorityNumericOutlier(r.Clusters, flat, field, threshold)
-				dist = majorityNumericDistribution(r.Clusters, flat, field, threshold)
-			case isArrayInFlat(r.Clusters, flat, field):
-				continue
-			default:
-				o = majorityStringOutlier(r.Clusters, flat, field)
-				dist = majorityStringDistribution(r.Clusters, flat, field)
-			}
-			if dist != nil {
-				dist.Scanner = scannerName
-				dist.Field = field
-				dist.Scope = scope
-				if o != nil {
-					markOutliers(dist, []OutlierResult{*o}, true)
-				}
-				dist.Mass = massOf(dist.Values)
-				dists = append(dists, *dist)
-			}
-			if o == nil {
-				continue
-			}
-			o.Field = field
-			o.Scanner = scannerName
-			o.Scope = scope
-			o.LimitedSample = true
-			o.Severity = classifySeverity(scannerName, field)
-			if o.Severity == SeverityCritical {
-				o.Severity = SeverityWarning
-			}
-			outliers = append(outliers, *o)
+			dist.Mass = massOf(*dist)
+			dists = append(dists, *dist)
 		}
+		if o == nil {
+			return
+		}
+		o.Field = field
+		o.Scanner = scannerName
+		o.Scope = scope
+		o.LimitedSample = true
+		o.Severity = classifySeverity(scannerName, field)
+		if o.Kind == NormKindNumeric {
+			v, _ := strconv.ParseFloat(o.Value, 64)
+			o.Severity, o.Favorable = numericSeverity(scannerName, field, v-o.Median)
+		}
+		if o.Severity == SeverityCritical {
+			o.Severity = SeverityWarning
+		}
+		outliers = append(outliers, *o)
 	}
+	walkFields(clusters, sections, 0, visit)
 	sortOutliers(outliers)
 	sortDistributions(dists)
 	return outliers, dists
@@ -78,7 +77,7 @@ func majorityNumericDistribution(clusters []string, flat map[string]map[string]a
 	var vals []float64
 	var values []ClusterValue
 	for _, c := range clusters {
-		v, ok := toOptionalFloat64(flat[c][field])
+		v, ok := util.Float64(flat[c][field])
 		if !ok {
 			continue
 		}
@@ -88,17 +87,26 @@ func majorityNumericDistribution(clusters []string, flat map[string]map[string]a
 	if len(vals) < minMajoritySample || len(vals) >= minMADSample {
 		return nil
 	}
-	m := computeMedian(vals)
+	m := util.Median(vals)
 	d := computeMAD(vals, m)
 	dist := &Distribution{
 		Kind: NormKindNumeric, Values: values, Median: m, MAD: d, Threshold: threshold,
 		SampleSize: len(vals), LimitedSample: true,
 	}
-	if d != 0 {
-		dist.Band = threshold * d / madScale
-		for i, v := range vals {
-			dist.Values[i].Z = cappedZ(madScale * (v - m) / d)
+	if d == 0 {
+		atMedian := 0
+		for _, v := range vals {
+			if v == m {
+				atMedian++
+			}
 		}
+		dist.Exact = true
+		dist.ModeShare = float64(atMedian) / float64(len(vals))
+		return dist
+	}
+	dist.Band = threshold * d / madScale
+	for i, v := range vals {
+		dist.Values[i].Z = cappedZ(madScale * (v - m) / d)
 	}
 	return dist
 }
@@ -139,7 +147,7 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 	var names []string
 	var vals []float64
 	for _, c := range clusters {
-		v, ok := toOptionalFloat64(flat[c][field])
+		v, ok := util.Float64(flat[c][field])
 		if !ok {
 			continue
 		}
@@ -155,17 +163,18 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 		others := make([]float64, 0, len(vals)-1)
 		others = append(others, vals[:i]...)
 		others = append(others, vals[i+1:]...)
-		m := computeMedian(others)
+		m := util.Median(others)
 		d := computeMAD(others, m)
 		if !withinBand(others, m, d) {
 			continue
 		}
 		var z float64
+		exact := false
 		switch {
 		case v == m:
 			continue
 		case d == 0:
-			z = math.Copysign(maxReportedDeviation, v-m)
+			exact = true
 		default:
 			z = madScale * (v - m) / d
 			if math.Abs(z) <= threshold {
@@ -186,6 +195,10 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 			SampleSize: len(vals),
 			Threshold:  threshold,
 			Z:          z,
+			Exact:      exact,
+		}
+		if exact {
+			found.ModeShare = float64(len(vals)-1) / float64(len(vals))
 		}
 	}
 	return found

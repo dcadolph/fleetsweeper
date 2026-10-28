@@ -3,6 +3,8 @@ package report
 import (
 	"fmt"
 	"sort"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // Incident groups findings that share a likely root cause on one cluster, so an
@@ -55,10 +57,10 @@ var incidentSummaries = map[string]string{
 	"security-posture":  "Workload-security, RBAC, network-policy, and image gaps overlap on this cluster and widen its attack surface at the same time.",
 }
 
-// FuseIncidents groups findings by cluster and root-cause theme, emitting an
+// fuseIncidents groups findings by cluster and root-cause theme, emitting an
 // incident wherever two or more findings on a cluster share a theme. Findings
 // with no theme, or that stand alone, are left as ordinary findings.
-func FuseIncidents(findings []Finding) []Incident {
+func fuseIncidents(findings []Finding) []Incident {
 	type key struct{ cluster, theme string }
 	groups := make(map[key][]Finding)
 	for _, f := range findings {
@@ -91,8 +93,9 @@ func FuseIncidents(findings []Finding) []Incident {
 	}
 
 	sort.Slice(incidents, func(i, j int) bool {
-		if si, sj := sevRank(incidents[i].Severity), sevRank(incidents[j].Severity); si != sj {
-			return si < sj
+		si, sj := util.SeverityRank(incidents[i].Severity), util.SeverityRank(incidents[j].Severity)
+		if si != sj {
+			return si > sj
 		}
 		if incidents[i].Cluster != incidents[j].Cluster {
 			return incidents[i].Cluster < incidents[j].Cluster
@@ -102,23 +105,11 @@ func FuseIncidents(findings []Finding) []Incident {
 	return incidents
 }
 
-// sevRank orders severities so critical sorts ahead of warning ahead of info.
-func sevRank(s string) int {
-	switch s {
-	case SeverityCritical:
-		return 0
-	case SeverityWarning:
-		return 1
-	default:
-		return 2
-	}
-}
-
 // maxSeverityOf returns the highest severity among the given findings.
 func maxSeverityOf(fs []Finding) string {
 	best := SeverityInfo
 	for _, f := range fs {
-		if sevRank(f.Severity) < sevRank(best) {
+		if util.SeverityRank(f.Severity) > util.SeverityRank(best) {
 			best = f.Severity
 		}
 	}

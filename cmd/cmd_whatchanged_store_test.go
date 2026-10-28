@@ -63,45 +63,6 @@ func TestResolveScansTooFew(t *testing.T) {
 	}
 }
 
-// TestLatestScanID verifies the happy path and the empty-store error.
-func TestLatestScanID(t *testing.T) {
-	t.Parallel()
-	dbPath := filepath.Join(t.TempDir(), "wc.db")
-	ids := seedHistoryScans(t, dbPath, 1)
-	s, _ := store.NewSQLite(dbPath)
-	defer s.Close()
-	got, err := latestScanID(context.Background(), s)
-	if err != nil || got != ids[0] {
-		t.Fatalf("latest: got %q err=%v", got, err)
-	}
-
-	empty, _ := store.NewSQLite(filepath.Join(t.TempDir(), "empty.db"))
-	defer empty.Close()
-	if _, err := latestScanID(context.Background(), empty); err == nil {
-		t.Error("expected error on empty store")
-	}
-}
-
-// TestBuildReportStore verifies a stored scan rebuilds and a bad id errors.
-func TestBuildReportStore(t *testing.T) {
-	t.Parallel()
-	dbPath := filepath.Join(t.TempDir(), "wc.db")
-	ids := seedHistoryScans(t, dbPath, 1)
-	s, _ := store.NewSQLite(dbPath)
-	defer s.Close()
-
-	rpt, err := buildReport(context.Background(), s, ids[0])
-	if err != nil {
-		t.Fatalf("buildReport: %v", err)
-	}
-	if len(rpt.Clusters) != 1 {
-		t.Errorf("clusters: %v", rpt.Clusters)
-	}
-	if _, err := buildReport(context.Background(), s, "nope"); err == nil {
-		t.Error("expected error for unknown scan id")
-	}
-}
-
 // execWhatChanged executes the whatchanged subcommand and captures its output,
 // which is written through cmd.OutOrStdout().
 func execWhatChanged(t *testing.T, dbPath string, args ...string) (string, error) {
@@ -160,7 +121,7 @@ func seedStepScans(t *testing.T, dbPath string) {
 				v = 80
 			}
 			clusters = append(clusters, c)
-			results[c] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"enforced_count": v}}}
+			results[c] = map[string]scanner.Result{"security": {Scanner: "security", Data: map[string]any{"unenforced_count": v}}}
 		}
 		rec := store.ScanRecord{ID: fmt.Sprintf("scan-%d", n), Timestamp: start.Add(time.Duration(n) * time.Hour), Clusters: clusters}
 		if _, err := s.SaveScanRecord(context.Background(), rec, results); err != nil {
@@ -190,7 +151,7 @@ func TestWhatChangedDrift(t *testing.T) {
 	if len(diff.Drift.Clusters) == 0 || diff.Drift.Clusters[0].Cluster != "c04" {
 		t.Fatalf("want c04 first in the ledger, got %+v", diff.Drift.Clusters)
 	}
-	want := []report.FlagChange{{Scanner: "security", Field: "enforced_count", Scan: "scan-4"}}
+	want := []report.FlagChange{{Scanner: "security", Field: "unenforced_count", Scan: "scan-4"}}
 	if d := cmp.Diff(want, diff.Drift.Clusters[0].Gained); d != "" {
 		t.Errorf("gained mismatch (-want +got):\n%s", d)
 	}
@@ -199,7 +160,7 @@ func TestWhatChangedDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("text: %v\n%s", err, text)
 	}
-	if !strings.Contains(text, "now flagged on security/enforced_count since scan-4") {
+	if !strings.Contains(text, "now flagged on security/unenforced_count since scan-4") {
 		t.Errorf("text lacks the flag line:\n%s", text)
 	}
 	if strings.Index(text, "Drifted clusters") > strings.Index(text, "New findings") {

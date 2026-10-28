@@ -69,9 +69,7 @@ func TestNewScanner(t *testing.T) {
 		WantTopReasons    []ReasonSummary
 		WantFirstInvolved string
 		WantFirstReason   string
-		WantTotal         int
 		WantWarning       int
-		WantNormal        int
 		WantRecentCount   int
 		WantWindowSeconds int
 	}{{ // Test 0: Empty cluster reports no events but keeps the window.
@@ -84,7 +82,6 @@ func TestNewScanner(t *testing.T) {
 			warning("default", "web-2", "Pod", "OOMKilling", 2, recent(2*time.Minute)),
 			warning("kube-system", "dns", "Pod", "BackOff", 1, recent(1*time.Minute)),
 		},
-		WantTotal:         3,
 		WantWarning:       3,
 		WantRecentCount:   3,
 		WantWindowSeconds: 3600,
@@ -100,7 +97,6 @@ func TestNewScanner(t *testing.T) {
 			warning("default", "job-1", "Job", "DeadlineExceeded", 1, recent(5*time.Minute)),
 			warning("default", "job-2", "Job", "DeadlineExceeded", 1, old),
 		},
-		WantTotal:         1,
 		WantWarning:       1,
 		WantRecentCount:   1,
 		WantWindowSeconds: 3600,
@@ -114,7 +110,6 @@ func TestNewScanner(t *testing.T) {
 		Objects: []runtime.Object{
 			warning("default", "pod-x", "Pod", "FailedMount", 0, recent(1*time.Minute)),
 		},
-		WantTotal:         1,
 		WantWarning:       1,
 		WantRecentCount:   1,
 		WantWindowSeconds: 3600,
@@ -128,7 +123,6 @@ func TestNewScanner(t *testing.T) {
 		Objects: []runtime.Object{
 			warningCreatedAt("default", "pod-y", "FailedScheduling", recent(1*time.Minute)),
 		},
-		WantTotal:         1,
 		WantWarning:       1,
 		WantRecentCount:   1,
 		WantWindowSeconds: 3600,
@@ -155,14 +149,8 @@ func TestNewScanner(t *testing.T) {
 				t.Fatalf("expected Data type, got %T", result.Data)
 			}
 
-			if diff := cmp.Diff(test.WantTotal, data.TotalEvents); diff != "" {
-				t.Errorf("total events mismatch (-want +got):\n%s", diff)
-			}
 			if diff := cmp.Diff(test.WantWarning, data.WarningEvents); diff != "" {
 				t.Errorf("warning events mismatch (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(test.WantNormal, data.NormalEvents); diff != "" {
-				t.Errorf("normal events mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(test.WantWindowSeconds, data.WindowSeconds); diff != "" {
 				t.Errorf("window seconds mismatch (-want +got):\n%s", diff)

@@ -51,16 +51,16 @@ function metaLine(f, persistence) {
   return `<div class="fi-meta">${parts.join('<span class="c-t3" aria-hidden="true">&middot;</span>')}</div>`;
 }
 
-// normAttrs returns the data attributes a what-if needs for a finding the norm raised: the
-// field and the scope of the norm. Absolute-rule findings carry none.
+// normAttrs returns the data attributes a what-if needs for a finding that carries a norm: the
+// field and the scope of the norm. Findings without a norm carry none.
 function normAttrs(f) {
-  if (!f.norm || !f.affected || !f.affected.length) return '';
-  return ` data-field="${esc(f.affected[0])}" data-scope="${esc(f.norm.scope || '')}"`;
+  if (!f.norm || !f.norm.field) return '';
+  return ` data-field="${esc(f.norm.field)}" data-scope="${esc(f.norm.scope || '')}"`;
 }
 
-// whatIfControl renders the What if button for a finding the norm raised.
+// whatIfControl renders the What if button for a finding that carries a norm.
 function whatIfControl(f) {
-  if (!f.norm || !f.affected || !f.affected.length || f.cluster === 'fleet' || f.norm.no_what_if) return '';
+  if (!f.norm || !f.norm.field || f.cluster === 'fleet' || f.norm.no_what_if) return '';
   return '<button class="btn btn-sm" data-action="whatif" data-tip="Project the fleet with this value fixed to the norm. Nothing is changed.">What if</button>';
 }
 

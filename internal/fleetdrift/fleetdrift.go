@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"sigs.k8s.io/yaml"
@@ -131,10 +132,6 @@ func ReportsFor(r *report.Report, scanID, namespace string) []Report {
 	if r == nil {
 		return nil
 	}
-	healthByName := map[string]report.ClusterHealth{}
-	for _, h := range r.ClusterHealths {
-		healthByName[h.Name] = h
-	}
 	findingsByCluster := report.GroupFindingsByCluster(r.Findings)
 
 	scanTime, err := time.Parse(time.RFC3339, r.Timestamp)
@@ -235,5 +232,12 @@ func toFindingSpecs(fs []report.Finding) []FindingSpec {
 		}
 		out = append(out, spec)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := util.SeverityRank(out[i].Severity), util.SeverityRank(out[j].Severity)
+		if ri != rj {
+			return ri > rj
+		}
+		return out[i].Title < out[j].Title
+	})
 	return out
 }

@@ -61,12 +61,12 @@ func TestGenerateFindingsIncludesCohortOutliers(t *testing.T) {
 	}
 
 	var found bool
-	for _, f := range GenerateFindings(r) {
+	for _, f := range generateFindings(r) {
 		if f.Cluster == "b" && f.Scanner == "metrics" && strings.Contains(f.Description, "cohort") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("GenerateFindings did not include the cohort outlier finding")
+		t.Errorf("generateFindings did not include the cohort outlier finding")
 	}
 }

@@ -81,7 +81,7 @@ func runAPIKeyCreate(cmd *cobra.Command, _ []string) error {
 	}
 	scope = cleanScope(scope)
 
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func runAPIKeyCreate(cmd *cobra.Command, _ []string) error {
 // runAPIKeyList prints every API key as a JSON array.
 func runAPIKeyList(cmd *cobra.Command, _ []string) error {
 	pretty, _ := cmd.Flags().GetBool("pretty")
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func runAPIKeyList(cmd *cobra.Command, _ []string) error {
 
 // runAPIKeyRevoke marks the key with the given ID as administratively disabled.
 func runAPIKeyRevoke(cmd *cobra.Command, args []string) error {
-	s, err := openStore(cmd)
+	s, err := openAnyStore(cmd)
 	if err != nil {
 		return err
 	}

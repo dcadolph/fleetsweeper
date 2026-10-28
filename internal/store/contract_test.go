@@ -424,8 +424,8 @@ func contractLocations(t *testing.T, st Store) {
 // the empty-fingerprint refusal.
 func contractAcks(t *testing.T, st Store) {
 	ctx := context.Background()
-	if err := st.SaveAck(ctx, AckRecord{Cluster: "east"}); err == nil {
-		t.Error("save ack without fingerprint: want an error")
+	if err := st.SaveAck(ctx, AckRecord{Cluster: "east"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("save ack without fingerprint: want ErrInvalid, got %v", err)
 	}
 
 	future := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
@@ -504,13 +504,13 @@ func contractAPIKeys(t *testing.T, st Store) {
 	}
 	dup := older
 	dup.ID = "key-dup"
-	if err := st.SaveAPIKey(ctx, dup); err == nil {
-		t.Error("save duplicate token hash: want an error")
+	if err := st.SaveAPIKey(ctx, dup); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("save duplicate token hash: want ErrDuplicate, got %v", err)
 	}
 	bad := newer
 	bad.ID, bad.TokenHash, bad.Role = "key-bad", "hash-bad", "superuser"
-	if err := st.SaveAPIKey(ctx, bad); err == nil {
-		t.Error("save unknown role: want an error")
+	if err := st.SaveAPIKey(ctx, bad); !errors.Is(err, ErrInvalid) {
+		t.Errorf("save unknown role: want ErrInvalid, got %v", err)
 	}
 
 	byHash, err := st.GetAPIKeyByHash(ctx, "hash-old")

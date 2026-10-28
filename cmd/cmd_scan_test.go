@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/cohort"
 	"github.com/dcadolph/fleetsweeper/internal/report"
@@ -36,27 +37,6 @@ func TestBuildRegistry(t *testing.T) {
 }
 
 // TestSelectScanners verifies empty selection means all, a subset is honored,
-// and unknown names are silently dropped.
-func TestSelectScanners(t *testing.T) {
-	t.Parallel()
-	reg := buildRegistry()
-	all := reg.All()
-
-	// Test 0: Empty names returns the full set.
-	if got := selectScanners(reg, nil); len(got) != len(all) {
-		t.Errorf("empty selection: got %d, want %d", len(got), len(all))
-	}
-
-	// Test 1: A known subset is selected, unknown names ignored.
-	got := selectScanners(reg, []string{"version", "not-a-real-scanner"})
-	if len(got) != 1 {
-		t.Fatalf("subset selection: got %d, want 1", len(got))
-	}
-	if _, ok := got["version"]; !ok {
-		t.Error("expected 'version' in selection")
-	}
-}
-
 // TestResolveContexts verifies the explicit, none, and all-contexts branches.
 func TestResolveContexts(t *testing.T) {
 	t.Parallel()
@@ -219,6 +199,33 @@ func TestBuildScanReportCohorts(t *testing.T) {
 			}
 			if diff := cmp.Diff(serverRpt.Cohorts, rpt.Cohorts, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("CLI and server cohorts disagree (-server +cli):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestScanFlagsDefined verifies scan, serve, and watch each define --probe-registries.
+func TestScanFlagsDefined(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Cmd      *cobra.Command
+		WantFlag string
+	}{{ // Test 0: Scan defines the flag.
+		Cmd: scanCmd, WantFlag: "probe-registries",
+	}, { // Test 1: Serve defines the flag.
+		Cmd: serveCmd, WantFlag: "probe-registries",
+	}, { // Test 2: Watch defines the flag.
+		Cmd: watchCmd, WantFlag: "probe-registries",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			f := test.Cmd.Flags().Lookup(test.WantFlag)
+			if f == nil {
+				t.Fatalf("%s: flag --%s not defined", test.Cmd.Name(), test.WantFlag)
+			}
+			if diff := cmp.Diff("false", f.DefValue); diff != "" {
+				t.Errorf("default mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

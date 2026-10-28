@@ -7,7 +7,7 @@ import { openModal } from './components/modal.js';
 const TOPICS = {
   mad: {
     title: 'MAD-based outlier detection',
-    body: 'Median absolute deviation. For each numeric scanner field, fleetsweeper computes the median across the fleet, then the median of absolute deviations from that median. A cluster is an outlier when its modified z-score (0.6745 × |x − median| / MAD) exceeds the threshold (default 3.5). MAD is robust against outliers in a way that mean+std-dev is not. A single broken cluster cannot inflate the threshold past usefulness.\n\nGuardrails: the fleet must have at least 8 reporting values, and a fleet-wide MAD of zero is suppressed (otherwise every non-mode value looks anomalous on near-uniform integer data).',
+    body: 'Median absolute deviation. For each numeric scanner field, fleetsweeper computes the median across the fleet, then the median of absolute deviations from that median. A cluster is an outlier when its modified z-score (0.6745 × |x − median| / MAD) exceeds the threshold (default 3.5). MAD is robust against outliers in a way that mean+std-dev is not. A single broken cluster cannot inflate the threshold past usefulness.\n\nWith 8 or more reporting values the MAD rule applies. With 3 to 7, a cluster is flagged only when the others agree and it sits outside their band. When the MAD is zero the field is flat, and it is judged like a string: if at least 60% of clusters hold the median exactly, every other value is off the norm, reported as exact with no z-score.',
   },
   'mode-mass': {
     title: 'String outlier voting',

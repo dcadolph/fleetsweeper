@@ -11,4 +11,8 @@ var (
 	ErrQuery = errors.New("query")
 	// ErrMigrate indicates a failure applying schema migrations.
 	ErrMigrate = errors.New("migrate")
+	// ErrDuplicate indicates a write collided with an existing unique record.
+	ErrDuplicate = errors.New("duplicate")
+	// ErrInvalid indicates a write was rejected because a record failed validation.
+	ErrInvalid = errors.New("invalid")
 )

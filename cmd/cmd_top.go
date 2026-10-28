@@ -14,6 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
 // topCmd is an htop-style live view of the worst-N clusters in a fleet.
@@ -58,13 +60,19 @@ func runTop(cmd *cobra.Command, _ []string) error {
 
 // topState holds the runtime for one `top` invocation.
 type topState struct {
-	server   string
+	// server is the base URL of the Fleetsweeper server, without a trailing slash.
+	server string
+	// interval is the time between automatic refreshes.
 	interval time.Duration
-	limit    int
-	color    bool
-	client   *http.Client
-	out      io.Writer
-	// paused, when 1, stops the auto-refresh timer (manual r still works).
+	// limit caps how many cluster rows are rendered.
+	limit int
+	// color enables ANSI escape sequences in the output.
+	color bool
+	// client issues the HTTP requests to the server.
+	client *http.Client
+	// out receives all rendered output.
+	out io.Writer
+	// paused, when set, stops the auto-refresh timer (manual r still works).
 	paused atomic.Bool
 	// sortBy cycles between three orderings via the 's' key.
 	sortBy topSortMode
@@ -188,14 +196,25 @@ func (s *topState) draw(ctx context.Context) error {
 
 // topRow is one cluster's worth of data for the table.
 type topRow struct {
-	Cluster  string
-	Status   string
-	Score    int
-	CPU      float64
-	Memory   float64
+	// Cluster is the cluster name.
+	Cluster string
+	// Status is the cluster health status.
+	Status string
+	// Score is the cluster's 0-100 health score.
+	Score int
+	// CPU is the average CPU utilization percentage.
+	CPU float64
+	// Memory is the average memory utilization percentage.
+	Memory float64
+	// Critical is the count of critical findings for the cluster.
 	Critical int
-	Warning  int
-	Delta    int
+	// Warning is the count of warning findings for the cluster.
+	Warning int
+	// Delta is Score minus the cluster's score in the previous scan. Meaningful only when
+	// HasPrev is true.
+	Delta int
+	// HasPrev reports whether the previous scan contained this cluster.
+	HasPrev bool
 }
 
 // buildRows converts the latest report into table rows, computing per-cluster
@@ -226,7 +245,8 @@ func (s *topState) buildRows(rpt, prev *topReport) []topRow {
 				warning++
 			}
 		}
-		out = append(out, topRow{
+		prevScore, hasPrev := prevByName[h.Name]
+		row := topRow{
 			Cluster:  h.Name,
 			Status:   h.Status,
 			Score:    score,
@@ -234,8 +254,12 @@ func (s *topState) buildRows(rpt, prev *topReport) []topRow {
 			Memory:   h.AvgMemory,
 			Critical: critical,
 			Warning:  warning,
-			Delta:    score - prevByName[h.Name],
-		})
+			HasPrev:  hasPrev,
+		}
+		if hasPrev {
+			row.Delta = score - prevScore
+		}
+		out = append(out, row)
 	}
 	return out
 }
@@ -265,9 +289,7 @@ type topReport struct {
 	FleetScore     topFleetScore      `json:"fleet_score"`
 	ClusterHealths []topClusterHealth `json:"cluster_healths"`
 	Findings       []topFinding       `json:"findings"`
-	// ClusterScores is populated by buildRows by calling /api/forecast/clusters
-	// (which gives us per-cluster scores). When that endpoint is unavailable we
-	// fall back to a synthetic score derived from health.
+	// ClusterScores holds per-cluster scores computed from the scan's own report.
 	ClusterScores []topClusterScore `json:"-"`
 }
 
@@ -291,14 +313,14 @@ type topFinding struct {
 	Cluster  string `json:"cluster"`
 }
 
-// topClusterScore mirrors the per-cluster forecast response.
+// topClusterScore is one cluster's computed score.
 type topClusterScore struct {
 	Cluster string `json:"cluster"`
 	Score   int    `json:"score"`
 }
 
 // fetchLatestReports returns the latest report and (optionally) the previous
-// one for delta computation.
+// one for delta computation. Per-cluster scores are computed from each report.
 func (s *topState) fetchLatestReports(ctx context.Context) (*topReport, *topReport, error) {
 	var scans []struct {
 		ID string `json:"id"`
@@ -309,53 +331,44 @@ func (s *topState) fetchLatestReports(ctx context.Context) (*topReport, *topRepo
 	if len(scans) == 0 {
 		return nil, nil, fmt.Errorf("no scans available")
 	}
-	cur := &topReport{}
-	if err := s.getJSON(ctx, "/api/scans/"+scans[0].ID+"/report", cur); err != nil {
+	cur, err := s.fetchReport(ctx, scans[0].ID)
+	if err != nil {
 		return nil, nil, err
 	}
-	s.hydrateScores(ctx, cur)
 
 	var prev *topReport
 	if len(scans) > 1 {
-		p := &topReport{}
-		if err := s.getJSON(ctx, "/api/scans/"+scans[1].ID+"/report", p); err == nil {
-			s.hydrateScores(ctx, p)
+		if p, err := s.fetchReport(ctx, scans[1].ID); err == nil {
 			prev = p
 		}
 	}
 	return cur, prev, nil
 }
 
-// hydrateScores fills in per-cluster scores. Prefers the forecast endpoint
-// (which has per-cluster scores already computed); falls back to synthesizing
-// from cluster status when that endpoint is missing.
-func (s *topState) hydrateScores(ctx context.Context, r *topReport) {
-	var resp struct {
-		Forecasts []struct {
-			Cluster      string `json:"cluster"`
-			CurrentScore int    `json:"current_score"`
-		} `json:"forecasts"`
+// fetchReport decodes one scan's report and computes its per-cluster scores.
+func (s *topState) fetchReport(ctx context.Context, id string) (*topReport, error) {
+	var rpt report.Report
+	if err := s.getJSON(ctx, "/api/scans/"+id+"/report", &rpt); err != nil {
+		return nil, err
 	}
-	if err := s.getJSON(ctx, "/api/forecast/clusters", &resp); err == nil && len(resp.Forecasts) > 0 {
-		for _, f := range resp.Forecasts {
-			r.ClusterScores = append(r.ClusterScores,
-				topClusterScore{Cluster: f.Cluster, Score: f.CurrentScore})
-		}
-		return
+	out := &topReport{
+		Timestamp:  rpt.Timestamp,
+		Clusters:   rpt.Clusters,
+		FleetScore: topFleetScore{Score: rpt.FleetScore.Score, Grade: rpt.FleetScore.Grade},
 	}
-	for _, h := range r.ClusterHealths {
-		score := 100
-		switch h.Status {
-		case "critical":
-			score = 40
-		case "degraded":
-			score = 75
-		case "busy":
-			score = 90
-		}
-		r.ClusterScores = append(r.ClusterScores,
-			topClusterScore{Cluster: h.Name, Score: score})
+	for _, h := range rpt.ClusterHealths {
+		out.ClusterHealths = append(out.ClusterHealths, topClusterHealth{
+			Name: h.Name, Status: h.Status, AvgCPU: h.AvgCPU, AvgMemory: h.AvgMemory,
+		})
 	}
+	for _, f := range rpt.Findings {
+		out.Findings = append(out.Findings, topFinding{Severity: f.Severity, Cluster: f.Cluster})
+	}
+	for _, c := range report.ComputeClusterScores(&rpt) {
+		out.ClusterScores = append(out.ClusterScores,
+			topClusterScore{Cluster: c.Cluster, Score: c.Score})
+	}
+	return out, nil
 }
 
 // getJSON GETs the URL and decodes into out.
@@ -420,7 +433,7 @@ func (s *topState) printTable(rows []topRow) {
 			s.color3(statusColor), r.Status, s.resetCode(),
 			s.color3(scoreColor), r.Score, s.resetCode(),
 			r.CPU, r.Memory, r.Critical, r.Warning,
-			s.color3(deltaColor(r.Delta)), formatDelta(r.Delta), s.resetCode())
+			s.color3(deltaColor(r.Delta)), rowDelta(r), s.resetCode())
 	}
 }
 
@@ -524,7 +537,15 @@ func deltaColor(d int) string {
 	}
 }
 
-// formatDelta renders an integer delta with a leading sign and triangle.
+// rowDelta renders a row's delta, or "-" when no previous score exists.
+func rowDelta(r topRow) string {
+	if !r.HasPrev {
+		return "-"
+	}
+	return formatDelta(r.Delta)
+}
+
+// formatDelta renders an integer delta with a leading plus sign when positive.
 func formatDelta(d int) string {
 	switch {
 	case d > 0:
@@ -536,10 +557,11 @@ func formatDelta(d int) string {
 	}
 }
 
-// truncR right-pads or truncates s to width characters.
+// truncR truncates s to at most width runes, ending with an ellipsis when it cuts.
 func truncR(s string, width int) string {
-	if len(s) > width {
-		return s[:width-1] + "…"
+	r := []rune(s)
+	if len(r) > width {
+		return string(r[:width-1]) + "…"
 	}
 	return s
 }

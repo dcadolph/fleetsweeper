@@ -54,8 +54,7 @@ func runWhy(cmd *cobra.Command, args []string) error {
 
 	topic := explain.Lookup(key)
 	if topic == nil {
-		fmt.Fprintf(out, "No topic matched %q. Run `fleetsweeper why list` to see options.\n", key)
-		return fmt.Errorf("topic not found: %s", key)
+		return fmt.Errorf("no topic matched %q: run `fleetsweeper why list` to see options", key)
 	}
 	fmt.Fprint(out, explain.Render(*topic, color))
 	return nil
