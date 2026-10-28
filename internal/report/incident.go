@@ -3,6 +3,8 @@ package report
 import (
 	"fmt"
 	"sort"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // Incident groups findings that share a likely root cause on one cluster, so an
@@ -91,8 +93,9 @@ func FuseIncidents(findings []Finding) []Incident {
 	}
 
 	sort.Slice(incidents, func(i, j int) bool {
-		if si, sj := sevRank(incidents[i].Severity), sevRank(incidents[j].Severity); si != sj {
-			return si < sj
+		si, sj := util.SeverityRank(incidents[i].Severity), util.SeverityRank(incidents[j].Severity)
+		if si != sj {
+			return si > sj
 		}
 		if incidents[i].Cluster != incidents[j].Cluster {
 			return incidents[i].Cluster < incidents[j].Cluster
@@ -102,23 +105,11 @@ func FuseIncidents(findings []Finding) []Incident {
 	return incidents
 }
 
-// sevRank orders severities so critical sorts ahead of warning ahead of info.
-func sevRank(s string) int {
-	switch s {
-	case SeverityCritical:
-		return 0
-	case SeverityWarning:
-		return 1
-	default:
-		return 2
-	}
-}
-
 // maxSeverityOf returns the highest severity among the given findings.
 func maxSeverityOf(fs []Finding) string {
 	best := SeverityInfo
 	for _, f := range fs {
-		if sevRank(f.Severity) < sevRank(best) {
+		if util.SeverityRank(f.Severity) > util.SeverityRank(best) {
 			best = f.Severity
 		}
 	}

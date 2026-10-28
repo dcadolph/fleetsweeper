@@ -1,6 +1,10 @@
 package report
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
+)
 
 // Persistence classes describe how consistently a finding recurs across a
 // window of scans. The data carries no operator resolution label, so recurrence
@@ -116,9 +120,9 @@ func ComputePersistence(series [][]Finding, acked map[string]bool) []FindingPers
 		if out[i].Fraction != out[j].Fraction {
 			return out[i].Fraction > out[j].Fraction
 		}
-		si, sj := persistSeverityRank(out[i].Severity), persistSeverityRank(out[j].Severity)
+		si, sj := util.SeverityRank(out[i].Severity), util.SeverityRank(out[j].Severity)
 		if si != sj {
-			return si < sj
+			return si > sj
 		}
 		if out[i].Cluster != out[j].Cluster {
 			return out[i].Cluster < out[j].Cluster
@@ -157,17 +161,5 @@ func persistenceClass(fraction float64) string {
 		return PersistenceTransient
 	default:
 		return PersistenceIntermittent
-	}
-}
-
-// persistSeverityRank orders severities most-severe first for stable sorting.
-func persistSeverityRank(sev string) int {
-	switch sev {
-	case SeverityCritical:
-		return 0
-	case SeverityWarning:
-		return 1
-	default:
-		return 2
 	}
 }

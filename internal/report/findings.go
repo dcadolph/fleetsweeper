@@ -180,12 +180,16 @@ func GenerateFindings(r *Report) []Finding {
 	findings = append(findings, compositeBadDeployFindings(r)...)
 	findings = dropRedundant(findings, scopeMembers(r))
 
-	severityOrder := map[string]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
-	sort.SliceStable(findings, func(i, j int) bool {
-		return severityOrder[findings[i].Severity] < severityOrder[findings[j].Severity]
-	})
+	sortFindings(findings)
 
 	return StampFingerprints(findings)
+}
+
+// sortFindings orders findings most severe first, keeping the relative order of equals.
+func sortFindings(fs []Finding) {
+	sort.SliceStable(fs, func(i, j int) bool {
+		return util.SeverityRank(fs[i].Severity) > util.SeverityRank(fs[j].Severity)
+	})
 }
 
 // clusterRule keys a finding by its cluster and rule.

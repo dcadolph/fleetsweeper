@@ -9,6 +9,7 @@ import (
 
 	"github.com/dcadolph/fleetsweeper/internal/cohort"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // misCohortShape names a synthetic scanner profile used by mis-cohort fixtures.
@@ -180,5 +181,42 @@ func TestMisCohortFindings(t *testing.T) {
 			`the rest of the "prod" cohort.`, cohort.DefaultTagKey)
 	if got[0].Description != want {
 		t.Errorf("description = %q, want %q", got[0].Description, want)
+	}
+}
+
+// TestBuildFindingsSorted verifies Build orders findings by severity across all sources.
+func TestBuildFindingsSorted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		WantInfo     bool
+		WantMisCount int
+	}{{ // Test 0: Mis-cohort warning sorts ahead of info findings from other sources.
+		WantInfo: true, WantMisCount: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			names, shapes, tags := oopsFleet()
+			rpt, _ := misCohortFleet(names, shapes, tags)
+			var gotInfo bool
+			var gotMis int
+			for i, f := range rpt.Findings {
+				gotInfo = gotInfo || f.Severity == SeverityInfo
+				if f.Rule == "cohort/wrong-cohort" {
+					gotMis++
+				}
+				if i > 0 && util.SeverityRank(rpt.Findings[i-1].Severity) <
+					util.SeverityRank(f.Severity) {
+					t.Errorf("finding %d (%s) is less severe than the one before it", i, f.Rule)
+				}
+			}
+			if diff := cmp.Diff(test.WantInfo, gotInfo); diff != "" {
+				t.Errorf("info presence mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantMisCount, gotMis, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("mis-cohort count mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
