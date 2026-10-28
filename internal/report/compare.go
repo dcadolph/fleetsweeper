@@ -83,21 +83,12 @@ func findDivergences(clusters []string, encoded map[string][]byte) []Divergence 
 		flat[cluster] = m
 	}
 
-	allFields := make(map[string]struct{})
-	for _, m := range flat {
-		for k := range m {
-			allFields[k] = struct{}{}
+	fields := make([]string, 0)
+	for _, f := range collectFields(flat) {
+		if _, skip := skipFields[f]; !skip {
+			fields = append(fields, f)
 		}
 	}
-
-	fields := make([]string, 0, len(allFields))
-	for f := range allFields {
-		if _, skip := skipFields[f]; skip {
-			continue
-		}
-		fields = append(fields, f)
-	}
-	sort.Strings(fields)
 
 	var divergences []Divergence
 	for _, field := range fields {
@@ -108,7 +99,7 @@ func findDivergences(clusters []string, encoded map[string][]byte) []Divergence 
 			continue
 		}
 
-		if isNumericField(clusters, flat, field) {
+		if isNumericInFlat(clusters, flat, field) {
 			if d := compareNumericField(clusters, flat, field); d != nil {
 				divergences = append(divergences, *d)
 			}
@@ -127,6 +118,7 @@ func findDivergences(clusters []string, encoded map[string][]byte) []Divergence 
 func compareStringField(clusters []string, flat map[string]map[string]any, field string) *Divergence {
 	values := make(map[string]string, len(clusters))
 	var ref string
+	first := true
 	uniform := true
 	for _, cluster := range clusters {
 		m, ok := flat[cluster]
@@ -137,8 +129,9 @@ func compareStringField(clusters []string, flat map[string]map[string]any, field
 		}
 		v := fmt.Sprintf("%v", m[field])
 		values[cluster] = v
-		if ref == "" {
+		if first {
 			ref = v
+			first = false
 		} else if v != ref {
 			uniform = false
 		}
@@ -149,31 +142,14 @@ func compareStringField(clusters []string, flat map[string]map[string]any, field
 	return &Divergence{Field: field, Values: values}
 }
 
-// isNumericField checks if a field contains numeric values across clusters.
-func isNumericField(clusters []string, flat map[string]map[string]any, field string) bool {
-	for _, cluster := range clusters {
-		m, ok := flat[cluster]
-		if !ok {
-			continue
-		}
-		switch m[field].(type) {
-		case float64, int, int64:
-			return true
-		}
-		return false
-	}
-	return false
-}
-
 // compareNumericField compares numeric values and annotates the divergence with
 // min/max/range information.
 func compareNumericField(clusters []string, flat map[string]map[string]any, field string) *Divergence {
 	values := make(map[string]string, len(clusters))
 	nums := make(map[string]float64, len(clusters))
-	var min, max float64
+	var ref float64
 	first := true
 	uniform := true
-	var ref float64
 
 	for _, cluster := range clusters {
 		m, ok := flat[cluster]
@@ -187,19 +163,11 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 		values[cluster] = formatNum(n)
 		if first {
 			ref = n
-			min = n
-			max = n
 			first = false
-		} else {
-			if n != ref {
-				uniform = false
-			}
-			if n < min {
-				min = n
-			}
-			if n > max {
-				max = n
-			}
+			continue
+		}
+		if n != ref {
+			uniform = false
 		}
 	}
 
@@ -207,9 +175,33 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 		return nil
 	}
 
-	for cluster := range values {
+	annotateNumeric(clusters, nums, values)
+	return &Divergence{Field: field, Values: values}
+}
+
+// annotateNumeric tags the highest and lowest values of the clusters present in nums.
+func annotateNumeric(clusters []string, nums map[string]float64, values map[string]string) {
+	first := true
+	var min, max float64
+	for _, cluster := range clusters {
 		n, ok := nums[cluster]
-		if !ok || max == min {
+		if !ok {
+			continue
+		}
+		if first {
+			min, max = n, n
+			first = false
+			continue
+		}
+		min = math.Min(min, n)
+		max = math.Max(max, n)
+	}
+	if max == min {
+		return
+	}
+	for _, cluster := range clusters {
+		n, ok := nums[cluster]
+		if !ok {
 			continue
 		}
 		switch n {
@@ -219,8 +211,6 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 			values[cluster] += " [lowest]"
 		}
 	}
-
-	return &Divergence{Field: field, Values: values}
 }
 
 // compareSetField compares list/array fields as sets and reports items that
