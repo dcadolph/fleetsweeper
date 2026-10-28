@@ -2,7 +2,7 @@
 // blocks. Clicking a cell opens that field's strip with the cluster ringed.
 
 import { api } from '../api.js';
-import { esc, byId } from '../dom.js';
+import { esc, byId, emptyState } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { renderMatrix } from '../components/matrix.js';
 import { renderStrip } from '../components/strip.js';
@@ -14,6 +14,8 @@ let dists = [];
 // renderHeatmap builds the matrix for the latest scan.
 export async function renderHeatmap() {
   renderBar('');
+  const scans = await api('/scans?limit=1');
+  if (!scans || !scans.length) return emptyState('No scans yet, so there is no deviation to plot.');
   const [resp, mapResp] = await Promise.all([api('/distributions'), api('/cohorts/map')]);
   dists = resp.distributions || [];
   const points = (mapResp.map && mapResp.map.points) || [];

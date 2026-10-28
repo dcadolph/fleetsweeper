@@ -2,7 +2,8 @@
 // of drift when a billing CSV is loaded.
 
 import { api } from '../api.js';
-import { esc, pct, fmtUSD, clusterHref, statusTone, threshTone, byId } from '../dom.js';
+import { esc, clusterHref, statusTone, threshTone, byId, emptyState } from '../dom.js';
+import { pct, usd } from '../format.js';
 import { TIPS } from '../glossary.js';
 import { renderBar } from '../shell.js';
 
@@ -10,6 +11,8 @@ import { renderBar } from '../shell.js';
 // the cost panel below them.
 export async function renderCapacity() {
   renderBar();
+  const scans = await api('/scans?limit=1');
+  if (!scans || !scans.length) return emptyState('No scans yet, so there is no capacity or cost to assess.');
   const data = await api('/capacity');
   let h = '<h2>Capacity and cost</h2><p class="sub">Signal-correlated assessment: utilization, pressure, events, and headroom combined</p>';
   h += capacityCards(data.capacity);
@@ -18,7 +21,7 @@ export async function renderCapacity() {
 
 // capacityCards renders one card per cluster.
 function capacityCards(capacity) {
-  if (!capacity || !capacity.length) return '<div class="empty">No capacity data available.</div>';
+  if (!capacity || !capacity.length) return emptyState('The latest scan read no capacity data from any cluster.');
   let h = '<div class="g g3">';
   capacity.forEach((ca) => {
     const tone = statusTone(ca.status);
@@ -64,13 +67,13 @@ function loadCostPanel() {
     h += '<p class="fs-12 c-t2 mb-12">Drift cost estimates the monthly spend attributable to divergence. Per cluster it is ' +
       '<span class="mono c-t1">cost &times; (100 &minus; health score) / 100</span>. A cluster at score 100 attributes nothing; one at score 60 attributes 40% of its bill. The fleet figure sums every priced cluster.</p>';
     h += '<div class="cd mb-12"><div class="cost-stats">' +
-      costStat('Drift cost / mo', '$' + fmtUSD(d.total_drift_usd), tone, 'fs-28') +
-      costStat('Fleet spend / mo', '$' + fmtUSD(d.total_fleet_usd), 't1', 'fs-18') +
+      costStat('Drift cost / mo', '$' + usd(d.total_drift_usd), tone, 'fs-28') +
+      costStat('Fleet spend / mo', '$' + usd(d.total_fleet_usd), 't1', 'fs-18') +
       costStat('Share drifting', share + '%', tone, 'fs-18') +
       costStat('Clusters priced', priced + (missing ? ' of ' + (priced + missing) : ''), 't2', 'fs-18') +
       '</div>' +
       `<div class="share-bar" data-tip="Drift is ${share}% of fleet spend"><div class="fill-${tone}" style="width:${share}%"></div></div>` +
-      `<div class="flex between fs-12 c-t3 mt-4"><span>drift $${fmtUSD(d.total_drift_usd)}</span><span>healthy $${fmtUSD(Math.max(0, d.total_fleet_usd - d.total_drift_usd))}</span></div></div>`;
+      `<div class="flex between fs-12 c-t3 mt-4"><span>drift $${usd(d.total_drift_usd)}</span><span>healthy $${usd(Math.max(0, d.total_fleet_usd - d.total_drift_usd))}</span></div></div>`;
     if (d.by_cluster && d.by_cluster.length) {
       h += '<div class="tw"><table><thead><tr><th scope="col">Cluster</th>' +
         '<th scope="col" data-tip="Monthly cost from the billing CSV">Cost / mo</th>' +
@@ -82,8 +85,8 @@ function loadCostPanel() {
         const ct = c.score < 60 ? 'crit' : c.score < 80 ? 'warn' : 'ok';
         const of = d.total_drift_usd > 0 ? Math.round(100 * c.drift_usd / d.total_drift_usd) : 0;
         h += `<tr class="click" data-href="${esc(clusterHref(c.cluster))}"><td class="fw-500"><a href="${esc(clusterHref(c.cluster))}">${esc(c.cluster)}</a></td>` +
-          `<td class="mono">$${fmtUSD(c.cost_usd)}</td><td class="mono c-${ct}">${c.score}</td><td class="mono c-${ct}">${100 - c.score}%</td>` +
-          `<td class="mono ${c.drift_usd > 0 ? 'c-crit' : 'c-t2'}">$${fmtUSD(c.drift_usd)}</td><td class="mono">${of}%</td></tr>`;
+          `<td class="mono">$${usd(c.cost_usd)}</td><td class="mono c-${ct}">${c.score}</td><td class="mono c-${ct}">${100 - c.score}%</td>` +
+          `<td class="mono ${c.drift_usd > 0 ? 'c-crit' : 'c-t2'}">$${usd(c.drift_usd)}</td><td class="mono">${of}%</td></tr>`;
       });
       h += '</tbody></table></div>';
       if (d.by_cluster.length > 12) h += `<div class="note mt-4">Showing the top 12 of ${d.by_cluster.length} clusters by drift cost.</div>`;

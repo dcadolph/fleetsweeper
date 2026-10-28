@@ -3,7 +3,8 @@
 // then the trend findings and the direction table.
 
 import { api } from '../api.js';
-import { esc, token } from '../dom.js';
+import { esc, token, emptyState } from '../dom.js';
+import { day } from '../format.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
 import { makeChart } from '../charts.js';
@@ -15,6 +16,8 @@ const SCANS = 24;
 // renderTrends builds the small multiples and the trend tables.
 export async function renderTrends() {
   renderBar();
+  const scans = await api('/scans?limit=2');
+  if (!scans || scans.length < 2) return emptyState('Trends need at least two scans, and there are ' + (scans ? scans.length : 0) + ' so far.');
   const [dists, data] = await Promise.all([api('/distributions'), api('/trends?scans=20')]);
   const fields = (dists.distributions || []).filter((d) => d.kind === 'numeric' && d.mad > 0).slice(0, MULTIPLES);
   const histories = await Promise.all(fields.map((d) =>
@@ -46,7 +49,7 @@ export async function renderTrends() {
 function multiple(id, hist) {
   const pts = hist.points.filter((p) => p.distribution);
   if (!pts.length) return;
-  const labels = pts.map((p) => new Date(p.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
+  const labels = pts.map((p) => day(p.timestamp));
   const nonNegative = pts.every((p) => p.distribution.values.every((v) => typeof v.number !== 'number' || v.number >= 0));
   const floor = (n) => (nonNegative ? Math.max(0, n) : n);
   const last = pts[pts.length - 1].distribution;

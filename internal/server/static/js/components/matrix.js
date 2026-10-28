@@ -4,6 +4,7 @@
 
 import { esc } from '../dom.js';
 import { zLevel, fieldLabel, cohortTones } from '../viz.js';
+import { fixed } from '../format.js';
 
 // renderMatrix returns the matrix markup. dists are fleet distributions;
 // order lists clusters in leaf order; cohortOf maps a cluster to its cohort.
@@ -33,7 +34,7 @@ export function renderMatrix(dists, order, cohortOf) {
         return;
       }
       const level = v.explained ? 0 : d.kind === 'numeric' ? zLevel(v.z) : v.outlier ? 5 : 0;
-      const tipText = `${c} · ${fieldLabel(d)}: ${v.number != null ? v.number : v.text || (v.missing ? 'missing ' + v.missing.length : '')}${v.z ? ' (z ' + v.z.toFixed(1) + ')' : ''}${v.explained ? ', inside cohort ' + v.explained : ''}`;
+      const tipText = `${c} · ${fieldLabel(d)}: ${v.number != null ? v.number : v.text || (v.missing ? 'missing ' + v.missing.length : '')}${v.z ? ' (z ' + fixed(v.z, 1) + ')' : ''}${v.explained ? ', inside cohort ' + v.explained : ''}`;
       h += `<button class="mx-cell z${level}${v.outlier && !v.explained ? ' mx-out' : ''}${start ? ' mx-start' : ''}" role="gridcell" data-action="matrix-cell" ` +
         `data-col="${i}" data-cluster="${esc(c)}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></button>`;
     });

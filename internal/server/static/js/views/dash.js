@@ -3,7 +3,8 @@
 // the worst clusters. Each number shows once.
 
 import { api } from '../api.js';
-import { esc, humanAgo, scanHref, clusterHref, byId } from '../dom.js';
+import { esc, scanHref, clusterHref, byId, emptyState } from '../dom.js';
+import { ago, isoSeconds } from '../format.js';
 import { renderBar, noteCriticalCount } from '../shell.js';
 import { renderScoreCard } from '../components/score-card.js';
 import { renderWaterfall, mountWaterfall } from '../components/waterfall.js';
@@ -36,8 +37,8 @@ export function latestReport() {
 export async function renderDash() {
   renderBar('<button class="btn btn-ok" data-action="trigger-scan">Trigger scan</button>');
   const scans = await api('/scans?limit=2');
-  if (!scans || !scans.length) return '<div class="empty">No scans yet. Run a scan first.</div>';
-  const since = new Date(Date.now() - DRIFT_DAYS * 864e5).toISOString().replace(/\.\d+Z$/, 'Z');
+  if (!scans || !scans.length) return emptyState('No scans yet, so the dashboard fills in after the first one, which Trigger scan starts.');
+  const since = isoSeconds(new Date(Date.now() - DRIFT_DAYS * 864e5));
   const [rpt, prev, forecast, ledger, forecasts, cohorts] = await Promise.all([
     api('/scans/' + encodeURIComponent(scans[0].id) + '/report'),
     scans.length >= 2
@@ -53,7 +54,7 @@ export async function renderDash() {
   const scopes = ['fleet'].concat(((cohorts && cohorts.cohorts) || []).map((c) => c.name));
   if (!scopes.includes(stripScope)) stripScope = 'fleet';
 
-  let h = `<h2>Fleet overview</h2><p class="sub" data-tip="${esc(rpt.timestamp)}">Latest scan ${esc(humanAgo(rpt.timestamp))}</p>`;
+  let h = `<h2>Fleet overview</h2><p class="sub" data-tip="${esc(rpt.timestamp)}">Latest scan ${esc(ago(rpt.timestamp))}</p>`;
   if (rpt.degraded && rpt.degraded.length) {
     const degClusters = new Set(rpt.degraded.map((d) => d.cluster));
     h += `<div class="banner warn">&#9888; ${rpt.degraded.length} scanner run${rpt.degraded.length === 1 ? '' : 's'} could not read ${degClusters.size} cluster${degClusters.size === 1 ? '' : 's'}. Coverage is partial.</div>`;

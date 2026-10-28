@@ -4,7 +4,8 @@
 // range, kept in the URL as #/drift?scans=10 or #/drift?since=...&until=...
 
 import { api } from '../api.js';
-import { esc, clusterHref, scanHref } from '../dom.js';
+import { esc, clusterHref, scanHref, emptyState } from '../dom.js';
+import { dateTime } from '../format.js';
 import { renderBar } from '../shell.js';
 import { renderDriftLedger, driftMarkdown } from '../components/drift-ledger.js';
 import { P, nav } from '../router.js';
@@ -35,7 +36,7 @@ export async function renderDrift() {
   const [first, last] = ids.length >= 2
     ? await Promise.all([ids[0], ids[ids.length - 1]].map((id) => api('/scans/' + encodeURIComponent(id) + '/report')))
     : [null, null];
-  const when = (r) => new Date(r.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const when = (r) => dateTime(r.timestamp);
   const period = first ? `${when(first)} to ${when(last)}` : `${w.since || 'the first scan'} to ${w.until || 'now'}`;
 
   let h = '<h2>Drift</h2><p class="sub">Which clusters moved against their norm across a window of scans, and the findings that came and went.</p>';
@@ -44,6 +45,9 @@ export async function renderDrift() {
     `<label class="fs-12">From <input type="date" id="driftSince" value="${esc(w.since || '')}"></label>` +
     `<label class="fs-12">To <input type="date" id="driftUntil" value="${esc(w.until || '')}"></label>` +
     '<button class="btn" data-action="drift-range">Apply range</button></div>';
+  if (!ids.length) {
+    return h + emptyState(w.scans ? 'No scans yet, so there is no window to compare.' : 'No scans fall inside this date range, so pick a wider one.');
+  }
   h += renderDriftLedger(ledger, period, { rows: 50 });
 
   let changed = { added: [], resolved: [] };

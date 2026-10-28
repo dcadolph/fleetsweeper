@@ -2,7 +2,8 @@
 // finding cards with their labels folded away and the same ack drawer.
 
 import { api } from '../api.js';
-import { esc, byId } from '../dom.js';
+import { esc, byId, emptyState } from '../dom.js';
+import { dateTime } from '../format.js';
 import { morph } from '../morph.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
@@ -26,7 +27,7 @@ export function asFinding(a) {
     scanner: sourceOf(a) + (a.status ? ' ' + a.status : ''),
     fingerprint: a.fingerprint,
     acked: !!a.acked,
-    when: a.received_at ? new Date(a.received_at).toLocaleString() : '',
+    when: dateTime(a.received_at),
     labels: a.labels || {},
   };
 }
@@ -43,9 +44,9 @@ export async function renderAlerts() {
   }
   alerts = (resp && resp.alerts) || [];
   const h = '<h2>Inbound alerts</h2>' +
-    '<p class="sub">Live runtime alerts ingested from AlertManager and Falco, newest first. Open Labels on a card for the full label set.</p>' +
-    '<div id="alertsList"></div>';
-  return { html: h, post: filterAlerts };
+    '<p class="sub">Live runtime alerts ingested from AlertManager and Falco, newest first. Open Labels on a card for the full label set.</p>';
+  if (!alerts.length) return h + emptyState('No alerts have arrived from AlertManager or Falco yet.');
+  return { html: h + '<div id="alertsList"></div>', post: filterAlerts };
 }
 
 // filterAlerts redraws the alert cards matching the filters.

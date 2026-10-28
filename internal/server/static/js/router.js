@@ -8,7 +8,7 @@
 import { ROUTES, routeById } from './routes.js';
 import { destroyCharts, themeCharts } from './charts.js';
 import { renderSidebar, refreshBadges } from './shell.js';
-import { esc } from './dom.js';
+import { esc, skeleton } from './dom.js';
 import { morph } from './morph.js';
 
 // P is the current page state. query holds the hash's query parameters.
@@ -104,8 +104,8 @@ export async function render() {
   refreshBadges();
   document.body.classList.remove('nav-open');
   const el = document.getElementById('ct');
-  el.innerHTML = '<div class="loading">Loading...</div>';
   const page = P.page;
+  el.innerHTML = skeleton(routeById(page).skeleton);
   try {
     const result = await routeById(page).render();
     if (P.page !== page) return;

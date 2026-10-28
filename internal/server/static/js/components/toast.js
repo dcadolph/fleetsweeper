@@ -34,12 +34,19 @@ export function adoptToasts(dialog) {
 }
 
 // toast shows message in tone (ok, warn, crit, info). action, when given, is
-// {label, run} and adds a button that runs it and dismisses the toast. It
-// returns a function that dismisses the toast.
-export function toast(message, tone, action) {
+// {label, run} and adds a button that runs it and dismisses the toast. key
+// names the notice: a new toast replaces any showing toast with the same key,
+// so a repeated event shows once. It defaults to the message. It returns a
+// function that dismisses the toast.
+export function toast(message, tone, action, key) {
   const t = tone || 'info';
+  const k = key || message;
+  document.querySelectorAll('.toast').forEach((old) => {
+    if (old.dataset.key === k) old.remove();
+  });
   const el = document.createElement('div');
   el.className = 'toast toast-' + t;
+  el.dataset.key = k;
   el.innerHTML = `<span class="toast-msg">${esc(message)}</span>` +
     (action ? `<button class="btn btn-sm toast-act">${esc(action.label)}</button>` : '') +
     '<button class="toast-x" aria-label="Dismiss">&times;</button>';

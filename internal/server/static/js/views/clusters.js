@@ -2,7 +2,8 @@
 // filterable, paginated comparison table.
 
 import { api } from '../api.js';
-import { esc, pct, csvExport, clusterHref, statusTone, threshTone, byId } from '../dom.js';
+import { esc, csvExport, clusterHref, statusTone, threshTone, byId, emptyState } from '../dom.js';
+import { pct, date } from '../format.js';
 import { TIPS } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { on, onChange } from '../actions.js';
@@ -19,7 +20,7 @@ export async function renderClusters() {
   renderBar('<button class="btn btn-ac" data-action="export-clusters">Export CSV</button>');
   let clusters = await api('/clusters');
   let h = '<h2>Known clusters</h2>';
-  if (!clusters || !clusters.length) return h + '<div class="empty">No clusters scanned yet.</div>';
+  if (!clusters || !clusters.length) return h + emptyState('No clusters scanned yet, so add one from the Add clusters page.');
   const scans = await api('/scans?limit=1');
   const healthMap = {};
   let rpt = null;
@@ -56,8 +57,8 @@ export async function renderClusters() {
     if (tagKeys.length) {
       h += '<div class="row"><span>Tags</span><span class="val tag-chips">' + tagKeys.map((k) => `<span class="tag-chip">${esc(k)}=${esc(c.tags[k])}</span>`).join('') + '</span></div>';
     }
-    h += `<div class="row"><span>First seen</span><span class="val">${esc(new Date(c.first_seen).toLocaleDateString())}</span></div>` +
-      `<div class="row"><span>Last seen</span><span class="val">${esc(new Date(c.last_seen).toLocaleDateString())}</span></div></a>`;
+    h += `<div class="row"><span>First seen</span><span class="val">${esc(date(c.first_seen))}</span></div>` +
+      `<div class="row"><span>Last seen</span><span class="val">${esc(date(c.last_seen))}</span></div></a>`;
   });
   h += '</div><div class="my-8"><button class="btn hidden" id="cardsToggle" data-action="toggle-cards">Show all</button></div>';
 

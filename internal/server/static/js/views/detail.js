@@ -2,7 +2,8 @@
 // section per scanner the cluster reported.
 
 import { api } from '../api.js';
-import { esc, pct, csvExport, statusTone, threshTone, clusterHref } from '../dom.js';
+import { esc, csvExport, statusTone, threshTone, clusterHref, emptyState } from '../dom.js';
+import { pct, fixed } from '../format.js';
 import { TIPS } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
@@ -44,7 +45,14 @@ function th(label, tipText) {
 export async function renderDetail() {
   renderBar('<button class="btn btn-ac" data-action="export-cluster">Export all data</button> <button class="btn" data-action="export-events">Export events</button>');
   const c = P.cluster;
-  const data = await api('/clusters/' + encodeURIComponent(c) + '/detail');
+  let data;
+  try {
+    data = await api('/clusters/' + encodeURIComponent(c) + '/detail');
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    return '<a class="back" href="#/">&larr; Back to dashboard</a>' + `<h2>${esc(c)}</h2>` +
+      emptyState('No stored scan has seen a cluster by this name.');
+  }
   lastDetail = data;
   const sd = data.scanner_data || {};
   const ch = data.health;
@@ -67,7 +75,7 @@ export async function renderDetail() {
   h += '<h3>Where this cluster sits</h3>' + renderStrips(data.distributions || [], { highlight: c, empty: 'This cluster sits inside the norm on every field the detectors measured.' });
   if (data.peers && data.peers.length) {
     h += '<div class="eyebrow mb-4">Nearest peers by scanner profile</div><div class="peers mb-12">' +
-      data.peers.map((p) => `<a class="pill-link" href="${esc(clusterHref(p.cluster))}" data-tip="feature distance ${p.distance.toFixed(2)}">${esc(p.cluster)}</a>`).join('') + '</div>';
+      data.peers.map((p) => `<a class="pill-link" href="${esc(clusterHref(p.cluster))}" data-tip="feature distance ${fixed(p.distance, 2)}">${esc(p.cluster)}</a>`).join('') + '</div>';
   }
   if (data.findings && data.findings.length) {
     h += `<h3 data-tour="findings-list">Findings (${data.findings.length})</h3>` + data.findings.map(renderFinding).join('');

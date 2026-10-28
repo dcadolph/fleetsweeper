@@ -4,7 +4,8 @@
 // so links from other pages land filtered and a reload keeps them.
 
 import { api, scannerLabel } from '../api.js';
-import { esc, csvExport, download, clusterHref, byId } from '../dom.js';
+import { esc, csvExport, download, clusterHref, byId, emptyState } from '../dom.js';
+import { isoDay } from '../format.js';
 import { renderBar } from '../shell.js';
 import { renderFinding, remediationFor } from '../components/finding.js';
 import { P, nav, setQuery } from '../router.js';
@@ -33,7 +34,7 @@ export async function renderFindings() {
   renderBar('<button class="btn btn-ac" data-action="export-findings">Export CSV</button>' +
     '<button class="btn btn-ac" data-action="export-criticals">Export critical findings (Markdown)</button>');
   const scans = await api('/scans?limit=1');
-  if (!scans || !scans.length) return '<div class="empty">No scans.</div>';
+  if (!scans || !scans.length) return emptyState('No scans yet, so there are no findings to list.');
   const rpt = await api('/scans/' + encodeURIComponent(scans[0].id) + '/report');
   findings = rpt.findings || [];
   const persistence = await persistenceMap();
@@ -53,7 +54,7 @@ export async function renderFindings() {
     options([['', 'All clusters']].concat(clusters.map((c) => [c, c])), q.cluster) + '</select>' +
     '<select id="fScanner" data-change="filter-findings" aria-label="Scanner">' +
     options([['', 'All scanners']].concat(scanners.map((c) => [c, scannerLabel(c)])), q.scanner) + '</select></div>';
-  if (!findings.length) return h + '<div class="empty">No findings. Fleet is healthy.</div>';
+  if (!findings.length) return h + emptyState('The latest scan raised no findings, so the fleet matches its norm.');
 
   const groups = {};
   findings.forEach((f) => { (groups[f.cluster || 'fleet'] = groups[f.cluster || 'fleet'] || []).push(f); });
@@ -114,7 +115,7 @@ on('export-findings', () => {
 });
 
 on('export-criticals', () => {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = isoDay(new Date());
   const lines = ['## Critical findings: ' + date, ''];
   const crit = findings.filter((f) => f.severity === 'critical');
   if (!crit.length) lines.push('_No critical findings._');

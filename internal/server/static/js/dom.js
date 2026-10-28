@@ -1,4 +1,4 @@
-// DOM and formatting helpers shared by every view. esc is the one escape
+// DOM helpers shared by every view. esc is the one escape
 // function: every piece of server data interpolated into markup goes through
 // it, or is set with textContent.
 
@@ -25,33 +25,6 @@ export function scanHref(id) {
 // classes.
 export function clusterLink(name, cls) {
   return `<a href="${esc(clusterHref(name))}"${cls ? ` class="${cls}"` : ''}>${esc(name)}</a>`;
-}
-
-// pct formats a percentage, or N/A for a missing or negative value.
-export function pct(n) {
-  return n == null || n < 0 ? 'N/A' : Math.round(n) + '%';
-}
-
-// fmtUSD formats a number with thousands separators and two decimals.
-export function fmtUSD(n) {
-  if (typeof n !== 'number' || Number.isNaN(n)) return '0.00';
-  const parts = Math.abs(n).toFixed(2).split('.');
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return (n < 0 ? '-' : '') + parts.join('.');
-}
-
-// humanAgo formats an ISO-8601 timestamp as "Ns ago", "Nm ago", "Nh ago", or
-// "Nd ago", or returns it unchanged when it does not parse.
-export function humanAgo(iso) {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return iso;
-  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (s < 60) return s + 's ago';
-  const m = Math.round(s / 60);
-  if (m < 60) return m + 'm ago';
-  const hr = Math.round(m / 60);
-  if (hr < 48) return hr + 'h ago';
-  return Math.round(hr / 24) + 'd ago';
 }
 
 // sevTone maps a finding severity to a status tone.
@@ -125,6 +98,35 @@ export async function copyText(text) {
   } finally {
     document.body.removeChild(ta);
   }
+}
+
+// emptyState returns a view's empty state: one sentence saying why there is
+// nothing to show. more, when given, is trusted markup on a line below it,
+// such as the command that fills the view.
+export function emptyState(sentence, more) {
+  return `<div class="empty" data-empty>${esc(sentence)}${more ? `<div class="empty-more">${more}</div>` : ''}</div>`;
+}
+
+// SKELETONS gives each skeleton kind its blocks, each a class sized in
+// app.css to stand in for the content that replaces it.
+const SKELETONS = {
+  dash: ['skel-row', 'skel-panel', 'skel-panel', 'skel-table'],
+  cards: ['skel-grid'],
+  short: ['skel-panel'],
+  stack: ['skel-panel', 'skel-panel'],
+  list: ['skel-line', 'skel-line', 'skel-line', 'skel-line', 'skel-line', 'skel-line', 'skel-line', 'skel-line'],
+  table: ['skel-bar', 'skel-panel', 'skel-table'],
+  chart: ['skel-panel', 'skel-table'],
+  map: ['skel-map'],
+  detail: ['skel-row', 'skel-panel', 'skel-table'],
+};
+
+// skeleton returns the loading placeholder for a kind of view: a heading, a
+// subtitle, and blocks sized like the view's content, so first paint does
+// not jump when the data arrives.
+export function skeleton(kind) {
+  const blocks = (SKELETONS[kind] || SKELETONS.list).map((c) => `<div class="skel ${c}"></div>`).join('');
+  return `<div class="skeleton" data-loading aria-busy="true" aria-label="Loading"><div class="skel skel-h"></div><div class="skel skel-sub"></div>${blocks}</div>`;
 }
 
 // byId returns the element with the given id, or null.

@@ -58,12 +58,6 @@ export function hull(points) {
   return lower.concat(upper);
 }
 
-// fmt formats a number for an axis or tooltip with at most two decimals.
-export function fmt(n) {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return String(n);
-  return Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : String(Math.round(n * 100) / 100);
-}
-
 // fieldLabel names a distribution's field for display.
 export function fieldLabel(d) {
   return d.scanner + '/' + d.field;

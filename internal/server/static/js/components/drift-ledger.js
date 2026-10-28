@@ -4,7 +4,8 @@
 // moved the most.
 
 import { esc, clusterHref } from '../dom.js';
-import { fmt, linear } from '../viz.js';
+import { linear } from '../viz.js';
+import { num, coord } from '../format.js';
 
 // ROWS is how many clusters the ledger lists unless told otherwise.
 const ROWS = 8;
@@ -18,10 +19,10 @@ export function sparkline(values) {
   const hi = Math.max(...values);
   const x = linear(0, values.length - 1, 2, W - 2);
   const y = linear(lo, hi === lo ? lo + 1 : hi, H - 3, 3);
-  const pts = values.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
+  const pts = values.map((v, i) => coord(x(i)) + ',' + coord(y(v))).join(' ');
   const last = values.length - 1;
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${pts}"/>` +
-    `<circle cx="${x(last).toFixed(1)}" cy="${y(values[last]).toFixed(1)}" r="2.5"/></svg>`;
+    `<circle cx="${coord(x(last))}" cy="${coord(y(values[last]))}" r="2.5"/></svg>`;
 }
 
 // flagChips renders gained or lost outlier flags with the scan they changed
@@ -54,7 +55,7 @@ export function renderDriftLedger(ledger, period, opts) {
     h += '<div class="ledger-row">' +
       `<a class="fw-500 ellipsis" href="${esc(clusterHref(r.cluster))}">${esc(r.cluster)}</a>` +
       `<span class="ledger-spark" data-tip="Deviation mass per scan, oldest first.">${sparkline(r.mass)}</span>` +
-      `<span class="mono c-${tone}" data-tip="Deviation mass ${esc(fmt(r.mass_before))} to ${esc(fmt(r.mass_after))}.">${r.mass_delta > 0 ? '+' : ''}${esc(fmt(Math.round(r.mass_delta * 10) / 10))}</span>` +
+      `<span class="mono c-${tone}" data-tip="Deviation mass ${esc(num(r.mass_before))} to ${esc(num(r.mass_after))}.">${r.mass_delta > 0 ? '+' : ''}${esc(num(Math.round(r.mass_delta * 10) / 10))}</span>` +
       `<span class="ledger-flags">${flagChips(r.gained, true, scanIndex, scans.length)}${flagChips(r.lost, false, scanIndex, scans.length)}` +
       (top ? `<span class="fs-12 c-t2" data-tip="The field whose z moved the most.">${esc(top.scanner + '/' + top.field)} <span class="mono">${esc(top.before || '-')} &rarr; ${esc(top.after || '-')}</span></span>` : '') +
       '</span></div>';
@@ -69,7 +70,7 @@ export function driftMarkdown(ledger, period) {
   const lines = [`## Drift across ${scans.length} scans, ${period}`, ''];
   if (!rows.length) lines.push('No cluster moved against the norm.');
   rows.forEach((r) => {
-    let line = `- ${r.cluster}: deviation ${fmt(r.mass_before)} to ${fmt(r.mass_after)} (${r.mass_delta > 0 ? '+' : ''}${fmt(Math.round(r.mass_delta * 10) / 10)})`;
+    let line = `- ${r.cluster}: deviation ${num(r.mass_before)} to ${num(r.mass_after)} (${r.mass_delta > 0 ? '+' : ''}${num(Math.round(r.mass_delta * 10) / 10)})`;
     const gained = (r.gained || []).map((f) => f.scanner + '/' + f.field);
     const lost = (r.lost || []).map((f) => f.scanner + '/' + f.field);
     if (gained.length) line += `, now outside the norm on ${gained.join(', ')}`;

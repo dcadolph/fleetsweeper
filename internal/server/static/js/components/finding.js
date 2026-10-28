@@ -4,6 +4,7 @@
 // with a Copy for the whole command, and ack or unack through a drawer.
 
 import { esc, clusterHref, sevTone } from '../dom.js';
+import { isoSeconds } from '../format.js';
 import { tip, legacyRemediation } from '../glossary.js';
 import { scannerLabel } from '../api.js';
 import { on } from '../actions.js';
@@ -119,7 +120,7 @@ function setAcked(fp, acked) {
 
 // snoozeUntil returns the RFC 3339 time hours from now, or undefined for zero.
 function snoozeUntil(hours) {
-  return hours > 0 ? new Date(Date.now() + hours * 3600e3).toISOString().replace(/\.\d+Z$/, 'Z') : undefined;
+  return hours > 0 ? isoSeconds(new Date(Date.now() + hours * 3600e3)) : undefined;
 }
 
 // openAckDrawer asks for a reason and snooze and acknowledges the card el, or

@@ -2,7 +2,7 @@
 // button to scan it.
 
 import { api, apiSend } from '../api.js';
-import { esc, byId } from '../dom.js';
+import { esc, byId, emptyState } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { on } from '../actions.js';
 import { openConnect } from '../welcome.js';
@@ -27,9 +27,9 @@ async function contextsSection() {
     return h + '<div class="manage-empty">Failed to list contexts: ' + esc(e.message) + '</div>';
   }
   if (!contexts || !contexts.length) {
-    return h + '<div class="manage-empty"><div>No kubeconfig contexts available to the server.</div>' +
-      '<div class="fs-14 c-t3 mt-4">Restart with <code>--kubeconfig /path/to/kubeconfig</code> or set <code>$KUBECONFIG</code>.</div>' +
-      '<button class="welcome-btn welcome-btn-primary" data-action="connect">Show me how</button></div>';
+    return h + emptyState('The server has no kubeconfig contexts to scan.',
+      'Restart with <code>--kubeconfig /path/to/kubeconfig</code> or set <code>$KUBECONFIG</code>. ' +
+      '<button class="welcome-btn welcome-btn-primary" data-action="connect">Show me how</button>');
   }
   h += '<div class="manage-grid">' + contexts.map((c) => '<div class="manage-card">' +
     `<div class="manage-name">${esc(c.name)}</div><div class="manage-status${c.scanned ? ' scanned' : ''}">${c.scanned ? 'In fleet' : 'Not yet scanned'}</div>` +

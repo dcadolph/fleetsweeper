@@ -3,8 +3,8 @@
 // inline bars, and its projected score move. Headers sort; the first rows show
 // until the viewer asks for every cluster.
 
-import { esc, clusterHref, statusTone, threshTone, pct, byId } from '../dom.js';
-import { fmt } from '../viz.js';
+import { esc, clusterHref, statusTone, threshTone, byId } from '../dom.js';
+import { num, pct, coord } from '../format.js';
 import { on } from '../actions.js';
 
 // SHOWN is how many rows show before the viewer expands the table.
@@ -54,7 +54,7 @@ function bar(v) {
   if (typeof v !== 'number') return '<span class="c-t3">n/a</span>';
   const w = Math.max(0, Math.min(100, v));
   return `<span class="ubar-cell"><svg class="ubar" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">` +
-    `<rect class="ubar-track" width="100" height="6" rx="3"/><rect class="ubar-${threshTone(v)}" width="${w.toFixed(1)}" height="6" rx="3"/></svg>` +
+    `<rect class="ubar-track" width="100" height="6" rx="3"/><rect class="ubar-${threshTone(v)}" width="${coord(w)}" height="6" rx="3"/></svg>` +
     `<span class="mono">${pct(v)}</span></span>`;
 }
 
@@ -70,8 +70,8 @@ function rowHTML(r) {
   const tone = statusTone(r.status);
   return `<tr class="click" data-href="${esc(clusterHref(r.cluster))}"><td class="fw-500"><a href="${esc(clusterHref(r.cluster))}">${esc(r.cluster)}</a></td>` +
     `<td><span class="pill bg-${tone} c-${tone === 'muted' ? 't2' : tone}">${esc(r.status)}</span></td>` +
-    `<td class="mono">${r.cost > 0 ? esc(fmt(Math.round(r.cost * 10) / 10)) : '<span class="c-t3">0</span>'}</td>` +
-    `<td class="mono">${esc(fmt(Math.round(r.mass * 10) / 10))}</td>` +
+    `<td class="mono">${r.cost > 0 ? esc(num(Math.round(r.cost * 10) / 10)) : '<span class="c-t3">0</span>'}</td>` +
+    `<td class="mono">${esc(num(Math.round(r.mass * 10) / 10))}</td>` +
     `<td class="mono${r.critical ? ' c-crit fw-600' : ' c-t3'}">${r.critical}</td>` +
     `<td class="mono${r.warning ? ' c-warn' : ' c-t3'}">${r.warning}</td>` +
     `<td>${bar(r.cpu)}</td><td>${bar(r.memory)}</td><td>${projectedCell(r)}</td></tr>`;

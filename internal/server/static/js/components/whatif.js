@@ -4,7 +4,7 @@
 // and after, and which clusters would newly flag. Nothing is written.
 
 import { esc } from '../dom.js';
-import { fmt } from '../viz.js';
+import { num } from '../format.js';
 import { send } from '../auth.js';
 import { openDrawer } from './drawer.js';
 import { renderStrip } from './strip.js';
@@ -20,8 +20,8 @@ const FIX_LABELS = {
 // normShift describes how the norm moves for a numeric field, or the norm itself otherwise.
 function normShift(o) {
   if (o.before.kind === 'numeric') {
-    const m = o.after ? `median ${fmt(o.before.median)} to ${fmt(o.after.median)}` : `median ${fmt(o.before.median)}`;
-    const mad = o.after ? `, spread ${fmt(o.before.mad)} to ${fmt(o.after.mad)}` : '';
+    const m = o.after ? `median ${num(o.before.median)} to ${num(o.after.median)}` : `median ${num(o.before.median)}`;
+    const mad = o.after ? `, spread ${num(o.before.mad)} to ${num(o.after.mad)}` : '';
     return m + mad;
   }
   if (o.before.kind === 'string') return `most common value ${o.before.mode}`;

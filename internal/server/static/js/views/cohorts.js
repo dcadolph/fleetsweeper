@@ -2,7 +2,7 @@
 // the strips of the fields where a member sits outside the cohort's norm.
 
 import { api } from '../api.js';
-import { esc, clusterHref } from '../dom.js';
+import { esc, clusterHref, emptyState } from '../dom.js';
 import { renderBar } from '../shell.js';
 import { renderCohortMap } from '../components/cohort-map.js';
 import { renderStrips } from '../components/strip.js';
@@ -22,17 +22,16 @@ function misplacedFrom(findings) {
 // renderCohorts builds the map and the per-cohort panels.
 export async function renderCohorts() {
   renderBar();
-  const [data, mapResp, attr, outliers, scans] = await Promise.all([
-    api('/cohorts'), api('/cohorts/map'), api('/score/attribution').catch(() => null), api('/outliers').catch(() => ({ outliers: [] })), api('/scans?limit=1'),
+  const scans = await api('/scans?limit=1');
+  if (!scans || !scans.length) return emptyState('No scans yet, so there are no clusters to group into cohorts.');
+  const [data, mapResp, attr, outliers] = await Promise.all([
+    api('/cohorts'), api('/cohorts/map'), api('/score/attribution').catch(() => null), api('/outliers').catch(() => ({ outliers: [] })),
   ]);
   const cohorts = data.cohorts || [];
   let h = "<h2>Cohorts</h2><p class=\"sub\">Clusters grouped into similar populations. Outliers are scored against each cohort's own baseline, not the whole fleet.</p>";
-  if (!cohorts.length) return h + '<div class="empty">Fleet too small to subdivide. Outlier detection runs across all clusters.</div>';
-  let misplaced = {};
-  if (scans && scans.length) {
-    const rpt = await api('/scans/' + encodeURIComponent(scans[0].id) + '/report').catch(() => null);
-    if (rpt) misplaced = misplacedFrom(rpt.findings);
-  }
+  if (!cohorts.length) return h + emptyState('The fleet is too small to subdivide, so outlier detection runs across every cluster.');
+  const rpt = await api('/scans/' + encodeURIComponent(scans[0].id) + '/report').catch(() => null);
+  const misplaced = rpt ? misplacedFrom(rpt.findings) : {};
   const costs = (attr && attr.attribution && attr.attribution.by_cluster) || {};
   const points = (mapResp.map && mapResp.map.points) || [];
   const cohortTone = cohortTones(points.map((p) => p.cohort).concat(cohorts.map((c) => c.name)));
