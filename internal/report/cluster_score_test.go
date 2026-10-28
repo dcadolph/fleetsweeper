@@ -175,7 +175,7 @@ func TestClusterStatusAgreesWithScore(t *testing.T) {
 	statuses := map[string]string{}
 	for _, h := range rpt.ClusterHealths {
 		statuses[h.Name] = h.Status
-		crit, warn := clusterCharges(h.Name, rpt.Findings)
+		crit, warn := ClusterCharges(h.Name, rpt.Findings)
 		charged := crit+warn > 0
 		if (h.Status == "healthy") == charged {
 			t.Errorf("%s: status %q but score charges %d critical, %d warning", h.Name, h.Status, crit, warn)
