@@ -48,7 +48,7 @@ code, .mono { font-family: var(--font-mono); font-size: var(--fs-12); }
 }
 .sb-brand:hover { text-decoration: none; }
 .sb-brand h1 { font-size: var(--fs-14); font-weight: 600; }
-.sb-logo { width: 28px; height: 28px; border-radius: var(--radius-2); object-fit: cover; flex-shrink: 0; }
+.sb-logo { width: 28px; height: 28px; flex-shrink: 0; }
 .sb .hd {
   font-size: var(--fs-12);
   font-weight: 600;

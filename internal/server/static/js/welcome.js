@@ -39,7 +39,7 @@ export async function maybeShowWelcome() {
     className: 'welcome-root',
     id: 'welcome-root',
     label: 'Welcome',
-    html: '<img class="welcome-logo" src="logo.jpg" alt="fleetsweeper">' +
+    html: '<img class="welcome-logo" src="logo.svg" alt="fleetsweeper">' +
       '<div class="welcome-badge">Demo mode &nbsp;·&nbsp; Synthetic fleet</div>' +
       '<h1>See if your fleet has drifted.</h1>' +
       '<p class="welcome-sub">Every other Kubernetes tool tells you if one cluster is healthy. Fleetsweeper compares your clusters against each other and surfaces what is anomalous. You are looking at a synthetic fleet so you can explore the whole UI without any real clusters.</p>' +
