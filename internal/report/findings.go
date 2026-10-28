@@ -799,6 +799,14 @@ func securityFindings(r *Report) []Finding {
 					sev = SeverityCritical
 				}
 			}
+			names := unenforcedNamespaces(r, cluster)
+			cmd := fmt.Sprintf("kubectl --context %s label namespace <ns> "+
+				"pod-security.kubernetes.io/enforce=baseline --overwrite", cluster)
+			if len(names) > 0 {
+				cmd = fmt.Sprintf("kubectl --context %s label namespace %s "+
+					"pod-security.kubernetes.io/enforce=baseline --overwrite",
+					cluster, strings.Join(names[:min(len(names), maxAffected)], " "))
+			}
 			findings = append(findings, Finding{
 				Rule:        "security/psa-unenforced",
 				Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, unenforced),
@@ -806,13 +814,31 @@ func securityFindings(r *Report) []Finding {
 				Severity:    sev,
 				Cluster:     cluster,
 				Scanner:     "security",
-				Remediation: &Remediation{
-					Command: fmt.Sprintf("kubectl --context %s label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite", cluster),
-				},
+				Affected:    capList(names),
+				Remediation: &Remediation{Command: cmd},
 			})
 		}
 	}
 	return findings
+}
+
+// unenforcedNamespaces returns the names of namespaces with no enforce level in a cluster's
+// security payload, or nil when the payload has no namespaces list.
+func unenforcedNamespaces(r *Report, cluster string) []string {
+	raw, _ := clusterData(r, "security", cluster)["namespaces"].([]any)
+	var out []string
+	for _, item := range raw {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := entry["namespace"].(string)
+		enforce, _ := entry["enforce"].(string)
+		if name != "" && enforce == "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // networkFindings reports namespaces with no NetworkPolicy coverage and
@@ -1679,6 +1705,7 @@ func admissionFindings(r *Report) []Finding {
 		}
 		raw, _ := m["webhooks"].([]any)
 		var unhealthy, expiring []string
+		var firstSvc string
 		for _, item := range raw {
 			entry, ok := item.(map[string]any)
 			if !ok {
@@ -1693,6 +1720,9 @@ func admissionFindings(r *Report) []Finding {
 			caDays := int(caRemaining)
 			label := cfg + "/" + whName
 			if !healthy && svc != "" {
+				if firstSvc == "" {
+					firstSvc = svc
+				}
 				unhealthy = append(unhealthy, fmt.Sprintf("%s (service %s, failurePolicy=%s)", label, svc, failurePolicy))
 			}
 			if caDays >= 0 && caDays < 30 {
@@ -1700,6 +1730,10 @@ func admissionFindings(r *Report) []Finding {
 			}
 		}
 		if len(unhealthy) > 0 {
+			cmd := fmt.Sprintf("kubectl --context %s get endpoints -A", cluster)
+			if ns, name, ok := strings.Cut(firstSvc, "/"); ok {
+				cmd = fmt.Sprintf("kubectl --context %s -n %s get endpoints %s", cluster, ns, name)
+			}
 			findings = append(findings, Finding{
 				Rule:        "admission/no-healthy-endpoints",
 				Title:       fmt.Sprintf("%s has %d admission webhook(s) with no healthy endpoints", cluster, len(unhealthy)),
@@ -1708,9 +1742,7 @@ func admissionFindings(r *Report) []Finding {
 				Cluster:     cluster,
 				Scanner:     "admission",
 				Affected:    capList(unhealthy),
-				Remediation: &Remediation{
-					Command: fmt.Sprintf("kubectl --context %s get pods -A -l app=<webhook-service-app>", cluster),
-				},
+				Remediation: &Remediation{Command: cmd},
 			})
 		}
 		if len(expiring) > 0 {

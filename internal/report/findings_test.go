@@ -94,24 +94,32 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
 			"unenforced_count": 6, "namespace_count": 10,
+			"namespaces": []any{
+				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "prod", "enforce": "restricted"},
+			},
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 6 namespace(s) without Pod Security enforcement",
 			Description: "6 of 10 namespaces (60%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
-			Severity:    SeverityCritical, Cluster: "a", Scanner: "security",
-			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Severity:    SeverityCritical, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 3: Exactly half unenforced stays a warning.
 		Name:     "psa half",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
 			"unenforced_count": 5, "namespace_count": 10,
+			"namespaces": []any{
+				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "prod", "enforce": "restricted"},
+			},
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 5 namespace(s) without Pod Security enforcement",
 			Description: "5 of 10 namespaces (50%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
-			Severity:    SeverityWarning, Cluster: "a", Scanner: "security",
-			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Severity:    SeverityWarning, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 4: A missing namespace total never reports a share over 100%.
 		Name:     "psa no total",
@@ -321,7 +329,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Description: "When failurePolicy=Fail, every API request matching these webhooks will be rejected. Even with failurePolicy=Ignore, mutations and validations are silently skipped.",
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "admission",
 			Affected:    []string{"cfg/wh (service ns/svc, failurePolicy=Fail)"},
-			Remediation: &Remediation{Command: "kubectl --context a get pods -A -l app=<webhook-service-app>"},
+			Remediation: &Remediation{Command: "kubectl --context a -n ns get endpoints svc"},
 		}, {
 			Rule: "admission/ca-expiring", Title: "a has 1 admission webhook(s) with CA bundles expiring soon",
 			Description: "When a webhook CA bundle expires, the apiserver refuses to talk to the webhook. Renew or rotate before the listed deadlines.",
@@ -499,6 +507,23 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 				"...and 2 more",
 			},
 			Remediation: &Remediation{Command: privilegedCommand},
+		}},
+	}, { // Test 26: Twelve unenforced namespaces label the first ten and list a suffix.
+		Name:     "psa capped",
+		Generate: securityFindings,
+		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
+			"unenforced_count": 12, "namespace_count": 12, "namespaces": unenforcedNamespaceList(12),
+		}}}),
+		WantResult: []Finding{{
+			Rule: "security/psa-unenforced", Title: "a has 12 namespace(s) without Pod Security enforcement",
+			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label. " +
+				"Pods in these namespaces can run with any privileges.",
+			Severity: SeverityCritical, Cluster: "a", Scanner: "security",
+			Affected: []string{
+				"n00", "n01", "n02", "n03", "n04", "n05", "n06", "n07", "n08", "n09", "...and 2 more",
+			},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace " +
+				"n00 n01 n02 n03 n04 n05 n06 n07 n08 n09 pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}}
 
@@ -1539,4 +1564,13 @@ func TestNodeHealthFindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unenforcedNamespaceList returns n security payload namespace entries with no enforce level.
+func unenforcedNamespaceList(n int) []any {
+	out := make([]any, 0, n)
+	for i := range n {
+		out = append(out, map[string]any{"namespace": fmt.Sprintf("n%02d", i)})
+	}
+	return out
 }
