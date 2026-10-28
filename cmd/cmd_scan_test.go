@@ -1,14 +1,20 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"github.com/dcadolph/fleetsweeper/internal/cohort"
 	"github.com/dcadolph/fleetsweeper/internal/report"
+	"github.com/dcadolph/fleetsweeper/internal/server"
+	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
 // TestBuildRegistry verifies every expected scanner registers exactly once.
@@ -131,5 +137,89 @@ func TestScannerCatalogCoversRegistry(t *testing.T) {
 	}
 	if len(registered) != 24 {
 		t.Errorf("registry runs %d scanners, docs and the UI say 24", len(registered))
+	}
+}
+
+// TestBuildScanReportCohorts verifies the scan command's report reads cohort tags and groups from
+// the store, so it partitions a stored scan into the same cohorts the server does.
+func TestBuildScanReportCohorts(t *testing.T) {
+	t.Parallel()
+	edge := []string{"c00", "c01", "c02", "c03", "c04"}
+	tests := []struct {
+		WantTagged []string
+		Want       bool
+		Close      bool
+		NoStore    bool
+	}{{ // Test 0: Stored tags give an edge cohort that matches the server's.
+		WantTagged: edge,
+	}, { // Test 1: Without a store the report has no tagged cohort.
+		NoStore: true,
+	}, { // Test 2: A store that cannot list tags fails the report.
+		Close: true, Want: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			dbPath := filepath.Join(t.TempDir(), "cohorts.db")
+			seedStepScans(t, dbPath)
+			st, err := store.NewSQLite(dbPath)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			defer st.Close()
+			for _, c := range edge {
+				if err := st.SetClusterTag(ctx, c, cohort.DefaultTagKey, "edge"); err != nil {
+					t.Fatalf("set tag: %v", err)
+				}
+			}
+			if err := st.SaveGroup(ctx, "prod", []string{"c05", "c06"}); err != nil {
+				t.Fatalf("save group: %v", err)
+			}
+			scan, err := st.GetScan(ctx, "scan-6")
+			if err != nil {
+				t.Fatalf("get scan: %v", err)
+			}
+			results, err := st.GetScanResults(ctx, scan.ID)
+			if err != nil {
+				t.Fatalf("get results: %v", err)
+			}
+			serverOpts, err := server.StoreReportOptions(ctx, st)
+			if err != nil {
+				t.Fatalf("server options: %v", err)
+			}
+			serverOpts.Timestamp = scan.Timestamp
+			serverRpt := report.Build(scan.Clusters, results, serverOpts)
+
+			var cliStore store.Store = st
+			if test.NoStore {
+				cliStore = nil
+			}
+			if test.Close {
+				st.Close()
+			}
+			rpt, err := buildScanReport(ctx, cliStore, scan.Clusters, results, report.BuildOptions{Timestamp: scan.Timestamp})
+			if (err != nil) != test.Want {
+				t.Fatalf("err = %v, want error %v", err, test.Want)
+			}
+			if err != nil {
+				return
+			}
+			var tagged []string
+			for _, c := range rpt.Cohorts {
+				if c.Source == string(cohort.SourceTagged) && c.Name == "edge" {
+					tagged = c.Clusters
+				}
+			}
+			if diff := cmp.Diff(test.WantTagged, tagged, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("edge cohort mismatch (-want +got):\n%s", diff)
+			}
+			if test.NoStore {
+				return
+			}
+			if diff := cmp.Diff(serverRpt.Cohorts, rpt.Cohorts, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("CLI and server cohorts disagree (-server +cli):\n%s", diff)
+			}
+		})
 	}
 }

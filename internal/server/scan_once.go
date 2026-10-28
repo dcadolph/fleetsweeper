@@ -162,25 +162,36 @@ func (s *Server) buildReport(ctx context.Context, rec store.ScanRecord, results 
 	return report.Build(rec.Clusters, results, opts)
 }
 
-// reportOptions loads the cluster tags and groups a freshly saved scan's report is built with.
-// The scan is already saved, so a failed lookup is logged and that input left out rather than
-// failing the scan.
-func (s *Server) reportOptions(ctx context.Context, log *zap.Logger) report.BuildOptions {
+// StoreReportOptions returns the cohort tags and groups that every report built from st uses, so
+// the CLI and the server partition the same stored scan the same way. It returns whatever it
+// loaded together with any error.
+func StoreReportOptions(ctx context.Context, st store.Store) (report.BuildOptions, error) {
 	var opts report.BuildOptions
-	tags, err := projectCohortTags(ctx, s, cohortTagKey)
-	if err != nil {
-		log.Warn("scan report: list cohort tags", zap.Error(err))
+	tags, tagErr := projectCohortTags(ctx, st, cohortTagKey)
+	if tagErr != nil {
+		tagErr = fmt.Errorf("list cohort tags: %w", tagErr)
 	}
 	opts.ClusterTags = tags
-	groups, err := s.store.ListGroups(ctx)
-	if err != nil {
-		log.Warn("scan report: list groups", zap.Error(err))
+	groups, groupErr := st.ListGroups(ctx)
+	if groupErr != nil {
+		groupErr = fmt.Errorf("list groups: %w", groupErr)
 	}
 	if len(groups) > 0 {
 		opts.Groups = make(map[string][]string, len(groups))
 		for _, g := range groups {
 			opts.Groups[g.Name] = g.Clusters
 		}
+	}
+	return opts, errors.Join(tagErr, groupErr)
+}
+
+// reportOptions loads the cluster tags and groups a freshly saved scan's report is built with.
+// The scan is already saved, so a failed lookup is logged and that input left out rather than
+// failing the scan.
+func (s *Server) reportOptions(ctx context.Context, log *zap.Logger) report.BuildOptions {
+	opts, err := StoreReportOptions(ctx, s.store)
+	if err != nil {
+		log.Warn("scan report: load report options", zap.Error(err))
 	}
 	return opts
 }

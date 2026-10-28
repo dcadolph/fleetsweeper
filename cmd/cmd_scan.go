@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -150,6 +151,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Persist results to database when --db is set.
+	var st store.Store
 	dbPath, _ := cmd.Flags().GetString("db")
 	if dbPath != "" {
 		s, err := openStore(cmd)
@@ -157,6 +159,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("open store: %w", err)
 		}
 		defer s.Close()
+		st = s
 
 		scanID, err := s.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: clusterNames}, results)
 		if err != nil {
@@ -167,10 +170,13 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	}
 
 	outlierThreshold, _ := cmd.Flags().GetFloat64("outlier-threshold")
-	rpt := report.Build(clusterNames, results, report.BuildOptions{
+	rpt, err := buildScanReport(ctx, st, clusterNames, results, report.BuildOptions{
 		OutlierThreshold: outlierThreshold,
 		Timestamp:        scannedAt,
 	})
+	if err != nil {
+		return err
+	}
 
 	// Surface degraded coverage so a forbidden or unreachable API never reads
 	// as a clean, zero-resource cluster. This goes to stderr so stdout stays
@@ -279,4 +285,18 @@ func selectScanners(registry *scanner.Registry, names []string) map[string]scann
 		}
 	}
 	return selected
+}
+
+// buildScanReport builds the scan's report. With a store it adds the stored cohort tags and
+// groups, so the CLI report partitions cohorts the way the server does for the same scan.
+func buildScanReport(ctx context.Context, st store.Store, clusters []string,
+	results map[string]map[string]scanner.Result, opts report.BuildOptions) (*report.Report, error) {
+	if st != nil {
+		stored, err := server.StoreReportOptions(ctx, st)
+		if err != nil {
+			return nil, fmt.Errorf("load report options: %w", err)
+		}
+		opts.ClusterTags, opts.Groups = stored.ClusterTags, stored.Groups
+	}
+	return report.Build(clusters, results, opts), nil
 }
