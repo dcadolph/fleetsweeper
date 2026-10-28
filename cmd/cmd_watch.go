@@ -13,6 +13,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/imageaudit"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 )
 
@@ -38,6 +39,7 @@ func init() {
 	watchCmd.Flags().Int("max-runs", 0, "Stop after N scans (0 = infinite).")
 	watchCmd.Flags().Bool("on-change-only", false, "Only print when the diff is non-empty.")
 	watchCmd.Flags().Bool("no-color", false, "Disable ANSI color even on a TTY.")
+	watchCmd.Flags().Bool("probe-registries", false, "Resolve image manifests against their registries to report image age. Contacts every registry the fleet pulls from.")
 }
 
 // runWatch is the cobra entrypoint for the watch subcommand.
@@ -61,6 +63,8 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	probe, _ := cmd.Flags().GetBool("probe-registries")
+	imageaudit.SetProbeRegistries(probe)
 	registry := buildRegistry()
 	selected, err := selectScanners(registry, scannerNames)
 	if err != nil {

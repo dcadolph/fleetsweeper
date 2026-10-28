@@ -66,6 +66,7 @@ func init() {
 	scanCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs to (one file per cluster). Empty disables.")
 	scanCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs (one file per cluster). Empty disables.")
 	scanCmd.Flags().String("policy-report-namespace", "fleetsweeper", "Namespace placed on emitted PolicyReports.")
+	scanCmd.Flags().Bool("probe-registries", false, "Resolve image manifests against their registries to report image age. Contacts every registry the fleet pulls from.")
 }
 
 // buildRegistry creates the scanner registry with all available scanners.
@@ -115,13 +116,12 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if err := oneOf("output", outputFormat, "json", "html"); err != nil {
 		return err
 	}
+	probe, _ := cmd.Flags().GetBool("probe-registries")
+	imageaudit.SetProbeRegistries(probe)
 	registry := buildRegistry()
 	selected, err := selectScanners(registry, scannerNames)
 	if err != nil {
 		return err
-	}
-	if probe, _ := cmd.Flags().GetBool("probe-registries"); probe {
-		imageaudit.SetProbeRegistries(true)
 	}
 
 	// Resolve contexts from group if specified.

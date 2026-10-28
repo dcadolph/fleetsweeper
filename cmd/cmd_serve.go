@@ -14,6 +14,7 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/leader"
 	"github.com/dcadolph/fleetsweeper/internal/logutil"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/imageaudit"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -75,6 +76,7 @@ func init() {
 	serveCmd.Flags().Duration("session-lifetime", 8*time.Hour, "How long an OIDC session cookie stays valid.")
 	serveCmd.Flags().Int("rate-limit-read-rpm", 0, "Per-client budget of read requests per minute (600 is a sensible start). 0 disables read limiting.")
 	serveCmd.Flags().Int("rate-limit-write-rpm", 0, "Per-client budget of mutating requests per minute (60 is a sensible start). 0 disables write limiting.")
+	serveCmd.Flags().Bool("probe-registries", false, "Resolve image manifests against their registries to report image age. Contacts every registry the fleet pulls from.")
 	serveCmd.Flags().String("trusted-proxy-header", "", "Header a trusted reverse proxy sets to the client address (for example X-Forwarded-For). The rate limiter keys on its last entry. Leave empty unless every request passes through that proxy.")
 	serveCmd.MarkFlagsMutuallyExclusive("all-contexts", "contexts")
 }
@@ -131,6 +133,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintln(cmd.ErrOrStderr(), "warning: --auth-token not set; mutating endpoints will return 403. Pass --insecure to allow without a token.")
 	}
 
+	probe, _ := cmd.Flags().GetBool("probe-registries")
+	imageaudit.SetProbeRegistries(probe)
 	registry := buildRegistry()
 
 	oidcIssuer, _ := cmd.Flags().GetString("oidc-issuer-url")

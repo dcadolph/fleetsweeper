@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,11 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -765,6 +772,58 @@ func TestScanListErrors(t *testing.T) {
 			}
 			if result.State != test.WantState {
 				t.Errorf("state = %q, want %q", result.State, test.WantState)
+			}
+		})
+	}
+}
+
+// TestProbeOne verifies probeOne against an in-process registry.
+func TestProbeOne(t *testing.T) {
+	t.Parallel()
+	created := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	img, err := mutate.CreatedAt(empty.Image, v1.Time{Time: created})
+	if err != nil {
+		t.Fatalf("set created: %v", err)
+	}
+	good := httptest.NewServer(registry.New())
+	t.Cleanup(good.Close)
+	goodHost := strings.TrimPrefix(good.URL, "http://")
+	pushed := goodHost + "/app:v1"
+	tag, err := name.NewTag(pushed)
+	if err != nil {
+		t.Fatalf("parse tag: %v", err)
+	}
+	if err := remote.Write(tag, img); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	denied := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Www-Authenticate", `Basic realm="test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(denied.Close)
+	deniedHost := strings.TrimPrefix(denied.URL, "http://")
+
+	tests := []struct {
+		Image         string
+		WantCreatedAt time.Time
+		WantErr       bool
+	}{{ // Test 0: Pushed image has its age set.
+		Image: pushed, WantCreatedAt: created,
+	}, { // Test 1: Missing tag is counted failed.
+		Image: goodHost + "/app:missing", WantErr: true,
+	}, { // Test 2: Auth failure is counted failed.
+		Image: deniedHost + "/app:v1", WantErr: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			client := kube.NewTestClientWithClientset("test", fakeclientset.NewSimpleClientset())
+			got := probeOne(context.Background(), client, test.Image, podRef{Namespace: "default"})
+			if (got.Err != nil) != test.WantErr {
+				t.Fatalf("error mismatch: got %v, want error %t", got.Err, test.WantErr)
+			}
+			if diff := cmp.Diff(test.WantCreatedAt, got.CreatedAt); diff != "" {
+				t.Errorf("created mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
