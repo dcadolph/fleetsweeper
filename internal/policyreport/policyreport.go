@@ -198,12 +198,15 @@ func toResult(f report.Finding, ts time.Time) Result {
 	res := Result{
 		Source:    Source,
 		Policy:    f.Scanner,
-		Rule:      ruleFromTitle(f.Title),
+		Rule:      f.Rule,
 		Category:  categoryForScanner(f.Scanner),
 		Severity:  severityMap(f.Severity),
 		Result:    resultMap(f.Severity),
 		Message:   f.Title,
 		Timestamp: Timestamp{Seconds: ts.Unix(), Nanos: int32(ts.Nanosecond())},
+	}
+	if res.Rule == "" {
+		res.Rule = ruleFromTitle(f.Title)
 	}
 	if f.Description != "" {
 		res.Message = f.Title + " -- " + f.Description
@@ -283,14 +286,14 @@ func categoryForScanner(scanner string) string {
 // populate the optional Rule field; helpful when filtering results in
 // Policy Reporter UI.
 func ruleFromTitle(title string) string {
-	// Truncate at the first colon or dash to keep rule names short and stable.
+	// Truncate at the first colon, " -- ", or " has " to keep rule names short and stable.
 	for _, sep := range []string{":", " -- ", " has "} {
 		if idx := strings.Index(title, sep); idx > 0 {
 			return strings.TrimSpace(title[:idx])
 		}
 	}
-	if len(title) > 60 {
-		return title[:60]
+	if runes := []rune(title); len(runes) > 60 {
+		return string(runes[:60])
 	}
 	return title
 }
