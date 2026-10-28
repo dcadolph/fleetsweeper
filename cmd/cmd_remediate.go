@@ -162,8 +162,12 @@ func printResult(cmd *cobra.Command, res remediate.Result) {
 	} else {
 		fmt.Fprintf(out, "PR opened: %s (#%d)\n", res.PRURL, res.PRNumber)
 	}
+	base := res.BaseBranch
+	if base == "" {
+		base = "(repo default)"
+	}
 	fmt.Fprintf(out, "  head: %s\n  base: %s\n  path: %s\n  title: %s\n",
-		res.HeadBranch, res.BaseBranch, res.TargetPath, res.PRTitle)
+		res.HeadBranch, base, res.TargetPath, res.PRTitle)
 	if res.DryRun {
 		fmt.Fprintln(out, "\nplanned YAML:")
 		fmt.Fprintln(out, res.PlannedYAML)
