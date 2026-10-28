@@ -137,7 +137,7 @@ function sections(sd) {
   }
   if (sd.events) {
     const ev = sd.events;
-    let c = `<div class="g g3">${stat(ev.total_events, 'Total events')}${stat(ev.warning_events, 'Warnings', ev.warning_events > 50 ? 'crit' : ev.warning_events > 0 ? 'warn' : 'ok')}${stat(ev.normal_events, 'Normal', 'ok')}</div>`;
+    let c = `<div class="g g2">${stat(ev.warning_events, 'Warnings', ev.warning_events > 50 ? 'crit' : ev.warning_events > 0 ? 'warn' : 'ok')}${stat(ev.window_seconds, 'Window (s)')}</div>`;
     if (ev.top_warning_reasons && ev.top_warning_reasons.length) {
       c += '<h4 class="my-8">Top warning reasons</h4>' + table([th('Reason'), th('Total count', 'Total occurrences across all events with this reason'), th('Distinct events', 'Number of distinct event objects')],
         ev.top_warning_reasons.map((r) => `<tr><td class="fw-500 c-warn">${esc(r.reason)}</td><td class="mono">${r.count}</td><td class="mono">${r.event_count}</td></tr>`));

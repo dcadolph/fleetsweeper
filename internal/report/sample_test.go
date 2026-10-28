@@ -19,7 +19,7 @@ func TestGenerateSampleHTML(t *testing.T) { //nolint:funlen // Test function.
 	results := map[string]map[string]scanner.Result{
 		"prod-us-east": {
 			"events": {Scanner: "events", Data: map[string]any{
-				"total_events": 142, "warning_events": 8, "normal_events": 134,
+				"warning_events": 8,
 				"top_warning_reasons": []map[string]any{
 					{"reason": "BackOff", "count": 5, "event_count": 3},
 					{"reason": "FailedScheduling", "count": 3, "event_count": 2},
@@ -71,7 +71,7 @@ func TestGenerateSampleHTML(t *testing.T) { //nolint:funlen // Test function.
 		},
 		"prod-us-west": {
 			"events": {Scanner: "events", Data: map[string]any{
-				"total_events": 98, "warning_events": 3, "normal_events": 95,
+				"warning_events": 3,
 				"top_warning_reasons": []map[string]any{
 					{"reason": "Unhealthy", "count": 2, "event_count": 1},
 					{"reason": "BackOff", "count": 1, "event_count": 1},
@@ -123,7 +123,7 @@ func TestGenerateSampleHTML(t *testing.T) { //nolint:funlen // Test function.
 		},
 		"staging-eu": {
 			"events": {Scanner: "events", Data: map[string]any{
-				"total_events": 487, "warning_events": 156, "normal_events": 331,
+				"warning_events": 156,
 				"top_warning_reasons": []map[string]any{
 					{"reason": "OOMKilling", "count": 68, "event_count": 23},
 					{"reason": "FailedScheduling", "count": 42, "event_count": 18},

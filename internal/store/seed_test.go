@@ -250,16 +250,13 @@ func buildClusterData(cluster string, scanNum int) map[string]scanner.Result { /
 
 	// Events: prod-eu-central gets progressively more warnings.
 	warningEvents := 5
-	totalEvents := 100
 	if cluster == "prod-eu-central" {
 		warningEvents = 10 + scanNum*25
-		totalEvents = 100 + scanNum*50
 	} else if cluster == "dev-local" {
 		warningEvents = 2
-		totalEvents = 30
 	}
 	r["events"] = scanner.Result{Scanner: "events", Data: map[string]any{
-		"total_events": float64(totalEvents), "warning_events": float64(warningEvents), "normal_events": float64(totalEvents - warningEvents),
+		"warning_events": float64(warningEvents),
 	}}
 
 	return r
