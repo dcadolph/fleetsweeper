@@ -42,7 +42,7 @@ function numericSVG(d, highlight) {
     hi += 1;
   }
   const x = linear(lo, hi, PAD, W - PAD);
-  let svg = `<svg class="strip-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(fieldLabel(d))}: median ${esc(num(d.median))}, ${d.values.filter((v) => v.outlier).length} outliers">`;
+  let svg = `<svg class="strip-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(fieldLabel(d))}: median ${esc(num(d.median))}, ${d.values.filter((v) => v.outlier && !v.explained).length} outliers">`;
   if (d.band > 0) {
     const x0 = x(Math.max(lo, d.median - d.band));
     const x1 = x(Math.min(hi, d.median + d.band));
@@ -78,9 +78,11 @@ function scaleNorm(d) {
 // categorical summarizes a string or set distribution.
 function categorical(d, highlight) {
   const out = d.values.filter((v) => v.outlier && !v.explained);
+  const heldN = d.values.filter((v) => v.explained).length;
+  const none = d.values.some((v) => v.outlier) ? `<span class="note">${heldN} held by their cohort</span>` : '<span class="note">everyone agrees</span>';
   const norm = d.kind === 'string'
     ? `mode <span class="mono">${esc(d.mode)}</span> held by ${Math.round((d.mode_share || 0) * 100)}%`
     : `${(d.consensus || []).length} members most clusters have`;
   const chips = out.map((v) => `<a class="chip${v.cluster === highlight ? ' chip-ring' : ''}" href="${esc(clusterHref(v.cluster))}" data-tip="${esc(d.kind === 'set' ? 'missing ' + (v.missing || []).join(', ') : v.text)}">${esc(v.cluster)}</a>`).join('');
-  return `<div class="strip-cat"><span>${norm}</span>${out.length ? '<span class="note">outside:</span>' + chips : '<span class="note">everyone agrees</span>'}</div>`;
+  return `<div class="strip-cat"><span>${norm}</span>${out.length ? '<span class="note">outside:</span>' + chips : none}</div>`;
 }

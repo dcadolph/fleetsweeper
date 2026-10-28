@@ -518,6 +518,41 @@ func TestDashboardSmoke(t *testing.T) {
 		}
 	})
 
+	t.Run("outliers held", func(t *testing.T) {
+		var resp struct {
+			Outliers []struct {
+				ExplainedBy string `json:"explained_by"`
+			} `json:"outliers"`
+		}
+		getJSON(t, ts.URL+"/api/outliers", &resp)
+		open := 0
+		for _, o := range resp.Outliers {
+			if o.ExplainedBy == "" {
+				open++
+			}
+		}
+		held := len(resp.Outliers) - open
+		var rows int
+		var summary string
+		err := run(ctx, settleTimeout+5*time.Second,
+			chromedp.Evaluate(`location.hash = '#/outliers'`, nil),
+			chromedp.Poll(settledJS+` && !!document.querySelector('#outlierStrips')`,
+				nil, chromedp.WithPollingTimeout(settleTimeout)),
+			chromedp.Evaluate(`document.querySelectorAll('#outlierTable tbody tr').length`, &rows),
+			chromedp.Evaluate(`(document.querySelector('#outlierHeld summary') || {textContent: ''}).textContent`, &summary),
+		)
+		if err != nil {
+			t.Fatalf("outliers held: %v", err)
+		}
+		if rows != open {
+			t.Errorf("open outlier rows: %d != %d", rows, open)
+		}
+		if want := fmt.Sprintf("%d ", held); !strings.HasPrefix(summary, want) {
+			t.Errorf("held summary %q does not begin with %q", summary, want)
+		}
+		t.Logf("open %d held %d total %d", open, held, len(resp.Outliers))
+	})
+
 	t.Run("trigger flow", func(t *testing.T) {
 		log.setRoute("trigger")
 		before := len(scans)
