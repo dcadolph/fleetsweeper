@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
@@ -420,5 +424,68 @@ func TestTouchAPIKeyDebounced(t *testing.T) {
 	defer counter.mu.Unlock()
 	if got := counter.touches["key_a"]; got != 2 {
 		t.Errorf("after the interval: want 2 touches of key_a, got %d", got)
+	}
+}
+
+// errGroupLookup is the failure injected by groupStoreMock in lookup tests.
+var errGroupLookup = errors.New("group lookup boom")
+
+// groupStoreMock returns configurable values from GetGroup.
+type groupStoreMock struct {
+	store.Store
+	// Group is the record GetGroup returns.
+	Group *store.GroupRecord
+	// Err is the error GetGroup returns.
+	Err error
+}
+
+// GetGroup returns the configured record and error.
+func (m groupStoreMock) GetGroup(context.Context, string) (*store.GroupRecord, error) {
+	return m.Group, m.Err
+}
+
+// TestGroupLookup covers found, missing, failed, and nil group lookups.
+func TestGroupLookup(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Group           *store.GroupRecord
+		Err             error
+		WantClusters    []string
+		WantErrorLogs   int
+		WantAllowsGroup bool
+	}{{ // Test 0: Found group returns its clusters.
+		Group:        &store.GroupRecord{Clusters: []string{"a", "b"}},
+		WantClusters: []string{"a", "b"}, WantAllowsGroup: true,
+	}, { // Test 1: ErrNotFound returns nil without an error log.
+		Err: store.ErrNotFound,
+	}, { // Test 2: Other error returns nil and logs at error level.
+		Err: errGroupLookup, WantErrorLogs: 1,
+	}, { // Test 3: Nil record returns nil.
+		Group: nil,
+	}, { // Test 4: Wrapped ErrNotFound returns nil without an error log.
+		Err: fmt.Errorf("get: %w", store.ErrNotFound),
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			core, logs := observer.New(zapcore.DebugLevel)
+			srv := &Server{
+				store: groupStoreMock{Group: test.Group, Err: test.Err},
+				log:   zap.New(core),
+			}
+			lookup := srv.groupLookup(context.Background())
+			got := lookup("g")
+			if diff := cmp.Diff(test.WantClusters, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("clusters mismatch (-want +got):\n%s", diff)
+			}
+			errLogs := logs.FilterLevelExact(zapcore.ErrorLevel).Len()
+			if errLogs != test.WantErrorLogs {
+				t.Errorf("error logs = %d, want %d", errLogs, test.WantErrorLogs)
+			}
+			actor := &Actor{ClusterScope: []string{"group:g"}}
+			if allowed := actor.AllowsCluster("a", lookup); allowed != test.WantAllowsGroup {
+				t.Errorf("AllowsCluster = %v, want %v", allowed, test.WantAllowsGroup)
+			}
+		})
 	}
 }
