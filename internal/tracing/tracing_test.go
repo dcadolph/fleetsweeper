@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 // TestInit_NoEndpoint_IsNoOp confirms that without an OTLP endpoint the
@@ -116,33 +118,51 @@ func TestMeterAlwaysSafe(t *testing.T) {
 	}
 }
 
-// TestHasEndpoint covers the env-var detection branches.
+// TestHasEndpoint covers the env-var detection branches. Subtests set environment variables,
+// so they cannot run in parallel.
 func TestHasEndpoint(t *testing.T) {
 	tests := []struct {
-		Name string
-		Env  map[string]string
-		Want bool
-	}{
-		{"neither set", map[string]string{
-			"OTEL_EXPORTER_OTLP_ENDPOINT":        "",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "",
-		}, false},
-		{"generic set", map[string]string{
-			"OTEL_EXPORTER_OTLP_ENDPOINT":        "http://otel:4318",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "",
-		}, true},
-		{"traces-specific set", map[string]string{
-			"OTEL_EXPORTER_OTLP_ENDPOINT":        "",
-			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://otel:4318/v1/traces",
-		}, true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.Name, func(t *testing.T) {
-			for k, v := range tc.Env {
+		Env        map[string]string
+		WantTrace  bool
+		WantMetric bool
+	}{{ // Test 0: Nothing set.
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		},
+	}, { // Test 1: Generic endpoint set.
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "http://otel:4318",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		},
+		WantTrace: true, WantMetric: true,
+	}, { // Test 2: Traces-specific endpoint set.
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "http://otel:4318/v1/traces",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		},
+		WantTrace: true,
+	}, { // Test 3: Metrics-specific endpoint set.
+		Env: map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+			"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+			"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://otel:4318/v1/metrics",
+		},
+		WantMetric: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			for k, v := range test.Env {
 				t.Setenv(k, v)
 			}
-			if got := hasEndpoint(); got != tc.Want {
-				t.Errorf("hasEndpoint: want %v, got %v", tc.Want, got)
+			if diff := cmp.Diff(test.WantTrace, hasTraceEndpoint()); diff != "" {
+				t.Errorf("hasTraceEndpoint mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantMetric, hasMetricEndpoint()); diff != "" {
+				t.Errorf("hasMetricEndpoint mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
