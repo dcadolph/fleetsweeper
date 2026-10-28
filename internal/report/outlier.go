@@ -262,7 +262,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		if m == nil {
 			continue
 		}
-		v, ok := toOptionalFloat64(m[field])
+		v, ok := util.Float64(m[field])
 		if !ok {
 			continue
 		}
@@ -275,7 +275,7 @@ func detectNumericOutliers(clusters []string, flat map[string]map[string]any, fi
 		return nil, nil
 	}
 
-	median := computeMedian(vals)
+	median := util.Median(vals)
 	mad := computeMAD(vals, median)
 	dist := &Distribution{
 		Kind:       NormKindNumeric,
@@ -749,37 +749,11 @@ func isArrayInFlat(clusters []string, flat map[string]map[string]any, field stri
 	return sawArray
 }
 
-// toOptionalFloat64 attempts to convert a value to float64.
-func toOptionalFloat64(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	default:
-		return 0, false
-	}
-}
-
-// computeMedian returns the median of a sorted copy of vals.
-func computeMedian(vals []float64) float64 {
-	sorted := make([]float64, len(vals))
-	copy(sorted, vals)
-	sort.Float64s(sorted)
-	n := len(sorted)
-	if n%2 == 0 {
-		return (sorted[n/2-1] + sorted[n/2]) / 2
-	}
-	return sorted[n/2]
-}
-
 // computeMAD returns the median absolute deviation from the median.
 func computeMAD(vals []float64, median float64) float64 {
 	deviations := make([]float64, len(vals))
 	for i, v := range vals {
 		deviations[i] = math.Abs(v - median)
 	}
-	return computeMedian(deviations)
+	return util.Median(deviations)
 }

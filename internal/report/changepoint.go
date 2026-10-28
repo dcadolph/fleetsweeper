@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // minSelfDriftBaseline is the minimum number of historical points required
@@ -75,7 +77,7 @@ func DetectSelfDrift(cluster string, scans []ScanMeta, resultsByScan map[string]
 			continue
 		}
 
-		med := computeMedian(vals[:k])
+		med := util.Median(vals[:k])
 		mad := computeMAD(vals[:k], med)
 		recentMean := meanFloat(vals[k:])
 
@@ -138,7 +140,7 @@ func seriesFor(scanner, field string, scans []ScanMeta, resultsByScan map[string
 		if !ok {
 			continue
 		}
-		v, ok := toOptionalFloat64(scannerData[field])
+		v, ok := util.Float64(scannerData[field])
 		if !ok {
 			continue
 		}

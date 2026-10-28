@@ -964,7 +964,7 @@ func topEventReasons(r *Report, cluster string, n int) []string {
 			continue
 		}
 		reason, _ := entry["reason"].(string)
-		count := toFloat64(entry["count"])
+		count, _ := util.Float64(entry["count"])
 		if reason == "" {
 			continue
 		}
@@ -1042,7 +1042,8 @@ func countNonSystemNamespaces(r *Report, cluster string) int {
 		}
 		return count
 	}
-	return int(toFloat64(m["count"]))
+	count, _ := util.Float64(m["count"])
+	return int(count)
 }
 
 // rbacFindings emits a fleet-level warning when RBAC objects diverge.
@@ -1441,7 +1442,8 @@ func certFindings(r *Report) []Finding {
 			name, _ := entry["name"].(string)
 			ns, _ := entry["namespace"].(string)
 			kind, _ := entry["kind"].(string)
-			days := int(toFloat64(entry["days_remaining"]))
+			remaining, _ := util.Float64(entry["days_remaining"])
+			days := int(remaining)
 			label := name
 			if ns != "" {
 				label = ns + "/" + name
@@ -1502,7 +1504,8 @@ func vulnerabilityFindings(r *Report) []Finding {
 		if available, _ := m["available"].(bool); !available {
 			continue
 		}
-		critical := int(toFloat64(m["critical"]))
+		count, _ := util.Float64(m["critical"])
+		critical := int(count)
 		if critical <= 0 {
 			continue
 		}
@@ -1510,11 +1513,15 @@ func vulnerabilityFindings(r *Report) []Finding {
 		raw, _ := m["top_images"].([]any)
 		for _, item := range raw {
 			img, ok := item.(map[string]any)
-			if !ok || toFloat64(img["critical"]) <= 0 {
+			if !ok {
+				continue
+			}
+			imgCritical, _ := util.Float64(img["critical"])
+			if imgCritical <= 0 {
 				continue
 			}
 			name, _ := img["image"].(string)
-			images = append(images, fmt.Sprintf("%s (%d critical)", name, int(toFloat64(img["critical"]))))
+			images = append(images, fmt.Sprintf("%s (%d critical)", name, int(imgCritical)))
 		}
 		findings = append(findings, Finding{
 			Rule:        "vulnerabilities/critical-present",
@@ -1559,7 +1566,8 @@ func deprecatedAPIFindings(r *Report) []Finding {
 			apiVersion, _ := entry["api_version"].(string)
 			kind, _ := entry["kind"].(string)
 			removedIn, _ := entry["removed_in"].(string)
-			instanceCount := int(toFloat64(entry["instance_count"]))
+			instances, _ := util.Float64(entry["instance_count"])
+			instanceCount := int(instances)
 			affected = append(affected, fmt.Sprintf("%s %s (%d instances, removed in %s)", apiVersion, kind, instanceCount, removedIn))
 		}
 		findings = append(findings, Finding{
@@ -1681,7 +1689,8 @@ func admissionFindings(r *Report) []Finding {
 			svc, _ := entry["service"].(string)
 			healthy, _ := entry["endpoints_healthy"].(bool)
 			failurePolicy, _ := entry["failure_policy"].(string)
-			caDays := int(toFloat64(entry["ca_bundle_days_remaining"]))
+			caRemaining, _ := util.Float64(entry["ca_bundle_days_remaining"])
+			caDays := int(caRemaining)
 			label := cfg + "/" + whName
 			if !healthy && svc != "" {
 				unhealthy = append(unhealthy, fmt.Sprintf("%s (service %s, failurePolicy=%s)", label, svc, failurePolicy))
@@ -1915,10 +1924,12 @@ func getStringField(r *Report, scannerName, cluster, field string) string {
 
 // getIntField extracts an integer field from a cluster's scanner data.
 func getIntField(r *Report, scannerName, cluster, field string) int {
-	return int(toFloat64(clusterData(r, scannerName, cluster)[field]))
+	n, _ := util.Float64(clusterData(r, scannerName, cluster)[field])
+	return int(n)
 }
 
 // getMetricsFloat extracts a float field from a cluster's metrics scanner data.
 func getMetricsFloat(r *Report, cluster, field string) float64 {
-	return toFloat64(clusterData(r, "metrics", cluster)[field])
+	n, _ := util.Float64(clusterData(r, "metrics", cluster)[field])
+	return n
 }

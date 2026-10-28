@@ -11,6 +11,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 func TestDetectOutliers(t *testing.T) {
@@ -288,7 +289,7 @@ func TestComputeMedianMAD(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			med := computeMedian(test.Values)
+			med := util.Median(test.Values)
 			if diff := cmp.Diff(test.WantMedian, med, cmpopts.EquateApprox(0, 1e-9)); diff != "" {
 				t.Errorf("median mismatch (-want +got):\n%s", diff)
 			}

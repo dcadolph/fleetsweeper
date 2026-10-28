@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // Capacity status values assigned by AnalyzeCapacity.
@@ -305,8 +307,8 @@ func groupComparison(cluster, groupName string, peers []string, signals map[stri
 		return ""
 	}
 
-	peerMem50 := computeMedian(peerMem)
-	peerCPU50 := computeMedian(peerCPU)
+	peerMem50 := util.Median(peerMem)
+	peerCPU50 := util.Median(peerCPU)
 
 	memDiff := sig.memPct - peerMem50
 	cpuDiff := sig.cpuPct - peerCPU50

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // minMajoritySample is the smallest population the leave-one-out majority
@@ -83,7 +85,7 @@ func majorityNumericDistribution(clusters []string, flat map[string]map[string]a
 	var vals []float64
 	var values []ClusterValue
 	for _, c := range clusters {
-		v, ok := toOptionalFloat64(flat[c][field])
+		v, ok := util.Float64(flat[c][field])
 		if !ok {
 			continue
 		}
@@ -93,7 +95,7 @@ func majorityNumericDistribution(clusters []string, flat map[string]map[string]a
 	if len(vals) < minMajoritySample || len(vals) >= minMADSample {
 		return nil
 	}
-	m := computeMedian(vals)
+	m := util.Median(vals)
 	d := computeMAD(vals, m)
 	dist := &Distribution{
 		Kind: NormKindNumeric, Values: values, Median: m, MAD: d, Threshold: threshold,
@@ -153,7 +155,7 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 	var names []string
 	var vals []float64
 	for _, c := range clusters {
-		v, ok := toOptionalFloat64(flat[c][field])
+		v, ok := util.Float64(flat[c][field])
 		if !ok {
 			continue
 		}
@@ -169,7 +171,7 @@ func majorityNumericOutlier(clusters []string, flat map[string]map[string]any, f
 		others := make([]float64, 0, len(vals)-1)
 		others = append(others, vals[:i]...)
 		others = append(others, vals[i+1:]...)
-		m := computeMedian(others)
+		m := util.Median(others)
 		d := computeMAD(others, m)
 		if !withinBand(others, m, d) {
 			continue

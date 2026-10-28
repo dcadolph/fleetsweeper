@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // TrendDirection indicates whether a metric is improving, worsening, or stable.
@@ -113,7 +114,7 @@ func ComputeClusterTrends(cluster string, scans []ScanMeta, resultsByScan map[st
 			if !ok {
 				continue
 			}
-			v, ok := toOptionalFloat64(scannerData[tf.Field])
+			v, ok := util.Float64(scannerData[tf.Field])
 			if !ok {
 				continue
 			}

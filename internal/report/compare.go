@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 // setFields are field names known to contain lists that should be compared as sets.
@@ -158,7 +160,7 @@ func compareNumericField(clusters []string, flat map[string]map[string]any, fiel
 			uniform = false
 			continue
 		}
-		n := toFloat64(m[field])
+		n, _ := util.Float64(m[field])
 		nums[cluster] = n
 		values[cluster] = formatNum(n)
 		if first {
@@ -274,20 +276,6 @@ func compareSetField(clusters []string, flat map[string]map[string]any, field st
 	}
 
 	return &Divergence{Field: field, Values: values}
-}
-
-// toFloat64 converts a JSON number to float64.
-func toFloat64(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int:
-		return float64(n)
-	case int64:
-		return float64(n)
-	default:
-		return 0
-	}
 }
 
 // formatNum formats a number, dropping the decimal for whole numbers.
