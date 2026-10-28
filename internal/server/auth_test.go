@@ -489,3 +489,13 @@ func TestGroupLookup(t *testing.T) {
 		})
 	}
 }
+
+// TestActorFromContext_Fallback verifies a context without an actor yields the
+// deny-all default rather than nil.
+func TestActorFromContext_Fallback(t *testing.T) {
+	t.Parallel()
+	a := actorFromContext(context.Background())
+	if a == nil || a.ID != "unknown" || a.Role != store.RoleViewer {
+		t.Errorf("expected deny-all default, got %+v", a)
+	}
+}

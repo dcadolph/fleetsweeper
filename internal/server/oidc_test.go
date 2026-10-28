@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -342,5 +343,80 @@ func TestHandleOIDCCallback(t *testing.T) {
 				t.Errorf("session mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestOIDCHandlers_NotConfigured verifies the login and callback handlers
+// report 404 when OIDC is not configured, and logout always redirects.
+func TestOIDCHandlers_NotConfigured(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t) // oidc is nil in the default test server.
+
+	login := httptest.NewRequest(http.MethodGet, "/oidc/login", nil)
+	lw := httptest.NewRecorder()
+	srv.handleOIDCLogin(lw, login)
+	if lw.Code != http.StatusNotFound {
+		t.Errorf("login: want 404, got %d", lw.Code)
+	}
+
+	cb := httptest.NewRequest(http.MethodGet, "/oidc/callback", nil)
+	cw := httptest.NewRecorder()
+	srv.handleOIDCCallback(cw, cb)
+	if cw.Code != http.StatusNotFound {
+		t.Errorf("callback: want 404, got %d", cw.Code)
+	}
+
+	out := httptest.NewRequest(http.MethodGet, "/oidc/logout", nil)
+	ow := httptest.NewRecorder()
+	srv.handleOIDCLogout(ow, out)
+	if ow.Code != http.StatusFound {
+		t.Errorf("logout: want 302, got %d", ow.Code)
+	}
+}
+
+// TestStringClaim covers the typed-claim extraction helper.
+func TestStringClaim(t *testing.T) {
+	t.Parallel()
+	claims := map[string]any{"email": "a@b.co", "count": 3}
+	tests := []struct {
+		Name       string
+		Key        string
+		WantResult string
+	}{
+		{Name: "present string", Key: "email", WantResult: "a@b.co"}, // Test 0.
+		{Name: "missing key", Key: "sub", WantResult: ""},            // Test 1.
+		{Name: "non-string", Key: "count", WantResult: ""},           // Test 2.
+	}
+	for i, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			if got := stringClaim(claims, test.Key); got != test.WantResult {
+				t.Errorf("test %d: want %q, got %q", i, test.WantResult, got)
+			}
+		})
+	}
+}
+
+// TestRandomState verifies the state generator returns distinct 32-byte
+// base64url values.
+func TestRandomState(t *testing.T) {
+	t.Parallel()
+	a, err := randomState()
+	if err != nil {
+		t.Fatalf("randomState: %v", err)
+	}
+	b, err := randomState()
+	if err != nil {
+		t.Fatalf("randomState: %v", err)
+	}
+	if a == b {
+		t.Error("two calls should differ")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(a)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(raw) != 32 {
+		t.Errorf("want 32 random bytes, got %d", len(raw))
 	}
 }

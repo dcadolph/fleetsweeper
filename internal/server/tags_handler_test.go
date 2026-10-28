@@ -141,3 +141,50 @@ func TestSetClusterTag_RejectsOutOfScopeActor(t *testing.T) {
 		t.Errorf("want 403, got %d", w.Code)
 	}
 }
+
+// TestHandleSetClusterTag_Validation covers the empty-key and malformed-body
+// branches.
+func TestHandleSetClusterTag_Validation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Name       string
+		Key        string
+		Body       string
+		WantStatus int
+	}{{ // Test 0: Empty key rejected before any store write.
+		Name: "empty key", Key: "", Body: `{"value":"v"}`, WantStatus: http.StatusBadRequest,
+	}, { // Test 1: Malformed JSON body.
+		Name: "bad json", Key: "env", Body: "{", WantStatus: http.StatusBadRequest,
+	}}
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			srv, _ := testServer(t)
+			req := httptest.NewRequest(http.MethodPut,
+				"/api/clusters/east/tags/"+test.Key, strings.NewReader(test.Body))
+			req.SetPathValue("name", "east")
+			req.SetPathValue("key", test.Key)
+			req = req.WithContext(withActor(req.Context(), adminActor()))
+			w := httptest.NewRecorder()
+			srv.handleSetClusterTag(w, req)
+			if w.Code != test.WantStatus {
+				t.Errorf("want %d, got %d", test.WantStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestHandleDeleteClusterTag_EmptyKey verifies the missing-key 400 branch.
+func TestHandleDeleteClusterTag_EmptyKey(t *testing.T) {
+	t.Parallel()
+	srv, _ := testServer(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/clusters/east/tags/", nil)
+	req.SetPathValue("name", "east")
+	req.SetPathValue("key", "")
+	req = req.WithContext(withActor(req.Context(), adminActor()))
+	w := httptest.NewRecorder()
+	srv.handleDeleteClusterTag(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d", w.Code)
+	}
+}
