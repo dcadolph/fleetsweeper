@@ -10,7 +10,8 @@ reconciliation, outbound webhook dispatch). Leader election via
 Leader election runs only when the pod has a service-account token and a
 namespace for the Lease, set with `--leader-namespace` or the
 `$POD_NAMESPACE` environment variable. Otherwise election is skipped and
-every replica runs the scheduler and controller.
+every replica runs the scheduler and controller. A pod that has the token but
+no namespace logs a `leader election skipped` warning at startup.
 
 ```yaml
 leaderElection:

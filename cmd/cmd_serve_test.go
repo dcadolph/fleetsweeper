@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -206,6 +207,40 @@ func TestNewAdmissionProvider(t *testing.T) {
 			}
 			if sp, ok := p.(*admission.StoreBaselineProvider); ok && sp.Depth != test.WantDepth {
 				t.Errorf("Depth = %d, want %d", sp.Depth, test.WantDepth)
+			}
+		})
+	}
+}
+
+// TestLeaderElectionPlan verifies when serve runs leader election and when it warns that it
+// does not.
+func TestLeaderElectionPlan(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		InCluster     bool
+		Namespace     string
+		WantEnabled   bool
+		WantReasonHas string
+	}{{ // Test 0: in a cluster with a namespace, election runs.
+		InCluster: true, Namespace: "fleetsweeper", WantEnabled: true,
+	}, { // Test 1: in a cluster without a namespace, election is off with a reason.
+		InCluster: true, WantReasonHas: "POD_NAMESPACE",
+	}, { // Test 2: out of a cluster, election is off without a warning.
+		Namespace: "fleetsweeper",
+	}, { // Test 3: out of a cluster with no namespace, still no warning.
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			enabled, reason := leaderElectionPlan(test.InCluster, test.Namespace)
+			if diff := cmp.Diff(test.WantEnabled, enabled); diff != "" {
+				t.Errorf("enabled mismatch (-want +got):\n%s", diff)
+			}
+			if test.WantReasonHas == "" && reason != "" {
+				t.Errorf("want no reason, got %q", reason)
+			}
+			if !strings.Contains(reason, test.WantReasonHas) {
+				t.Errorf("reason %q does not name %q", reason, test.WantReasonHas)
 			}
 		})
 	}

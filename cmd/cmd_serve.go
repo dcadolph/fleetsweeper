@@ -189,7 +189,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if leaderNamespace == "" {
 		leaderNamespace = os.Getenv("POD_NAMESPACE")
 	}
-	useLeader := leaderEnabled && kube.InCluster() && leaderNamespace != ""
+	var useLeader bool
+	if leaderEnabled {
+		var reason string
+		useLeader, reason = leaderElectionPlan(kube.InCluster(), leaderNamespace)
+		if reason != "" {
+			log.Warn("leader election skipped", zap.String("reason", reason))
+		}
+	}
 
 	startSideEffects := func(leaderCtx context.Context) {
 		if scanInterval > 0 {
@@ -312,6 +319,21 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		runErr = fmt.Errorf("shutdown: %w", err)
 	}
 	return runErr
+}
+
+// leaderElectionPlan reports whether serve runs leader election. In a cluster without a Lease
+// namespace election is off and reason says why, because every replica then runs scheduled work.
+// Outside a cluster election is off with no reason, since a single process needs none.
+func leaderElectionPlan(inCluster bool, namespace string) (enabled bool, reason string) {
+	switch {
+	case !inCluster:
+		return false, ""
+	case namespace == "":
+		return false, "no Lease namespace: set --leader-namespace or POD_NAMESPACE, " +
+			"or every replica runs scheduled scans and webhooks"
+	default:
+		return true, ""
+	}
 }
 
 // campaign runs one leader election term after another until ctx is canceled. Each term's
