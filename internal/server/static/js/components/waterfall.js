@@ -4,7 +4,7 @@
 
 import { esc, token } from '../dom.js';
 import { makeChart } from '../charts.js';
-import { fmt } from '../viz.js';
+import { num, fixed } from '../format.js';
 
 // hatch returns a diagonal-line canvas pattern in color.
 function hatch(color) {
@@ -41,8 +41,8 @@ export function renderWaterfall(attribution) {
   return '<div class="g g2"><div class="chc"><h4>Where the points went</h4><div class="chart-260"><canvas id="wfChart"></canvas></div>' +
     '<p class="note mt-4">Hatched bars are cost a cap forgave. Click a findings bar to list those findings.</p></div>' +
     '<div class="chc"><h4>Rules that cost the most</h4>' + (rules.length
-      ? '<div class="rule-bars">' + rules.map(([rule, cost]) => `<button class="rule-bar" data-action="rule-findings" data-rule="${esc(rule)}" data-tip="${esc(fmt(cost))} points">` +
-        `<span class="ellipsis">${esc(rule)}</span><span class="rule-fill" style="--w:${Math.max(2, (cost / rules[0][1]) * 100).toFixed(0)}%"></span><span class="mono">${esc(fmt(cost))}</span></button>`).join('') + '</div>'
+      ? '<div class="rule-bars">' + rules.map(([rule, cost]) => `<button class="rule-bar" data-action="rule-findings" data-rule="${esc(rule)}" data-tip="${esc(num(cost))} points">` +
+        `<span class="ellipsis">${esc(rule)}</span><span class="rule-fill" style="--w:${fixed(Math.max(2, (cost / rules[0][1]) * 100), 0)}%"></span><span class="mono">${esc(num(cost))}</span></button>`).join('') + '</div>'
       : '<div class="empty">No rule costs points.</div>') + '</div></div>';
 }
 
@@ -71,8 +71,8 @@ export function mountWaterfall(attribution, score, onTerm) {
           callbacks: {
             label: (c) => {
               const s = steps[c.dataIndex];
-              if (c.datasetIndex === 1) return 'forgiven by a cap: ' + fmt(s.forgiven[0] - s.forgiven[1]) + ' points';
-              return s.term === 'score' ? 'score ' + s.cost : '-' + fmt(s.cost) + ' points';
+              if (c.datasetIndex === 1) return 'forgiven by a cap: ' + num(s.forgiven[0] - s.forgiven[1]) + ' points';
+              return s.term === 'score' ? 'score ' + s.cost : '-' + num(s.cost) + ' points';
             },
           },
         },

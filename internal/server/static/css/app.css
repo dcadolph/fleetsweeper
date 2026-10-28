@@ -107,7 +107,6 @@ input[type=text], input[type=search], input[type=number], input:not([type]), sel
   color: var(--text-1);
   font-size: var(--fs-12);
   font-family: inherit;
-  outline: none;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 ::placeholder { color: var(--text-3); }
@@ -218,6 +217,25 @@ h4 { font-size: var(--fs-14); font-weight: 600; }
 .note { font-size: var(--fs-12); color: var(--text-3); }
 .empty { text-align: center; color: var(--text-2); padding: 32px; font-size: var(--fs-14); }
 .loading { text-align: center; color: var(--text-2); padding: 40px; }
+.empty-more { margin-top: 8px; font-size: var(--fs-12); color: var(--text-3); }
+
+/* Loading skeletons: blocks sized like the content that replaces them, so
+   first paint does not jump when the data arrives. */
+.skeleton { display: flex; flex-direction: column; gap: 16px; }
+.skel { background: var(--surface-2); border-radius: var(--radius-2); }
+.skel-h { width: 240px; height: 28px; }
+.skel-sub { width: 420px; max-width: 80%; height: 16px; margin-top: -8px; }
+.skel-row { height: 180px; }
+.skel-bar { height: 32px; width: 60%; }
+.skel-line { height: 64px; }
+.skel-panel { height: 220px; }
+.skel-table { height: 320px; }
+.skel-grid { height: 560px; }
+.skel-map { height: 600px; }
+@media (prefers-reduced-motion: no-preference) {
+  .skel { animation: skel-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes skel-pulse { 50% { opacity: 0.55; } }
 
 /* Grids */
 .g { display: grid; gap: 10px; margin-bottom: 14px; }

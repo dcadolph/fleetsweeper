@@ -2,7 +2,8 @@
 // chronic ones.
 
 import { api } from '../api.js';
-import { esc, sevTone, token, byId } from '../dom.js';
+import { esc, sevTone, token, byId, emptyState } from '../dom.js';
+import { dateTime } from '../format.js';
 import { renderBar } from '../shell.js';
 import { makeChart } from '../charts.js';
 import { onLeave } from '../router.js';
@@ -19,7 +20,7 @@ export async function renderReplay() {
   }
   const pts = (tl && tl.points) || [];
   if (pts.length < 2) {
-    return '<div class="panel"><h2>Drift replay</h2><p class="sub">Not enough scan history to replay yet. Drift replay needs at least two scans. Run more scans and check back.</p></div>';
+    return '<h2>Drift replay</h2>' + emptyState('Drift replay needs at least two scans, and there are ' + pts.length + ' so far.');
   }
   const sets = pts.map((p) => {
     const m = {};
@@ -104,7 +105,7 @@ function wire(pts, sets, pers) {
 
   const paint = () => {
     const p = pts[cur];
-    stamp.textContent = 'Scan ' + (cur + 1) + ' of ' + pts.length + ' · ' + new Date(p.timestamp).toLocaleString();
+    stamp.textContent = 'Scan ' + (cur + 1) + ' of ' + pts.length + ' · ' + dateTime(p.timestamp);
     idxLabel.textContent = '· ' + p.total + ' findings';
     const prev = cur > 0 ? sets[cur - 1] : {};
     const now = sets[cur];

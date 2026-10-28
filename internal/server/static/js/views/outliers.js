@@ -2,7 +2,8 @@
 // in fleet or cohort scope, then the outlier table and its findings.
 
 import { api } from '../api.js';
-import { esc, clusterHref, sevTone, byId } from '../dom.js';
+import { esc, clusterHref, sevTone, byId, emptyState } from '../dom.js';
+import { fixed } from '../format.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
 import { renderStrips } from '../components/strip.js';
@@ -14,6 +15,8 @@ let scope = 'fleet';
 // table for the latest scan.
 export async function renderOutliers() {
   renderBar();
+  const scans = await api('/scans?limit=1');
+  if (!scans || !scans.length) return emptyState('No scans yet, so there is no norm to measure clusters against.');
   const [data, cohorts] = await Promise.all([api('/outliers'), api('/cohorts').catch(() => ({ cohorts: [] }))]);
   const scopes = ['fleet'].concat((cohorts.cohorts || []).filter((c) => c.outliers && c.outliers.length).map((c) => c.name));
   if (!scopes.includes(scope)) scope = 'fleet';
@@ -30,7 +33,7 @@ export async function renderOutliers() {
     data.outliers.forEach((o) => {
       h += `<tr><td class="c-${sevTone(o.severity)}">${esc(o.severity)}</td><td class="fw-500"><a href="${esc(clusterHref(o.cluster))}">${esc(o.cluster)}</a></td>` +
         `<td>${esc(o.scanner)}</td><td>${esc(o.field)}</td><td class="mono">${esc(o.value)}</td><td class="mono">${esc(o.fleet_norm)}</td>` +
-        `<td class="mono">${o.deviation ? o.deviation.toFixed(1) : ''}</td></tr>`;
+        `<td class="mono">${o.deviation ? fixed(o.deviation, 1) : ''}</td></tr>`;
     });
     h += '</tbody></table></div>';
   }

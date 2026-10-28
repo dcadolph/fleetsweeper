@@ -134,3 +134,59 @@ func TestNoInlineHandlers(t *testing.T) {
 		t.Errorf("modules carry %d style attributes, want fewer than 20", styles)
 	}
 }
+
+// TestFormattingCentralized verifies no module but format.js formats a number
+// or date itself, so every value reads the same wherever it appears.
+func TestFormattingCentralized(t *testing.T) {
+	t.Parallel()
+	direct := regexp.MustCompile(`\.toFixed\(|\.toLocale(?:Date|Time)?String\(|Intl\.(?:NumberFormat|DateTimeFormat)`)
+	for _, p := range staticFiles(t, ".js") {
+		if !strings.HasPrefix(p, "js/") || p == "js/format.js" {
+			continue
+		}
+		src, err := fs.ReadFile(staticFS, "static/"+p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			if m := direct.FindString(line); m != "" {
+				t.Errorf("%s:%d calls %s directly, use format.js", p, i+1, m)
+			}
+		}
+	}
+}
+
+// TestSkeletonPerRoute verifies every route names a loading skeleton that
+// dom.js defines, so no page falls back to a placeholder of the wrong shape.
+func TestSkeletonPerRoute(t *testing.T) {
+	t.Parallel()
+	routes, err := fs.ReadFile(staticFS, "static/js/routes.js")
+	if err != nil {
+		t.Fatalf("read routes: %v", err)
+	}
+	dom, err := fs.ReadFile(staticFS, "static/js/dom.js")
+	if err != nil {
+		t.Fatalf("read dom: %v", err)
+	}
+	block := regexp.MustCompile(`(?s)const SKELETONS = \{(.*?)\n\};`).FindSubmatch(dom)
+	if block == nil {
+		t.Fatal("dom.js has no SKELETONS table")
+	}
+	kinds := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s+(\w+): \[`).FindAllSubmatch(block[1], -1) {
+		kinds[string(m[1])] = true
+	}
+	ids := regexp.MustCompile(`\{ id: '(\w+)'[^\n]*`).FindAllSubmatch(routes, -1)
+	if len(ids) == 0 {
+		t.Fatal("routes.js lists no routes")
+	}
+	for _, m := range ids {
+		sk := regexp.MustCompile(`skeleton: '(\w+)'`).FindSubmatch(m[0])
+		switch {
+		case sk == nil:
+			t.Errorf("route %s names no skeleton", m[1])
+		case !kinds[string(sk[1])]:
+			t.Errorf("route %s names skeleton %q, which dom.js does not define", m[1], sk[1])
+		}
+	}
+}

@@ -1,7 +1,8 @@
 // Scan history and the report of one stored scan.
 
 import { api, scannerLabel } from '../api.js';
-import { esc, scanHref, clusterHref, statusTone, sevTone, byId } from '../dom.js';
+import { esc, scanHref, clusterHref, statusTone, sevTone, byId, emptyState } from '../dom.js';
+import { dateTime } from '../format.js';
 import { TIPS, tip } from '../glossary.js';
 import { renderBar } from '../shell.js';
 import { renderFinding } from '../components/finding.js';
@@ -15,10 +16,10 @@ export async function renderScans() {
   renderBar();
   const scans = await api('/scans?limit=50');
   let h = '<h2>Scan history</h2>';
-  if (!scans || !scans.length) return h + '<div class="empty">No scans recorded.</div>';
+  if (!scans || !scans.length) return h + emptyState('No scans recorded yet, so the history starts with the first one.');
   scans.forEach((s) => {
     h += `<div class="si"><div><a class="mono" href="${esc(scanHref(s.id))}">${esc(s.id)}</a><br>` +
-      `<span class="meta">${esc(new Date(s.timestamp).toLocaleString())} &middot; ${s.clusters ? s.clusters.length : 0} clusters &middot; ${s.scanners ? s.scanners.length : 0} scanners</span></div></div>`;
+      `<span class="meta">${esc(dateTime(s.timestamp))} &middot; ${s.clusters ? s.clusters.length : 0} clusters &middot; ${s.scanners ? s.scanners.length : 0} scanners</span></div></div>`;
   });
   return h;
 }
@@ -27,9 +28,15 @@ export async function renderScans() {
 // P.scanId.
 export async function renderScanReport() {
   renderBar();
-  const rpt = await api('/scans/' + encodeURIComponent(P.scanId) + '/report');
-  lastScanReport = rpt;
   let h = '<a class="back" href="#/scans">&larr; Back to scan history</a>';
+  let rpt;
+  try {
+    rpt = await api('/scans/' + encodeURIComponent(P.scanId) + '/report');
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    return h + '<h2>Scan report</h2>' + emptyState('No stored scan has this ID, so it may have aged out of the history.');
+  }
+  lastScanReport = rpt;
   h += `<h2>Scan report</h2><p class="sub">${esc(rpt.timestamp)} &middot; ${rpt.clusters.length} clusters</p>`;
   if (rpt.brief && rpt.brief.headline) {
     h += '<div class="panel"><div class="eyebrow mb-4">Scan summary</div>' +

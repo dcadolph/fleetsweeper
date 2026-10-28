@@ -3,7 +3,8 @@
 // day-night terminator.
 
 import { api } from '../api.js';
-import { esc, byId, toneColor, statusTone } from '../dom.js';
+import { esc, byId, toneColor, statusTone, emptyState } from '../dom.js';
+import { fixed } from '../format.js';
 import { renderBar } from '../shell.js';
 import { nav, onLeave } from '../router.js';
 import { on, onChange } from '../actions.js';
@@ -57,6 +58,11 @@ export function ringColor(d) {
 
 // renderGlobe builds the page shell; initGlobe mounts the scene.
 export async function renderGlobe() {
+  const scans = await api('/scans?limit=1');
+  if (!scans || !scans.length) {
+    renderBar('');
+    return emptyState('No scans yet, so there are no clusters to place on the globe.');
+  }
   renderBar('<input type="search" class="input-w" placeholder="Search clusters..." data-change="globe-search" aria-label="Search clusters">' +
     '<button class="btn" data-action="globe-tour" id="globeTourBtn">Tour critical</button>' +
     `<button class="btn" data-action="globe-rotate" id="globeRotateBtn">${state.autoRotate ? 'Pause rotation' : 'Resume rotation'}</button>`);
@@ -115,7 +121,8 @@ async function initGlobe() {
     byId('globe-unlocated').textContent = 'Unplaced: ' + unlocated.slice(0, 10).join(', ') + (unlocated.length > 10 ? ' (and ' + (unlocated.length - 10) + ' more)' : '');
   }
   if (!resp || !resp.points || !resp.points.length) {
-    wrap.innerHTML = '<div class="empty">No clusters with locations. Run <code>fleetsweeper location set &lt;cluster&gt; --lat X --lng Y --site "..."</code> or scan a cluster with cloud region labels.</div>';
+    wrap.innerHTML = emptyState('No cluster has a location yet, so the globe has nothing to place.',
+      'Run <code>fleetsweeper location set &lt;cluster&gt; --lat X --lng Y --site "..."</code> or scan a cluster with cloud region labels.');
     return;
   }
   const pts = resp.points;
@@ -139,7 +146,7 @@ async function initGlobe() {
         (d.region ? `<div class="c-t2">${esc(d.region)}${d.provider ? ' &middot; ' + esc(d.provider) : ''}</div>` : '') +
         (d.critical ? `<div class="c-crit">${d.critical} critical</div>` : '') +
         (d.warning ? `<div class="c-warn">${d.warning} warning</div>` : '') +
-        `<div class="c-t2">deviation ${(d.mass || 0).toFixed(1)}${d.fields ? ' &middot; ' + d.fields + ' field' + (d.fields === 1 ? '' : 's') + ' outside the norm' : ''}</div></div>`)
+        `<div class="c-t2">deviation ${fixed(d.mass || 0, 1)}${d.fields ? ' &middot; ' + d.fields + ' field' + (d.fields === 1 ? '' : 's') + ' outside the norm' : ''}</div></div>`)
       .onPointClick((d) => selectCluster(d.cluster))
       .ringColor(ringColor)
       .ringMaxRadius('maxR').ringPropagationSpeed('propagationSpeed').ringRepeatPeriod('repeatPeriod')

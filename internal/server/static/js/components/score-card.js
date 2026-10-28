@@ -3,8 +3,8 @@
 // last scan with the next scan's projection folded in, and the scan's counts.
 // Each number appears once; the ledger behind the score folds away below.
 
-import { esc, humanAgo } from '../dom.js';
-import { fmt } from '../viz.js';
+import { esc } from '../dom.js';
+import { num, fixed, ago } from '../format.js';
 
 // TERM_LABELS names each score term without its count, so a count shown
 // elsewhere on the page is not repeated in a chip.
@@ -40,11 +40,11 @@ export function moveLine(score, prev, forecast) {
     const tone = d > 0 ? 'ok' : d < 0 ? 'crit' : 't2';
     const arrow = d > 0 ? '&#9650;' : d < 0 ? '&#9660;' : '&#8211;';
     const text = d === 0 ? 'unchanged' : (d > 0 ? 'up ' : 'down ') + Math.abs(d);
-    parts.push(`<span class="c-${tone}" data-tip="Against the previous scan${prev.ts ? ' at ' + esc(prev.ts) : ''}">${arrow} ${text}${prev.ts ? ' since ' + esc(humanAgo(prev.ts)) : ''}</span>`);
+    parts.push(`<span class="c-${tone}" data-tip="Against the previous scan${prev.ts ? ' at ' + esc(prev.ts) : ''}">${arrow} ${text}${prev.ts ? ' since ' + esc(ago(prev.ts)) : ''}</span>`);
   }
   if (forecast && forecast.sufficient && typeof forecast.predicted === 'number') {
     const half = Math.round(Math.max(0, forecast.upper - forecast.lower) / 2);
-    const tipText = `Linear fit over the last ${forecast.basis} scans, R² ${(forecast.r_squared || 0).toFixed(2)}.`;
+    const tipText = `Linear fit over the last ${forecast.basis} scans, R² ${fixed(forecast.r_squared || 0, 2)}.`;
     parts.push(`<span class="c-t2" data-tip="${esc(tipText)}">next scan projected ${forecast.predicted}${half > 0 ? ' ± ' + half : ''}</span>`);
   }
   return parts.length ? `<div class="sc-move">${parts.join('<span class="c-t3"> &middot; </span>')}</div>` : '';
@@ -67,7 +67,7 @@ export function renderScoreCard(fs, attribution, prev, forecast, facts) {
   }
   const chips = topTerms(attribution, 3).map((t) =>
     `<button class="chip chip-btn" data-action="score-term" data-term="${esc(t.term)}" data-tip="${esc(t.reason)}. Click for the findings behind it.">` +
-    `${esc(TERM_LABELS[t.term] || t.reason)} <span class="c-crit fw-600">&minus;${esc(fmt(Math.round(t.cost * 10) / 10))}</span></button>`).join('');
+    `${esc(TERM_LABELS[t.term] || t.reason)} <span class="c-crit fw-600">&minus;${esc(num(Math.round(t.cost * 10) / 10))}</span></button>`).join('');
   const factHTML = (facts || []).map((f) => {
     const inner = `<span class="sc-fact-v">${esc(f.value)}</span><span class="sc-fact-l">${esc(f.label)}</span>`;
     const tipAttr = f.tip ? ` data-tip="${esc(f.tip)}"` : '';

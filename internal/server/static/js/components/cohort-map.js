@@ -3,7 +3,8 @@
 // points the cluster costs, and outliers ringed.
 
 import { esc, clusterHref } from '../dom.js';
-import { linear, hull, cohortTones, fmt } from '../viz.js';
+import { linear, hull, cohortTones } from '../viz.js';
+import { num, coord } from '../format.js';
 
 const W = 640;
 const H = 420;
@@ -31,22 +32,22 @@ export function renderCohortMap(map, costs, outliers, misplaced, tone) {
     const members = placed.filter((p) => p.cohort === c).map((p) => ({ x: p.px, y: p.py }));
     const shape = hull(members);
     if (shape.length >= 3) {
-      svg += `<polygon class="hull ${cohortTone(c)}" points="${shape.map((p) => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ')}"/>`;
+      svg += `<polygon class="hull ${cohortTone(c)}" points="${shape.map((p) => coord(p.x) + ',' + coord(p.y)).join(' ')}"/>`;
     } else if (shape.length === 2) {
-      svg += `<line class="hull-line ${cohortTone(c)}" x1="${shape[0].x.toFixed(1)}" y1="${shape[0].y.toFixed(1)}" x2="${shape[1].x.toFixed(1)}" y2="${shape[1].y.toFixed(1)}"/>`;
+      svg += `<line class="hull-line ${cohortTone(c)}" x1="${coord(shape[0].x)}" y1="${coord(shape[0].y)}" x2="${coord(shape[1].x)}" y2="${coord(shape[1].y)}"/>`;
     }
   });
   const maxCost = Math.max(1, ...placed.map((p) => costs[p.cluster] || 0));
   placed.forEach((p) => {
     const r = 4 + 8 * Math.sqrt((costs[p.cluster] || 0) / maxCost);
-    const peers = (p.peers || []).slice(0, 3).map((x) => x.cluster + ' ' + fmt(x.distance)).join(', ');
-    const tipText = `${p.cluster} · ${p.cohort}${costs[p.cluster] ? ' · costs ' + fmt(costs[p.cluster]) + ' points' : ''}${misplaced[p.cluster] ? ' · resembles ' + misplaced[p.cluster] : ''}${peers ? ' · nearest: ' + peers : ''}`;
+    const peers = (p.peers || []).slice(0, 3).map((x) => x.cluster + ' ' + num(x.distance)).join(', ');
+    const tipText = `${p.cluster} · ${p.cohort}${costs[p.cluster] ? ' · costs ' + num(costs[p.cluster]) + ' points' : ''}${misplaced[p.cluster] ? ' · resembles ' + misplaced[p.cluster] : ''}${peers ? ' · nearest: ' + peers : ''}`;
     svg += `<a href="${esc(clusterHref(p.cluster))}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}">` +
-      `<circle class="pt ${cohortTone(p.cohort)}${outliers.has(p.cluster) ? ' out' : ''}${misplaced[p.cluster] ? ' misplaced' : ''}" cx="${p.px.toFixed(1)}" cy="${p.py.toFixed(1)}" r="${r.toFixed(1)}"/></a>`;
+      `<circle class="pt ${cohortTone(p.cohort)}${outliers.has(p.cluster) ? ' out' : ''}${misplaced[p.cluster] ? ' misplaced' : ''}" cx="${coord(p.px)}" cy="${coord(p.py)}" r="${coord(r)}"/></a>`;
   });
   svg += '</svg>';
   const legend = '<div class="legend">' + cohorts.map((c) => `<span><span aria-hidden="true" class="swatch ${cohortTone(c)}"></span> ${esc(c)}</span>`).join('') +
     '<span><span aria-hidden="true" class="swatch ring-swatch"></span> has an outlier</span><span><span aria-hidden="true" class="swatch dashed-swatch"></span> may be in the wrong cohort</span>' +
-    `<span class="ml-auto">stress ${esc(fmt(map.stress))}${map.stress > 0.2 ? ', a rough picture' : ''}</span></div>`;
+    `<span class="ml-auto">stress ${esc(num(map.stress))}${map.stress > 0.2 ? ', a rough picture' : ''}</span></div>`;
   return svg + legend;
 }

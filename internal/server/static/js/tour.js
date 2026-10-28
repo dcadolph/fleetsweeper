@@ -97,7 +97,7 @@ var STEPS = [
   },
   {
     page: 'manage',
-    selector: '.manage-empty, .manage-grid',
+    selector: '.manage-grid, #ct [data-empty]',
     title: 'Now point it at your real fleet.',
     body: 'Restart with --kubeconfig. Every reachable context shows up here. Click Scan.',
     position: 'left',
