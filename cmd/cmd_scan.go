@@ -45,9 +45,11 @@ import (
 
 var scanCmd = &cobra.Command{
 	Use:   "scan",
-	Short: "Scan clusters and compare configurations",
-	Long:  "Connect to multiple Kubernetes clusters and produce a comparison report highlighting fleet divergence.",
-	RunE:  runScan,
+	Short: "Scan clusters and compare configurations.",
+	Example: "  fleetsweeper scan --all-contexts\n" +
+		"  fleetsweeper scan --contexts prod-east,prod-west --db fleet.db -o html --html-file report.html",
+	Long: "Connect to multiple Kubernetes clusters and produce a comparison report highlighting fleet divergence.",
+	RunE: runScan,
 }
 
 func init() {

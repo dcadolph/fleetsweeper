@@ -16,7 +16,12 @@ stability contract and the GitHub release notes for the full feature list.
 
 ## v0.12.0
 
-No schema migration and no flag changes.
+No schema migration. One flag is renamed.
+
+- **`whatif --scope` is now `whatif --norm`.** The flag picks the norm a fix
+  moves toward (`fleet` or a cohort name). `apikey create --scope` limits
+  what a key can reach, and one name with two meanings read badly. Scripts
+  that pass `whatif --scope` fail with `unknown flag: --scope` until renamed.
 
 - **Cluster-admin bindings are judged by the binding.** rbac-audit used to
   treat any binding to a role labeled `kubernetes.io/bootstrapping` as system.

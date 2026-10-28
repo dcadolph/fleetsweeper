@@ -16,8 +16,9 @@ import (
 // Useful when transitioning from SQLite to Postgres (or vice versa) without
 // hand-rolling pg_dump-and-translate.
 var migrateCmd = &cobra.Command{
-	Use:   "migrate",
-	Short: "Copy data between Fleetsweeper backends",
+	Use:     "migrate",
+	Short:   "Copy data between Fleetsweeper backends.",
+	Example: "  fleetsweeper migrate --from fleet.db --to postgres://fleet@db/fleetsweeper",
 	Long: "Copy every row from a source backend (--from) to a destination\n" +
 		"backend (--to). Both DSNs accept the same format as --db on other\n" +
 		"subcommands. The destination must be a fresh database; migrate\n" +

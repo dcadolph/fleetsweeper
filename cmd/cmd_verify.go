@@ -14,8 +14,9 @@ import (
 // produced at export time. Intended for audit and compliance workflows where a bundle handed
 // over weeks ago must be proven untampered before being acted on.
 var verifyCmd = &cobra.Command{
-	Use:   "verify <bundle.tar.gz>",
-	Short: "Verify the HMAC seal of a fleetsweeper export bundle",
+	Use:     "verify <bundle.tar.gz>",
+	Short:   "Verify the HMAC seal of a fleetsweeper export bundle.",
+	Example: "  fleetsweeper verify scan.tar.gz --seal-key \"$SEAL_KEY\"",
 	Long: "Read a .tar.gz produced by 'fleetsweeper export --seal-key', confirm that " +
 		"MANIFEST.sig is a valid signature of MANIFEST, and check every file in the " +
 		"bundle against the SHA-256 the MANIFEST lists for it. A missing, altered, or " +

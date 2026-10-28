@@ -14,8 +14,9 @@ import (
 // fleetsweeper deployment needs: Helm overrides, an example ClusterScan,
 // and a README walking through the first install.
 var initCmd = &cobra.Command{
-	Use:   "init [path]",
-	Short: "Scaffold a starter deployment folder",
+	Use:     "init [path]",
+	Short:   "Scaffold a starter deployment folder.",
+	Example: "  fleetsweeper init ./fleetsweeper-deploy",
 	Long: "Create a folder containing values.yaml, a sample ClusterScan, and\n" +
 		"a README explaining how to install Fleetsweeper from those files.\n" +
 		"Run with no argument to scaffold into ./fleetsweeper-deploy.",

@@ -16,8 +16,9 @@ import (
 // were fixed. It rebuilds a stored scan with the fix applied and writes
 // nothing.
 var whatifCmd = &cobra.Command{
-	Use:   "whatif",
-	Short: "Project the score and fleet norm if one cluster's field were fixed",
+	Use:     "whatif",
+	Short:   "Project the score and fleet norm if one cluster's field were fixed.",
+	Example: "  fleetsweeper whatif --db fleet.db --cluster c04 --field security/enforced_count",
 	Long: "Rebuilds a stored scan with one cluster's field set to the norm and\n" +
 		"reports the fleet score before and after, how the field's median and\n" +
 		"MAD move, and which other clusters become or stop being outliers once\n" +
@@ -32,7 +33,7 @@ func init() {
 	whatifCmd.Flags().String("cluster", "", "Cluster to fix. Required.")
 	whatifCmd.Flags().String("field", "", "Field to fix as scanner/field, e.g. security/enforced_count. Required.")
 	whatifCmd.Flags().String("fix", "", "Fix kind: median, mode, consensus, or remove. Empty picks the one that fits the field.")
-	whatifCmd.Flags().String("scope", report.NormScopeFleet, "Norm to fix toward: fleet or a cohort name.")
+	whatifCmd.Flags().String("norm", report.NormScopeFleet, "Norm to fix toward: fleet or a cohort name.")
 	whatifCmd.Flags().String("scan-id", "latest", "Scan to project from, or 'latest'.")
 	whatifCmd.Flags().Bool("json", false, "Emit JSON instead of human-readable text.")
 }
@@ -46,7 +47,7 @@ func runWhatif(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--cluster and --field scanner/field are required")
 	}
 	kind, _ := cmd.Flags().GetString("fix")
-	scope, _ := cmd.Flags().GetString("scope")
+	norm, _ := cmd.Flags().GetString("norm")
 	scanID, _ := cmd.Flags().GetString("scan-id")
 	jsonOut, _ := cmd.Flags().GetBool("json")
 
@@ -76,7 +77,7 @@ func runWhatif(cmd *cobra.Command, _ []string) error {
 	}
 	opts.Timestamp = scan.Timestamp
 
-	fix := report.Fix{Cluster: cluster, Scanner: scannerName, Field: fieldName, Kind: kind, Scope: scope}
+	fix := report.Fix{Cluster: cluster, Scanner: scannerName, Field: fieldName, Kind: kind, Scope: norm}
 	out, err := report.WhatIf(scan.Clusters, results, opts, fix)
 	if err != nil {
 		return err

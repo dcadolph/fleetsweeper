@@ -15,8 +15,9 @@ import (
 
 // baselineCmd is the parent command for fleet-baseline operations.
 var baselineCmd = &cobra.Command{
-	Use:   "baseline",
-	Short: "Inspect, export, and diff the fleet admission baseline",
+	Use:     "baseline",
+	Short:   "Inspect, export, and diff the fleet admission baseline.",
+	Example: "  fleetsweeper baseline show --db fleet.db",
 	Long: "The admission baseline is the set of fleet-wide fractions the\n" +
 		"admission webhook compares incoming pods against. This subcommand\n" +
 		"prints, exports, and diffs that baseline so operators can pin and\n" +
@@ -25,25 +26,28 @@ var baselineCmd = &cobra.Command{
 
 // baselineShowCmd prints the current baseline as YAML.
 var baselineShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Print the current admission baseline as YAML",
-	RunE:  runBaselineShow,
+	Use:     "show",
+	Short:   "Print the current admission baseline as YAML.",
+	Example: "  fleetsweeper baseline show --db fleet.db",
+	RunE:    runBaselineShow,
 }
 
 // baselineExportCmd writes the current baseline to a file.
 var baselineExportCmd = &cobra.Command{
-	Use:   "export <path>",
-	Short: "Write the current admission baseline to a YAML file",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBaselineExport,
+	Use:     "export <path>",
+	Short:   "Write the current admission baseline to a YAML file.",
+	Example: "  fleetsweeper baseline export baseline.yaml --db fleet.db",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBaselineExport,
 }
 
 // baselineDiffCmd compares a saved baseline against the current one.
 var baselineDiffCmd = &cobra.Command{
-	Use:   "diff <path>",
-	Short: "Compare a saved baseline against the current one",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBaselineDiff,
+	Use:     "diff <path>",
+	Short:   "Compare a saved baseline against the current one.",
+	Example: "  fleetsweeper baseline diff baseline.yaml --db fleet.db --epsilon 0.1",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runBaselineDiff,
 }
 
 func init() {

@@ -7,9 +7,10 @@ disagree.
 
 ## Authentication
 
-All mutating endpoints require either:
+All mutating endpoints require one of:
 
-- `--insecure` (development only), or
+- `--insecure` (development only),
+- `--demo`, whose synthetic in-memory world runs open as anonymous admin, or
 - `Authorization: Bearer <token>` where `<token>` is either the bootstrap
   `--auth-token` value or a stored API key.
 
@@ -20,7 +21,7 @@ it within their cluster scope.
 ## Common headers
 
 - `Content-Type: application/json; charset=utf-8` on responses.
-- `Authorization: Bearer <token>` on requests (omit only when `--insecure`).
+- `Authorization: Bearer <token>` on requests (omit only when `--insecure` or `--demo`).
 - `X-Fleetsweeper-Signature: sha256=<hex>` on inbound webhook calls.
 
 ## Endpoints
@@ -73,7 +74,7 @@ Paths below are under `/api` unless they start with a root path.
 | GET | `/admin/audit` | Query the audit log (admin). |
 | GET | `/admin/whoami` | The caller's effective identity. |
 | GET | `/admin/system` | Version, uptime, features, and storage (admin). |
-| GET | `/healthz`, `/readyz` | Liveness and readiness, also at the root. |
+| GET | root `/healthz`, `/readyz` | Liveness and readiness. |
 | GET | root `/openapi.yaml` | The specification. |
 | GET | root `/oidc/login`, `/oidc/callback`, `/oidc/logout` | Browser sign-in. See [OIDC](../operator/oidc.md). |
 

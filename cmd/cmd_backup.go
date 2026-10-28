@@ -17,8 +17,9 @@ import (
 // backupCmd snapshots the configured SQLite database to a file. Postgres
 // users should rely on their database's native pg_dump tooling.
 var backupCmd = &cobra.Command{
-	Use:   "backup",
-	Short: "Snapshot the SQLite database to a portable file",
+	Use:     "backup",
+	Short:   "Snapshot the SQLite database to a portable file.",
+	Example: "  fleetsweeper backup --db fleet.db --output fleet-backup.db",
 	Long: "Use SQLite's online VACUUM INTO to write a consistent snapshot of\n" +
 		"the database referenced by --db. Pass --output to choose the file path;\n" +
 		"append .gz to enable gzip compression. Postgres backends should use\n" +
@@ -28,8 +29,9 @@ var backupCmd = &cobra.Command{
 
 // restoreCmd writes a previously-captured snapshot back into the --db file.
 var restoreCmd = &cobra.Command{
-	Use:   "restore <snapshot>",
-	Short: "Restore a SQLite snapshot taken by `fleetsweeper backup`",
+	Use:     "restore <snapshot>",
+	Short:   "Restore a SQLite snapshot taken by `fleetsweeper backup`.",
+	Example: "  fleetsweeper restore fleet-backup.db --db fleet.db --force",
 	Long: "Copy the snapshot file at the given path into --db, overwriting it\n" +
 		"only when --force is passed. The snapshot is written to a temporary file\n" +
 		"beside --db, opened and migrated to the latest schema there, and only then\n" +

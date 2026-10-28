@@ -18,7 +18,9 @@ import (
 // text (default), JSON, or Markdown.
 var compareCmd = &cobra.Command{
 	Use:   "compare <scan-a> <scan-b>",
-	Short: "Diff two scans: new vs resolved findings, score delta, cluster status changes",
+	Short: "Diff two scans: new vs resolved findings, score delta, cluster status changes.",
+	Example: "  fleetsweeper compare 41 42 --db fleet.db\n" +
+		"  fleetsweeper compare 41 42 --db fleet.db --format markdown",
 	Long: "Compute a structured diff between two scans and render it. " +
 		"Either argument may be a scan ID, 'latest', 'previous', or 'second-latest'. " +
 		"Without --format the output is human-readable text; --format markdown is " +

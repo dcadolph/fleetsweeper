@@ -17,8 +17,9 @@ import (
 // finding that ships an inline YAML remediation. Default is dry-run; pass
 // --push to actually contact GitHub.
 var remediateCmd = &cobra.Command{
-	Use:   "remediate",
-	Short: "Open a GitOps pull request for a Fleetsweeper finding",
+	Use:     "remediate",
+	Short:   "Open a GitOps pull request for a Fleetsweeper finding.",
+	Example: "  fleetsweeper remediate --db fleet.db --scan-id 42 --cluster prod-east --github-repo org/fleet-config --plan-json",
 	Long: "Generate (and optionally push) a pull request that adds the inline " +
 		"YAML remediation of a Fleetsweeper finding into a GitOps repo. " +
 		"Default is dry-run; pass --push and a token to actually open the PR.",

@@ -10,43 +10,49 @@ import (
 )
 
 var groupCmd = &cobra.Command{
-	Use:   "group",
-	Short: "Manage cluster groups",
-	Long:  "Create, list, and manage named groups of clusters for targeted scanning and comparison.",
+	Use:     "group",
+	Short:   "Manage cluster groups.",
+	Example: "  fleetsweeper group list --db fleet.db",
+	Long:    "Create, list, and manage named groups of clusters for targeted scanning and comparison.",
 }
 
 var groupCreateCmd = &cobra.Command{
-	Use:   "create <name>",
-	Short: "Create a cluster group",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGroupCreate,
+	Use:     "create <name>",
+	Short:   "Create a cluster group.",
+	Example: "  fleetsweeper group create prod --db fleet.db --clusters prod-east,prod-west",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runGroupCreate,
 }
 
 var groupListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all groups",
-	RunE:  runGroupList,
+	Use:     "list",
+	Short:   "List all groups.",
+	Example: "  fleetsweeper group list --db fleet.db",
+	RunE:    runGroupList,
 }
 
 var groupDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a group",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGroupDelete,
+	Use:     "delete <name>",
+	Short:   "Delete a group.",
+	Example: "  fleetsweeper group delete prod --db fleet.db",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runGroupDelete,
 }
 
 var groupAddClusterCmd = &cobra.Command{
-	Use:   "add-cluster <group>",
-	Short: "Add clusters to a group",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGroupAddCluster,
+	Use:     "add-cluster <group>",
+	Short:   "Add clusters to a group.",
+	Example: "  fleetsweeper group add-cluster prod --db fleet.db --clusters prod-central",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runGroupAddCluster,
 }
 
 var groupRemoveClusterCmd = &cobra.Command{
-	Use:   "remove-cluster <group>",
-	Short: "Remove clusters from a group",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runGroupRemoveCluster,
+	Use:     "remove-cluster <group>",
+	Short:   "Remove clusters from a group.",
+	Example: "  fleetsweeper group remove-cluster prod --db fleet.db --clusters prod-central",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runGroupRemoveCluster,
 }
 
 func init() {

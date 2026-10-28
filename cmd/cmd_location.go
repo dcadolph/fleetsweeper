@@ -12,32 +12,36 @@ import (
 
 // locationCmd is the parent command for cluster location overrides.
 var locationCmd = &cobra.Command{
-	Use:   "location",
-	Short: "Manage manual geographic location overrides for clusters",
-	Long:  "Set, list, and delete manual lat/lng overrides for clusters that do not report a cloud region (on-premises sites and edge devices).",
+	Use:     "location",
+	Short:   "Manage manual geographic location overrides for clusters.",
+	Example: "  fleetsweeper location list --db fleet.db",
+	Long:    "Set, list, and delete manual lat/lng overrides for clusters that do not report a cloud region (on-premises sites and edge devices).",
 }
 
 // locationSetCmd creates or updates a single override.
 var locationSetCmd = &cobra.Command{
-	Use:   "set <cluster>",
-	Short: "Set the manual location for a cluster",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runLocationSet,
+	Use:     "set <cluster>",
+	Short:   "Set the manual location for a cluster.",
+	Example: "  fleetsweeper location set edge-nyc-42 --db fleet.db --lat 40.71 --lng -74.01 --site \"Edge site 42\"",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runLocationSet,
 }
 
 // locationListCmd lists every override.
 var locationListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all manual location overrides",
-	RunE:  runLocationList,
+	Use:     "list",
+	Short:   "List all manual location overrides.",
+	Example: "  fleetsweeper location list --db fleet.db",
+	RunE:    runLocationList,
 }
 
 // locationDeleteCmd removes a single override.
 var locationDeleteCmd = &cobra.Command{
-	Use:   "delete <cluster>",
-	Short: "Delete the manual location for a cluster",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runLocationDelete,
+	Use:     "delete <cluster>",
+	Short:   "Delete the manual location for a cluster.",
+	Example: "  fleetsweeper location delete edge-nyc-42 --db fleet.db",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runLocationDelete,
 }
 
 func init() {

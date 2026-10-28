@@ -103,7 +103,7 @@ Nothing was changed. This is a projection from the stored scan.
 `--fix` picks the change: `median` for numeric fields, `mode` for string
 fields, `consensus` to add the set members the cluster lacks, and `remove`
 to take the cluster out of the population. Empty picks the one that fits
-the field. `--scope` fixes toward a cohort's norm instead of the fleet's.
+the field. `--norm` fixes toward a cohort's norm instead of the fleet's.
 Fixing a cluster can move the norm itself, so other clusters can become
 outliers once it does, and "Newly flagged" names them. A consensus fix on
 ingress classes is refused, since adding a class would mean inventing an

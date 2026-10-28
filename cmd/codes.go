@@ -11,6 +11,4 @@ const (
 	CodeNoContexts = 3
 	// CodeNoDB indicates the --db flag was required but not provided.
 	CodeNoDB = 4
-	// CodeStoreError indicates a database storage failure.
-	CodeStoreError = 5
 )

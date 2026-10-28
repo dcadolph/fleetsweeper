@@ -6,8 +6,6 @@ import (
 	"runtime"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/dcadolph/fleetsweeper/internal/report"
 )
 
@@ -159,9 +157,6 @@ func SetBuildInfo(version, commit, date string) {
 		buildInfo.Date = date
 	}
 }
-
-// _ keeps the zap import referenced for future logging additions.
-var _ = zap.NewNop
 
 // handleListScanners returns every scanner with its label, a one-line description, and its
 // report category, so clients name scanners the same way the report does.

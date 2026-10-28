@@ -30,5 +30,5 @@ profile.out
 .DS_Store
 Thumbs.db
 
-# Local Claude scratch (not committed in this repo)
+# Local tool settings
 .claude/

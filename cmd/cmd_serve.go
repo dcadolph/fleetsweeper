@@ -22,9 +22,11 @@ import (
 // serveCmd starts the HTTP API and web UI.
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start the web UI and API server",
-	Long:  "Launch a web server with an API and dashboard for browsing scan results, groups, trends, and outliers.",
-	RunE:  runServe,
+	Short: "Start the web UI and API server.",
+	Example: "  fleetsweeper serve --demo\n" +
+		"  fleetsweeper serve --db fleet.db --all-contexts --scan-interval 1h --auth-token \"$TOKEN\"",
+	Long: "Launch a web server with an API and dashboard for browsing scan results, groups, trends, and outliers.",
+	RunE: runServe,
 }
 
 func init() {
@@ -59,7 +61,7 @@ func init() {
 	serveCmd.Flags().String("admission-cert", "", "Path to a PEM TLS certificate for the admission webhook. Empty generates a self-signed cert at startup.")
 	serveCmd.Flags().String("admission-key", "", "Path to the matching PEM private key.")
 	serveCmd.Flags().StringSlice("admission-dns", []string{"fleetsweeper.fleetsweeper.svc"}, "Additional DNS SANs to include on the generated certificate.")
-	serveCmd.Flags().String("admission-mode", "advisory", "advisory: warn only; enforce: deny pods that deviate from the fleet norm.")
+	serveCmd.Flags().String("admission-mode", "advisory", "Admission mode: advisory warns only, enforce denies pods that deviate from the fleet norm.")
 	serveCmd.Flags().String("admission-baseline", "", "Path to a pinned baseline YAML file, in the format baseline export writes. The webhook checks pods against it instead of the latest scan. Empty uses the store.")
 	serveCmd.Flags().Int("admission-stable-scans", admission.DefaultStableScans, "Consecutive recent scans a check's fleet norm must hold before enforce mode denies on it. Until then the pod is allowed with a warning. A pinned baseline is exempt.")
 	serveCmd.Flags().String("oidc-issuer-url", "", "OIDC issuer discovery URL (for example https://accounts.google.com). Empty disables browser SSO.")

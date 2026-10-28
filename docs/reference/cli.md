@@ -68,3 +68,17 @@ each command's own help line; `fleetsweeper <command> --help` lists its flags.
 
 `serve --demo` runs on its own in-memory store seeded with a synthetic fleet
 and does not take `--db`.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The command succeeded. |
+| `1` | Any error not listed below. |
+| `2` | No cluster in the scan could be reached. |
+| `3` | No kubeconfig contexts were given or found. |
+| `4` | The command needs `--db` and none was given. |
+
+Errors print to stderr as `error: <message>`. Commands with their own
+pass and fail semantics, such as `doctor` and `drift --fail-on-drift`, exit
+`1` when they report a failure.

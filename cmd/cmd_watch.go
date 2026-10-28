@@ -20,8 +20,9 @@ import (
 // consecutive runs. Useful during incidents and rollouts when you want to
 // see the fleet move in real time without staring at a dashboard.
 var watchCmd = &cobra.Command{
-	Use:   "watch",
-	Short: "Repeatedly scan and print a diff between consecutive runs",
+	Use:     "watch",
+	Short:   "Repeatedly scan and print a diff between consecutive runs.",
+	Example: "  fleetsweeper watch --all-contexts --interval 10m --on-change-only",
 	Long: "Run a scan on the given interval and print the diff to the " +
 		"previous run. By default no results are persisted; pass --db to " +
 		"also save each scan into the SQLite store.",

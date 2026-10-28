@@ -26,7 +26,9 @@ import (
 // the system feels off; the JSON form is suitable for cron/monitoring.
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
-	Short: "Diagnose the local fleetsweeper environment",
+	Short: "Diagnose the local fleetsweeper environment.",
+	Example: "  fleetsweeper doctor --db fleet.db\n" +
+		"  fleetsweeper doctor --addr http://localhost:8080 --json",
 	Long: "Run a battery of preflight checks: database reachable, kubeconfig\n" +
 		"contexts loadable, CRDs installed, server reachable when --addr is\n" +
 		"supplied. Output is human-friendly by default; pass --json for a\n" +

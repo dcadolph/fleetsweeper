@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Fleetsweeper API
-  version: 0.10.0
+  version: dev
   description: |
-    HTTP API for the Fleetsweeper server. Read endpoints are unauthenticated
-    when --insecure is set; mutating endpoints require a bearer token unless
-    --insecure is in effect.
+    HTTP API for the Fleetsweeper server. Mutating endpoints require a bearer
+    token unless the server runs with --insecure or --demo. The served copy
+    carries the server's build version in info.version.
   license:
     name: MIT
     url: https://github.com/dcadolph/fleetsweeper/blob/main/LICENSE

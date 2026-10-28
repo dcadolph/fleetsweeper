@@ -13,31 +13,35 @@ import (
 // (key, value) pairs persisted in the store; the dashboard and `?tag=`
 // query filters slice the fleet by them.
 var tagCmd = &cobra.Command{
-	Use:   "tag",
-	Short: "Manage cluster tags (env, tier, owner, ...)",
+	Use:     "tag",
+	Short:   "Manage cluster tags (env, tier, owner, ...).",
+	Example: "  fleetsweeper tag list --db fleet.db",
 }
 
 // tagListCmd prints every tag across the fleet.
 var tagListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List every tag pair across the fleet",
-	RunE:  runTagList,
+	Use:     "list",
+	Short:   "List every tag pair across the fleet.",
+	Example: "  fleetsweeper tag list --db fleet.db",
+	RunE:    runTagList,
 }
 
 // tagSetCmd upserts one or more key=value pairs on a cluster.
 var tagSetCmd = &cobra.Command{
-	Use:   "set <cluster> <key=value>...",
-	Short: "Upsert one or more tags on a cluster",
-	Args:  cobra.MinimumNArgs(2),
-	RunE:  runTagSet,
+	Use:     "set <cluster> <key=value>...",
+	Short:   "Upsert one or more tags on a cluster.",
+	Example: "  fleetsweeper tag set prod-east env=prod cohort=edge --db fleet.db",
+	Args:    cobra.MinimumNArgs(2),
+	RunE:    runTagSet,
 }
 
 // tagDelCmd removes one tag key from a cluster.
 var tagDelCmd = &cobra.Command{
-	Use:   "del <cluster> <key>",
-	Short: "Remove one tag key from a cluster",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runTagDel,
+	Use:     "del <cluster> <key>",
+	Short:   "Remove one tag key from a cluster.",
+	Example: "  fleetsweeper tag del prod-east cohort --db fleet.db",
+	Args:    cobra.ExactArgs(2),
+	RunE:    runTagDel,
 }
 
 func init() {

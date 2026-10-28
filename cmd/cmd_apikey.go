@@ -16,8 +16,9 @@ import (
 // All subcommands operate directly against the configured --db so an operator
 // can mint the first admin key before the server is running.
 var apikeyCmd = &cobra.Command{
-	Use:   "apikey",
-	Short: "Manage API keys for the Fleetsweeper server",
+	Use:     "apikey",
+	Short:   "Manage API keys for the Fleetsweeper server.",
+	Example: "  fleetsweeper apikey list --db fleet.db",
 	Long: "Create, list, and revoke API keys used to authenticate against the\n" +
 		"Fleetsweeper HTTP API. Operates directly on the configured database so\n" +
 		"the first admin key can be minted without the server running.",
@@ -25,8 +26,9 @@ var apikeyCmd = &cobra.Command{
 
 // apikeyCreateCmd mints a new key and prints the raw token to stdout.
 var apikeyCreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Mint a new API key",
+	Use:     "create",
+	Short:   "Mint a new API key.",
+	Example: "  fleetsweeper apikey create --db fleet.db --name ci-prod --role operator --scope group:prod --ttl 720h",
 	Long: "Create a new API key with the given name, role, and cluster scope.\n" +
 		"The raw token is printed exactly once. Save it now; the server stores\n" +
 		"only its hash and cannot reveal it again.",
@@ -35,17 +37,19 @@ var apikeyCreateCmd = &cobra.Command{
 
 // apikeyListCmd lists every API key as JSON.
 var apikeyListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all API keys (token hashes redacted)",
-	RunE:  runAPIKeyList,
+	Use:     "list",
+	Short:   "List all API keys (token hashes redacted).",
+	Example: "  fleetsweeper apikey list --db fleet.db",
+	RunE:    runAPIKeyList,
 }
 
 // apikeyRevokeCmd marks an API key as administratively disabled.
 var apikeyRevokeCmd = &cobra.Command{
-	Use:   "revoke <id>",
-	Short: "Revoke an API key by ID",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAPIKeyRevoke,
+	Use:     "revoke <id>",
+	Short:   "Revoke an API key by ID.",
+	Example: "  fleetsweeper apikey revoke 3 --db fleet.db",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runAPIKeyRevoke,
 }
 
 func init() {

@@ -17,8 +17,9 @@ import (
 // land in StatusFail; "off" and "warn" are reported but do not fail the
 // command so it stays useful in CI pre-flight scripts.
 var diagnoseCmd = &cobra.Command{
-	Use:   "diagnose",
-	Short: "Check that every configured integration is wired up correctly",
+	Use:     "diagnose",
+	Short:   "Check that every configured integration is wired up correctly.",
+	Example: "  fleetsweeper diagnose --slack-webhook-url https://hooks.slack.com/services/T/B/X --probe",
 	Long: "Run a colored pass/fail grid of every Fleetsweeper integration. " +
 		"By default only local validation runs (URL parsing, file writability). " +
 		"Pass --probe to also exercise external systems (Slack webhook, GitHub API).",
