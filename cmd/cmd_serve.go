@@ -189,7 +189,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if leaderNamespace == "" {
 		leaderNamespace = os.Getenv("POD_NAMESPACE")
 	}
-	useLeader := leaderEnabled && leader.IsInCluster() && leaderNamespace != ""
+	useLeader := leaderEnabled && kube.InCluster() && leaderNamespace != ""
 
 	startSideEffects := func(leaderCtx context.Context) {
 		if scanInterval > 0 {

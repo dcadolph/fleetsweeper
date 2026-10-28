@@ -138,11 +138,3 @@ func RunWithClient(ctx context.Context, cfg Config, cb Callbacks, coordination c
 	})
 	return nil
 }
-
-// IsInCluster reports whether the process appears to be running inside a
-// Kubernetes pod. Leader election uses Kubernetes Leases, so it is a no-op
-// outside the cluster and should be skipped.
-func IsInCluster() bool {
-	_, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	return err == nil
-}

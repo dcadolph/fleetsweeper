@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -132,5 +133,63 @@ func TestNewTestClientVersion(t *testing.T) {
 	}
 	if diff := cmp.Diff("ctx", client.Context); diff != "" {
 		t.Errorf("context mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// twoContextKubeconfig points context a at https://a.example and context b at https://b.example.
+const twoContextKubeconfig = `apiVersion: v1
+kind: Config
+current-context: a
+clusters:
+- name: ca
+  cluster:
+    server: https://a.example
+- name: cb
+  cluster:
+    server: https://b.example
+contexts:
+- name: a
+  context: {cluster: ca, user: u1}
+- name: b
+  context: {cluster: cb, user: u1}
+users:
+- name: u1
+  user: {token: t}
+`
+
+// TestLoadConfigSelectsContext verifies LoadConfig honors the requested context.
+func TestLoadConfigSelectsContext(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte(twoContextKubeconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		Want     error
+		In       string
+		WantHost string
+	}{{ // Test 0: Context a.
+		In: "a", WantHost: "https://a.example",
+	}, { // Test 1: Context b.
+		In: "b", WantHost: "https://b.example",
+	}, { // Test 2: Unknown context.
+		In: "nope", Want: ErrLoadConfig,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cfg, err := LoadConfig(path, test.In)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("error = %v, want %v", err, test.Want)
+			}
+			if err != nil {
+				return
+			}
+			if diff := cmp.Diff(test.WantHost, cfg.Host); diff != "" {
+				t.Errorf("host mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

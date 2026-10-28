@@ -32,6 +32,15 @@ const (
 	defaultBurst = 100
 )
 
+// serviceAccountTokenPath is the file whose presence marks a process as running in a pod.
+const serviceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+// InCluster reports whether the process appears to be running inside a Kubernetes pod.
+func InCluster() bool {
+	_, err := os.Stat(serviceAccountTokenPath)
+	return err == nil
+}
+
 // defaultClientTimeout is the per-request timeout for all API server calls.
 const defaultClientTimeout = 60 * time.Second
 
@@ -58,7 +67,7 @@ func (c *Client) Dynamic() dynamic.Interface {
 // the in-cluster service account configuration is used instead and the
 // "in-cluster" context name is returned.
 func NewClient(_ context.Context, kubeconfigPath, contextName string) (*Client, error) {
-	cfg, err := loadConfig(kubeconfigPath, contextName)
+	cfg, err := LoadConfig(kubeconfigPath, contextName)
 	if err != nil {
 		return nil, err
 	}
@@ -81,12 +90,12 @@ func NewClient(_ context.Context, kubeconfigPath, contextName string) (*Client, 
 	}, nil
 }
 
-// loadConfig returns a rest.Config for the named context. When kubeconfigPath
+// LoadConfig returns a rest.Config for the named context. When kubeconfigPath
 // is empty and an in-cluster ServiceAccount token is present the in-cluster
 // configuration is preferred so the tool can run as a Deployment.
-func loadConfig(kubeconfigPath, contextName string) (*rest.Config, error) {
+func LoadConfig(kubeconfigPath, contextName string) (*rest.Config, error) {
 	if kubeconfigPath == "" {
-		if _, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
+		if InCluster() {
 			cfg, err := rest.InClusterConfig()
 			if err == nil {
 				return cfg, nil
