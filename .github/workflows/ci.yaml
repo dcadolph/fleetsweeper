@@ -106,6 +106,10 @@ jobs:
           install_only: true
           # The fleet harness pins the node image kind v0.33.0 ships with.
           version: v0.33.0
+      # Five kind nodes on one runner exhaust the default inotify limits, and a node that
+      # cannot watch files never finishes booting.
+      - name: Raise inotify limits
+        run: sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576
       # Pull the node images before the tests start, so the pull is not inside the test timeout.
       - name: Pull kind node images
         run: |
