@@ -105,7 +105,7 @@ func TestScoreAttributionMatchesScore(t *testing.T) {
 	clusters, results, tags := distributionFleet()
 	reports := []*Report{
 		Build(clusters, results, BuildOptions{ClusterTags: tags}),
-		Build(makeClusterNames(50), makeSyntheticResults(makeClusterNames(50))),
+		Build(makeClusterNames(), makeSyntheticResults(makeClusterNames())),
 	}
 	for i, r := range reports {
 		a := r.ScoreAttribution

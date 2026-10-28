@@ -217,9 +217,8 @@ func computeUniquenessOverTime(scans []ScanMeta, allResults map[string]map[strin
 }
 
 // minTrendSample is the minimum number of points required before a direction
-// is reported. Below this the linear fit is meaningless and the audit found
-// the prior threshold of 2 was producing routine "worsening" calls from
-// single-deploy noise.
+// is reported. Below this the linear fit is meaningless and single-deploy noise
+// produces routine "worsening" calls.
 const minTrendSample = 5
 
 // minTrendR2 is the minimum coefficient of determination required for a

@@ -23,6 +23,7 @@ type CohortSummary struct {
 
 // cohortSectionLookup adapts the report's section map to cohort.SectionLookup.
 type cohortSectionLookup struct {
+	// sections maps scanner name to its section report.
 	sections map[string]*SectionReport
 }
 

@@ -117,7 +117,7 @@ func IsSystemNamespace(name string) bool {
 type ClusterHealth struct {
 	// Name is the cluster context name.
 	Name string `json:"name"`
-	// Status is "healthy", "busy", "degraded", or "critical".
+	// Status is "healthy", "degraded", or "critical".
 	Status string `json:"status"`
 	// FindingCounts maps severity to count for this cluster.
 	FindingCounts map[string]int `json:"finding_counts"`
@@ -485,9 +485,8 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 
 // versionFindings emits a single fleet-level finding when versions differ.
 // Severity is calibrated to the Kubernetes version-skew policy: patch
-// differences are info, single-minor skew is warning, larger skew is critical.
-// Previously every version difference was unconditionally critical, which
-// fired during every routine rolling upgrade.
+// differences are info, single-minor skew is warning, larger skew is critical,
+// so a routine rolling upgrade does not page.
 func versionFindings(r *Report) []Finding {
 	sec := r.Sections["version"]
 	if sec == nil || sec.Uniform {
@@ -1092,8 +1091,8 @@ func rbacFindings(r *Report) []Finding {
 }
 
 // workloadSecFindings emits per-cluster security findings naming the
-// offending pods. The audit flagged that the previous implementation reported
-// just a count without saying which pods were privileged.
+// offending pods, so the reader sees which pods are privileged and not only
+// how many.
 func workloadSecFindings(r *Report) []Finding {
 	sec := r.Sections["workload-security"]
 	if sec == nil {

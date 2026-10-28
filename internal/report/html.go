@@ -119,8 +119,11 @@ func ScannerCatalog() []ScannerInfo {
 // htmlPayload is the data embedded in the HTML report as JSON. Everything the
 // client-side JS needs to render the dashboard.
 type htmlPayload struct {
-	Report        *Report           `json:"report"`
+	// Report is the report the dashboard renders.
+	Report *Report `json:"report"`
+	// ClusterColors maps cluster name to its display color.
 	ClusterColors map[string]string `json:"clusterColors"`
+	// ScannerLabels maps scanner name to its display label.
 	ScannerLabels map[string]string `json:"scannerLabels"`
 }
 

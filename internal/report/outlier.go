@@ -14,8 +14,7 @@ import (
 
 // minMADSample is the minimum number of values required before MAD-based
 // outlier detection emits any finding. Below this the median itself is
-// unreliable and false positives dominate; the audit flagged the previous
-// floor of 3 as statistical garbage.
+// unreliable and false positives dominate.
 const minMADSample = 8
 
 // minStringModeMass is the minimum share of the population the mode must hold
@@ -470,8 +469,8 @@ func dominantString(counts map[string]int) string {
 
 // detectSetOutliers flags clusters missing items present in the consensus set.
 // Consensus requires an item to appear in at least minSetConsensusShare of
-// clusters, eliminating the discontinuity the previous integer-divide
-// threshold produced at small N. A cluster that does not report the field at
+// clusters, using a share rather than an integer-divide threshold so the
+// cutoff has no discontinuity at small N. A cluster that does not report the field at
 // all is left out of the population; a null list counts as an empty set.
 func detectSetOutliers(clusters []string, flat map[string]map[string]any, field, scannerName string) ([]OutlierResult, *Distribution) {
 	itemCounts := make(map[string]int)
@@ -711,9 +710,8 @@ func collectFields(flat map[string]map[string]any) []string {
 }
 
 // isNumericInFlat reports whether a field is numeric in at least one cluster
-// and not non-numeric in any cluster. Earlier this consulted only the first
-// cluster, so a leading nil silently classified an otherwise numeric field as
-// non-numeric.
+// and not non-numeric in any cluster. Every cluster is consulted, so a leading
+// nil does not classify an otherwise numeric field as non-numeric.
 func isNumericInFlat(clusters []string, flat map[string]map[string]any, field string) bool {
 	sawNumeric := false
 	for _, c := range clusters {
