@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -36,7 +35,7 @@ type AckRecord struct {
 // re-acking an already-acked finding refreshes its metadata in place.
 func (s *sqlStore) SaveAck(ctx context.Context, rec AckRecord) error {
 	if rec.Fingerprint == "" {
-		return errors.New("ack: fingerprint required")
+		return fmt.Errorf("%w: ack: fingerprint required", ErrInvalid)
 	}
 	if rec.CreatedAt.IsZero() {
 		rec.CreatedAt = time.Now().UTC()

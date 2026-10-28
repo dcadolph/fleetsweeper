@@ -91,10 +91,10 @@ func TokensEqual(a, b string) bool {
 // CreatedAt defaults to now when zero. Re-inserting the same ID returns ErrStore.
 func (s *sqlStore) SaveAPIKey(ctx context.Context, rec APIKeyRecord) error {
 	if rec.ID == "" || rec.TokenHash == "" {
-		return errors.New("api key: id and token hash required")
+		return fmt.Errorf("%w: api key: id and token hash required", ErrInvalid)
 	}
 	if !ValidRole(rec.Role) {
-		return fmt.Errorf("api key: invalid role %q", rec.Role)
+		return fmt.Errorf("%w: api key: role %q", ErrInvalid, rec.Role)
 	}
 	if len(rec.ClusterScope) == 0 {
 		rec.ClusterScope = []string{ScopeWildcard}
@@ -124,7 +124,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		if s.d.IsUnique(err) {
-			return fmt.Errorf("%w: duplicate api key", ErrStore)
+			return fmt.Errorf("%w: api key %s", ErrDuplicate, rec.ID)
 		}
 		return fmt.Errorf("%w: save api key: %w", ErrStore, err)
 	}
