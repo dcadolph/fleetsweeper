@@ -94,6 +94,7 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -105,4 +106,19 @@ jobs:
           install_only: true
           # The fleet harness pins the node image kind v0.33.0 ships with.
           version: v0.33.0
-      - run: go test -tags=integration -timeout=15m ./internal/integration/
+      # Pull the node images before the tests start, so the pull is not inside the test timeout.
+      - name: Pull kind node images
+        run: |
+          docker pull kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          docker pull kindest/node:v1.30.8
+      - name: Integration tests
+        env:
+          FLEET_KIND_LOGS: ${{ runner.temp }}/kind-logs
+        run: go test -tags=integration -timeout=20m -v ./internal/integration/
+      - name: Upload kind logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kind-logs
+          path: ${{ runner.temp }}/kind-logs
+          if-no-files-found: ignore

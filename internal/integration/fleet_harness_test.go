@@ -32,6 +32,8 @@ const (
 	imageDefault = "kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
 	// imageOld is an older node image, so a fleet can carry real version skew.
 	imageOld = "kindest/node:v1.30.8"
+	// kindLogsEnv names a directory that receives each cluster's kind logs when a test fails.
+	kindLogsEnv = "FLEET_KIND_LOGS"
 )
 
 var (
@@ -177,11 +179,28 @@ func mergeKubeconfigs(out string, paths []string) error {
 	return clientcmd.WriteToFile(*merged, out)
 }
 
-// delete removes every cluster the fleet owns.
+// delete removes every cluster the fleet owns. When the test failed and FLEET_KIND_LOGS names a
+// directory, it first exports each cluster's kind logs there, so CI can upload them.
 func (f *fleet) delete() {
+	dir := os.Getenv(kindLogsEnv)
 	for _, name := range f.names {
+		if dir != "" && f.t.Failed() {
+			exportKindLogs(f.t, name, filepath.Join(dir, name))
+		}
 		deleteCluster(f.t, name)
 	}
+}
+
+// exportKindLogs writes the kind logs of cluster name to dir. A failure is logged, not fatal,
+// because the test has already failed and the cluster must still be deleted.
+func exportKindLogs(t *testing.T, name, dir string) {
+	t.Helper()
+	out, err := exec.Command("kind", "export", "logs", dir, "--name", name).CombinedOutput()
+	if err != nil {
+		t.Logf("warning: export kind logs for %s: %v\n%s", name, err, out)
+		return
+	}
+	t.Logf("kind logs for %s written to %s", name, dir)
 }
 
 // KubeconfigPath returns the merged kubeconfig for every cluster in the fleet.
