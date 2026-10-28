@@ -458,17 +458,7 @@ func GenerateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 		h := ClusterHealth{
 			Name:          cluster,
 			Status:        "healthy",
-			FindingCounts: map[string]int{SeverityCritical: 0, SeverityWarning: 0, SeverityInfo: 0},
-		}
-		for _, f := range findings {
-			if f.Cluster == cluster {
-				h.FindingCounts[f.Severity]++
-			}
-			for _, m := range f.Marks {
-				if m.Cluster == cluster {
-					h.FindingCounts[m.Severity]++
-				}
-			}
+			FindingCounts: clusterSeverityCounts(cluster, findings),
 		}
 		if h.FindingCounts[SeverityCritical] > 0 {
 			h.Status = "critical"
