@@ -3,7 +3,7 @@
 // session cookie, when the server set one, rides along on its own. Every
 // write goes through send(), which surfaces the server's error in a toast.
 
-import { apiSend } from './api.js';
+import { apiSend, errorText } from './api.js';
 import { openDrawer } from './components/drawer.js';
 import { toast } from './components/toast.js';
 
@@ -73,15 +73,6 @@ export function openTokenDrawer() {
       },
     }] : []),
   });
-}
-
-// errorText returns the server's error message from a failed response.
-async function errorText(r) {
-  try {
-    const body = await r.clone().json();
-    if (body && body.error) return body.error;
-  } catch (_) { /* not JSON */ }
-  return r.statusText || 'HTTP ' + r.status;
 }
 
 // send performs a write and returns the Response when it succeeded, or null

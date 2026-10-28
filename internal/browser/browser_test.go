@@ -538,6 +538,19 @@ func TestDashboardSmoke(t *testing.T) {
 		}
 	})
 
+	t.Run("read error message", func(t *testing.T) {
+		var got string
+		err := run(ctx, 10*time.Second, chromedp.Evaluate(
+			`import('/js/api.js').then((m) => m.api('/scans/nope/report')).catch((e) => e.message)`,
+			&got, awaitPromise))
+		if err != nil {
+			t.Fatalf("read error message: %v", err)
+		}
+		if diff := cmp.Diff("scan not found", got); diff != "" {
+			t.Errorf("error message mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("outliers held", func(t *testing.T) {
 		var resp struct {
 			Outliers []struct {

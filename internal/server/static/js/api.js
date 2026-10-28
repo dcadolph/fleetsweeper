@@ -1,12 +1,21 @@
 // HTTP access to the fleetsweeper API.
 
+// errorText returns the server's error message from a failed response.
+export async function errorText(r) {
+  try {
+    const body = await r.clone().json();
+    if (body && body.error) return body.error;
+  } catch (_) { /* not JSON */ }
+  return r.statusText || 'HTTP ' + r.status;
+}
+
 // fetchJSON performs a GET against /api and returns the decoded body, or
-// throws with the status text on a non-2xx response. The error carries the
-// HTTP status in its status field.
+// throws with the server's error message on a non-2xx response. The error
+// carries the HTTP status in its status field.
 async function fetchJSON(path) {
   const r = await fetch('/api' + path, { headers: authHeaders() });
   if (!r.ok) {
-    const err = new Error(r.statusText || 'HTTP ' + r.status);
+    const err = new Error(await errorText(r));
     err.status = r.status;
     throw err;
   }
