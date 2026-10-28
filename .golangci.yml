@@ -51,8 +51,7 @@ linters:
         - (*database/sql.Stmt).Close
         - (*database/sql.Tx).Rollback
         - (*net/http.Response).Body.Close
-        - (*github.com/dcadolph/fleetsweeper/internal/store.SQLite).Close
-        - (*github.com/dcadolph/fleetsweeper/internal/store.Postgres).Close
+        - (*github.com/dcadolph/fleetsweeper/internal/store.sqlStore).Close
         - (github.com/dcadolph/fleetsweeper/internal/store.Store).Close
         - os.RemoveAll
         - encoding/json.Encoder.Encode
