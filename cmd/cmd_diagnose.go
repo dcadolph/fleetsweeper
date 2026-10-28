@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 
@@ -54,12 +53,8 @@ func runDiagnose(cmd *cobra.Command, _ []string) error {
 	costCSV, _ := cmd.Flags().GetString("cost-csv")
 	prOut, _ := cmd.Flags().GetString("policy-report-output")
 	fdOut, _ := cmd.Flags().GetString("fleetdrift-output")
-	kubeconfig, _ := cmd.Flags().GetString("kubeconfig")
-	db, _ := cmd.Flags().GetString("db")
 
 	report := diagnose.Run(ctx, diagnose.Options{
-		KubeconfigPath:        kubeconfig,
-		DBPath:                db,
 		SlackWebhookURL:       slack,
 		CostCSVPath:           costCSV,
 		PolicyReportOutputDir: prOut,
@@ -81,7 +76,7 @@ func runDiagnose(cmd *cobra.Command, _ []string) error {
 	}
 
 	if report.HasFailures() {
-		return errors.New("one or more diagnose checks failed")
+		return diagnose.ErrFailures
 	}
 	return nil
 }
