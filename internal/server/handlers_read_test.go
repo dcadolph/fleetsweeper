@@ -280,26 +280,70 @@ func TestHandleGetClusterTrends_Seeded(t *testing.T) {
 	}
 }
 
-// TestHandleGetOutliers_Seeded covers the stored-scan outlier path and the
-// custom threshold query parameter.
+// TestHandleGetOutliers_Seeded covers the demo-seeded outlier path: findings are limited to
+// those the outlier detectors raised and the threshold query parameter reaches the detectors.
 func TestHandleGetOutliers_Seeded(t *testing.T) {
 	t.Parallel()
-	srv, ss := testServer(t)
-	id := seedScan(t, ss, "east", "west", "south")
+	tests := []struct {
+		Check func(t *testing.T, got outliersPayload)
+		Query string
+	}{{ // Test 0: Every finding is outlier-derived and at least one exists.
+		Query: "?threshold=2.5",
+		Check: func(t *testing.T, got outliersPayload) {
+			if len(got.Findings) == 0 {
+				t.Fatal("want findings above zero, got none")
+			}
+			for _, f := range got.Findings {
+				if f.Norm == nil {
+					t.Errorf("finding %s/%s has no norm", f.Scanner, f.Rule)
+				}
+			}
+		},
+	}, { // Test 1: Every z-score outlier carries the requested threshold.
+		Query: "?threshold=2.5",
+		Check: func(t *testing.T, got outliersPayload) {
+			numeric := 0
+			for _, o := range got.Outliers {
+				if o.Kind != report.NormKindNumeric || o.Exact {
+					continue
+				}
+				numeric++
+				if o.Threshold != 2.5 {
+					t.Errorf("outlier %s threshold = %v, want 2.5", o.Field, o.Threshold)
+				}
+			}
+			if numeric == 0 {
+				t.Fatal("want numeric outliers above zero, got none")
+			}
+		},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv := newDemoServer(t)
+			req := httptest.NewRequest(http.MethodGet, "/api/outliers"+test.Query, nil)
+			w := httptest.NewRecorder()
+			srv.mux.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+			}
+			var got outliersPayload
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode: %v body=%s", err, w.Body.String())
+			}
+			test.Check(t, got)
+		})
+	}
+}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/outliers?threshold=2.5", nil)
-	w := httptest.NewRecorder()
-	srv.mux.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
-	}
-	obj := decodeObj(t, w)
-	if obj["scan_id"] != id {
-		t.Errorf("scan_id mismatch: %v want %s", obj["scan_id"], id)
-	}
-	if _, ok := obj["outliers"]; !ok {
-		t.Error("missing outliers key")
-	}
+// outliersPayload is the decoded body of GET /api/outliers.
+type outliersPayload struct {
+	// ScanID is the scan the analysis ran against.
+	ScanID string `json:"scan_id"`
+	// Outliers are the detector results.
+	Outliers []report.OutlierResult `json:"outliers"`
+	// Findings are the findings the detectors raised.
+	Findings []report.Finding `json:"findings"`
 }
 
 // TestHandleGetOutliers_NoScans verifies the empty-store 404 path.

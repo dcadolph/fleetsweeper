@@ -805,6 +805,7 @@ paths:
                     type: array
                     items: {$ref: "#/components/schemas/OutlierResult"}
                   findings:
+                    description: Findings raised by the fleet and cohort outlier detectors.
                     type: array
                     items: {$ref: "#/components/schemas/Finding"}
 

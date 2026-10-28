@@ -584,11 +584,17 @@ func (s *Server) handleGetOutliers(w http.ResponseWriter, r *http.Request) {
 	opts := s.reportOptions(r.Context(), s.log)
 	opts.Timestamp, opts.OutlierThreshold = latest.Timestamp, threshold
 	rpt := report.Build(latest.Clusters, results, opts)
-	s.markAcked(r.Context(), rpt.Findings)
+	findings := make([]report.Finding, 0, len(rpt.Findings))
+	for _, f := range rpt.Findings {
+		if f.Norm != nil {
+			findings = append(findings, f)
+		}
+	}
+	s.markAcked(r.Context(), findings)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"scan_id":  latest.ID,
 		"outliers": rpt.Outliers,
-		"findings": rpt.Findings,
+		"findings": findings,
 	})
 }
 
