@@ -423,6 +423,11 @@ func TestDashboardSmoke(t *testing.T) {
 	}
 	latestCluster := scans[0].Clusters[0]
 
+	var kubeContexts []struct {
+		Name string `json:"name"`
+	}
+	getJSON(t, ts.URL+"/api/contexts", &kubeContexts)
+
 	routes := boot(t, ctx, ts)
 	if errs := log.take(); len(errs) > 0 {
 		t.Errorf("errors during boot:\n%s", strings.Join(errs, "\n"))
@@ -469,6 +474,21 @@ func TestDashboardSmoke(t *testing.T) {
 			id, hash, state, shift.CLS, shift.Loading, shift.Loaded, shift.Gap, rings["dark"].Checked)
 		if state != "content" && state != "empty" {
 			t.Errorf("route %s (%s): view shows %s", id, hash, state)
+		}
+		if id == "manage" {
+			var scanButtons int
+			err := run(ctx, 5*time.Second, chromedp.Evaluate(
+				`document.querySelectorAll('[data-action="scan-contexts"]').length`, &scanButtons))
+			want := 0
+			if len(kubeContexts) > 0 {
+				want = len(kubeContexts) + 1
+			}
+			if err != nil {
+				t.Errorf("route manage: count scan buttons: %v", err)
+			} else if scanButtons != want {
+				t.Errorf("route manage: %d scan buttons, want %d for %d contexts",
+					scanButtons, want, len(kubeContexts))
+			}
 		}
 		switch {
 		case shift.CLS > maxShiftScore:
