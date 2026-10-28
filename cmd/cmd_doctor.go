@@ -43,7 +43,16 @@ func init() {
 	doctorCmd.Flags().Duration("timeout", 10*time.Second, "Per-check timeout.")
 	doctorCmd.Flags().Bool("in-cluster", false, "Probe a deployed Fleetsweeper: leader lease, recent scans, admission webhook reachability.")
 	doctorCmd.Flags().String("namespace", "fleetsweeper", "Namespace the Fleetsweeper Helm release was installed into. Used for the in-cluster checks.")
+	doctorCmd.Flags().String("release", "fleetsweeper", "Helm release name. Names the leader lease and the <release>-admission webhook configuration.")
 	doctorCmd.Flags().Duration("scan-freshness", 24*time.Hour, "Maximum age the most-recent scan may have before --in-cluster flags it as stale.")
+}
+
+// doctorClientFunc builds the Kubernetes client the in-cluster checks use.
+type doctorClientFunc func(ctx context.Context, kubeconfig string) (*kube.Client, error)
+
+// doctorClient is the production doctorClientFunc.
+func doctorClient(ctx context.Context, kubeconfig string) (*kube.Client, error) {
+	return kube.NewClient(ctx, kubeconfig, "")
 }
 
 // Status enumerates the per-check outcomes the doctor reports.
@@ -91,32 +100,32 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	report := Report{Generated: time.Now().UTC(), Summary: map[Status]int{}}
 
-	report.Checks = append(report.Checks, runCheck("database", timeout, func(ctx context.Context) CheckResult {
+	report.Checks = append(report.Checks, runCheck(ctx, "database", timeout, func(ctx context.Context) CheckResult {
 		return doctorCheckDatabase(ctx, cmd)
 	}))
-	report.Checks = append(report.Checks, runCheck("kubeconfig", timeout, func(ctx context.Context) CheckResult {
+	report.Checks = append(report.Checks, runCheck(ctx, "kubeconfig", timeout, func(ctx context.Context) CheckResult {
 		return doctorCheckKubeconfig(ctx, cmd)
 	}))
-	report.Checks = append(report.Checks, runCheck("contexts", timeout, func(ctx context.Context) CheckResult {
+	report.Checks = append(report.Checks, runCheck(ctx, "contexts", timeout, func(ctx context.Context) CheckResult {
 		return doctorCheckContexts(ctx, cmd)
 	}))
-	report.Checks = append(report.Checks, runCheck("crds", timeout, func(ctx context.Context) CheckResult {
+	report.Checks = append(report.Checks, runCheck(ctx, "crds", timeout, func(ctx context.Context) CheckResult {
 		return doctorCheckCRDs(ctx, cmd)
 	}))
 	if addr, _ := cmd.Flags().GetString("addr"); addr != "" {
-		report.Checks = append(report.Checks, runCheck("server", timeout, func(ctx context.Context) CheckResult {
+		report.Checks = append(report.Checks, runCheck(ctx, "server", timeout, func(ctx context.Context) CheckResult {
 			return doctorCheckServer(ctx, cmd)
 		}))
 	}
 
 	if inCluster, _ := cmd.Flags().GetBool("in-cluster"); inCluster {
-		report.Checks = append(report.Checks, runCheck("leader-lease", timeout, func(ctx context.Context) CheckResult {
-			return doctorCheckLeaderLease(ctx, cmd)
+		report.Checks = append(report.Checks, runCheck(ctx, "leader-lease", timeout, func(ctx context.Context) CheckResult {
+			return doctorCheckLeaderLease(ctx, cmd, doctorClient)
 		}))
-		report.Checks = append(report.Checks, runCheck("admission-webhook", timeout, func(ctx context.Context) CheckResult {
-			return doctorCheckAdmissionWebhook(ctx, cmd)
+		report.Checks = append(report.Checks, runCheck(ctx, "admission-webhook", timeout, func(ctx context.Context) CheckResult {
+			return doctorCheckAdmissionWebhook(ctx, cmd, doctorClient)
 		}))
-		report.Checks = append(report.Checks, runCheck("scan-freshness", timeout, func(ctx context.Context) CheckResult {
+		report.Checks = append(report.Checks, runCheck(ctx, "scan-freshness", timeout, func(ctx context.Context) CheckResult {
 			return doctorCheckScanFreshness(ctx, cmd)
 		}))
 	}
@@ -139,13 +148,12 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	if report.Summary[StatusFail] > 0 {
 		return errors.New("doctor reported failures")
 	}
-	_ = ctx
 	return nil
 }
 
 // runCheck times a check function and returns its CheckResult.
-func runCheck(name string, timeout time.Duration, fn func(context.Context) CheckResult) CheckResult {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func runCheck(parent context.Context, name string, timeout time.Duration, fn func(context.Context) CheckResult) CheckResult {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	start := time.Now()
 	res := fn(ctx)
@@ -301,26 +309,34 @@ func doctorCheckServer(ctx context.Context, cmd *cobra.Command) CheckResult {
 	return CheckResult{Status: StatusOK, Detail: addr + " healthy"}
 }
 
-// renderHuman writes a color-friendly tabular report to w. Colors use
-// ANSI escapes only when stdout is a TTY; otherwise plain text.
+// renderHuman writes a plain-text tabular report to w.
 func renderHuman(w io.Writer, r Report) {
-	fmt.Fprintf(w, "fleetsweeper doctor — %s\n\n", r.Generated.Format(time.RFC3339))
-	fmt.Fprintln(w, "  status   check          detail")
-	fmt.Fprintln(w, "  ------   -----          ------")
+	fmt.Fprintf(w, "fleetsweeper doctor. %s\n\n", r.Generated.Format(time.RFC3339))
+	fmt.Fprintln(w, "  status   check              detail")
+	fmt.Fprintln(w, "  ------   -----              ------")
 	for _, c := range r.Checks {
-		fmt.Fprintf(w, "  %-7s  %-13s  %s\n",
-			fmtStatus(c.Status), c.Name, c.Detail)
+		fmt.Fprintf(w, "  %-7s  %-17s  %s\n",
+			c.Status, c.Name, c.Detail)
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "summary: %d ok, %d warn, %d fail, %d skip\n",
 		r.Summary[StatusOK], r.Summary[StatusWarn], r.Summary[StatusFail], r.Summary[StatusSkip])
 }
 
+// doctorRelease returns the --release flag value, defaulting to fleetsweeper.
+func doctorRelease(cmd *cobra.Command) string {
+	if release, _ := cmd.Flags().GetString("release"); release != "" {
+		return release
+	}
+	return "fleetsweeper"
+}
+
 // doctorCheckLeaderLease reads the coordination.k8s.io Lease object
 // the leader election controller maintains and reports who holds it.
-// Absence with --in-cluster is treated as a fail because the controller
-// can't have done useful work without it.
-func doctorCheckLeaderLease(ctx context.Context, cmd *cobra.Command) CheckResult {
+// A missing lease is a warning because leader election may be disabled.
+func doctorCheckLeaderLease(
+	ctx context.Context, cmd *cobra.Command, newClient doctorClientFunc,
+) CheckResult {
 	path, _ := cmd.Flags().GetString("kubeconfig")
 	if path == "" {
 		return CheckResult{Status: StatusSkip, Detail: "no kubeconfig configured"}
@@ -329,17 +345,13 @@ func doctorCheckLeaderLease(ctx context.Context, cmd *cobra.Command) CheckResult
 	if namespace == "" {
 		namespace = "fleetsweeper"
 	}
-	cfg, err := clientcmd.BuildConfigFromFlags("", path)
-	if err != nil {
-		return CheckResult{Status: StatusFail, Detail: "build config: " + err.Error()}
-	}
-	client, err := kube.NewClient(ctx, path, "")
+	release := doctorRelease(cmd)
+	client, err := newClient(ctx, path)
 	if err != nil {
 		return CheckResult{Status: StatusFail, Detail: "connect: " + err.Error()}
 	}
-	_ = cfg
 	lease, err := client.Clientset().CoordinationV1().Leases(namespace).
-		Get(ctx, "fleetsweeper-controller", metav1.GetOptions{})
+		Get(ctx, release, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return CheckResult{Status: StatusWarn, Detail: "lease not found; leader election may be disabled"}
 	}
@@ -360,18 +372,20 @@ func doctorCheckLeaderLease(ctx context.Context, cmd *cobra.Command) CheckResult
 // fleetsweeper installs and confirms the apiserver has the URL and a CA
 // bundle pointed at it. Does not actually invoke the webhook; that would
 // require a Pod fixture that's overkill for a preflight.
-func doctorCheckAdmissionWebhook(ctx context.Context, cmd *cobra.Command) CheckResult {
+func doctorCheckAdmissionWebhook(
+	ctx context.Context, cmd *cobra.Command, newClient doctorClientFunc,
+) CheckResult {
 	path, _ := cmd.Flags().GetString("kubeconfig")
 	if path == "" {
 		return CheckResult{Status: StatusSkip, Detail: "no kubeconfig configured"}
 	}
-	client, err := kube.NewClient(ctx, path, "")
+	client, err := newClient(ctx, path)
 	if err != nil {
 		return CheckResult{Status: StatusFail, Detail: "connect: " + err.Error()}
 	}
 	cfg, err := client.Clientset().AdmissionregistrationV1().
 		ValidatingWebhookConfigurations().
-		Get(ctx, "fleetsweeper", metav1.GetOptions{})
+		Get(ctx, doctorRelease(cmd)+"-admission", metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return CheckResult{Status: StatusWarn, Detail: "admission webhook not installed (admission.enabled=false?)"}
 	}
@@ -420,19 +434,4 @@ func doctorCheckScanFreshness(ctx context.Context, cmd *cobra.Command) CheckResu
 		return CheckResult{Status: StatusFail, Detail: fmt.Sprintf("latest scan is %s old (>%s)", age.Round(time.Second), maxAge)}
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("latest scan %s old", age.Round(time.Second))}
-}
-
-// fmtStatus renders a status with the conventional badge characters.
-func fmtStatus(s Status) string {
-	switch s {
-	case StatusOK:
-		return "ok"
-	case StatusWarn:
-		return "warn"
-	case StatusFail:
-		return "fail"
-	case StatusSkip:
-		return "skip"
-	}
-	return string(s)
 }
