@@ -116,6 +116,10 @@ how many clusters were excluded for insufficient data. A score built from
 six clusters is a weaker claim than one built from sixty, and the report
 says which one you are looking at.
 
+A score is also only as good as what the scan could see. A scan that could
+not observe a cluster says so and is not graded, and a finding is never
+produced from a read that failed.
+
 Fleetsweeper is therefore not a replacement for policy engines, CIS
 benchmarks, or vulnerability scanning. Those check clusters against
 absolute rules, and they are the tools that catch the failure mode above.

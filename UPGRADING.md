@@ -14,6 +14,60 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.14.0
+
+No schema migration. Reports, scores, and a few API shapes change on the
+first scan after the upgrade, because a scan that could not see something no
+longer reports it as healthy.
+
+- **Reports can be ungraded.** The Fleet Score carries a `graded` flag and a
+  `coverage` object (`expected_runs`, `observed_runs`, `blind_runs`,
+  `blind_clusters`, `fraction`). A score is graded only when every cluster has
+  an observed scanner run and at least 80 percent of expected runs are
+  observed. An ungraded score has an empty `grade`, and its dashboard and
+  brief lead with the coverage gap.
+
+- **Clusters can be `unknown`.** A cluster that looks healthy but had a
+  scanner run that errored or never ran reads `unknown` instead of `healthy`.
+  Its cluster score is charged like degraded. The Fleet Score does not charge
+  unknown clusters, the coverage gate covers them.
+
+- **Metrics averages are optional.** `avg_cpu_percent`, `avg_memory_percent`,
+  `max_cpu_percent`, and `max_memory_percent` are omitted when no node
+  resolved a usage percentage, instead of reading 0. Clients that read them
+  as numbers must handle absence.
+
+- **Ack bodies carry only context.** `POST /api/findings/{fingerprint}/ack`
+  and `POST /api/alerts/{fingerprint}/ack` accept `ack_by`, `reason`, and
+  `snooze_until`. A body that names `cluster`, `scanner`, or `title` is
+  rejected with 400 instead of being ignored. A fingerprint that no current
+  finding carries returns 404. A fleet or clusterless finding needs a key
+  with `*` scope, and so does an ack on an alert with no cluster.
+
+- **Group management is admin only.** `POST /api/groups` and
+  `DELETE /api/groups/{name}` refuse operators, including operators with `*`
+  scope.
+
+- **Non-root counts use the effective user.** The workload-security scanner
+  adds `baseline_containers` and `run_as_non_root_containers`, and renames
+  `unknown_root_containers` to `run_as_unknown_containers`. A container is
+  non-root when its effective `runAsUser` is above 0, or when `runAsNonRoot`
+  is true and no user is set. An effective `runAsUser` of 0 is root even under
+  `runAsNonRoot: true`, and `runAsNonRoot: false` alone is unknown. Scans
+  stored before the upgrade contribute 0 to the new baseline fractions.
+
+- **Privileged namespaces count as unenforced.** A namespace whose Pod
+  Security enforce label is `privileged` now counts in `unenforced_count`, not
+  `enforced_count`. The `security/psa-unenforced` finding charges only
+  namespaces with no enforce label. Namespaces set to `privileged` are listed
+  in the finding and not charged.
+
+- **Two new Prometheus series.** `fleetsweeper_fleet_score_graded` is 1 when
+  the scan is graded and 0 otherwise. `fleetsweeper_coverage_ratio` is the
+  share of expected scanner runs that observed the fleet. `fleetsweeper_fleet_score`
+  is not emitted while the scan is ungraded, so alert rules that read it
+  should also check the graded series.
+
 ## v0.13.0
 
 No schema migration. Findings, counts, and some outputs change on the first

@@ -6,7 +6,7 @@ What Fleetsweeper ships ready for the box.
 | ---------------------- | -------------- |
 | HA backend             | SQLite default, PostgreSQL via `--db-driver=postgres` |
 | Multi-replica safe     | Kubernetes Lease-based leader election (`coordination.k8s.io/v1`) |
-| Multi-tenant RBAC      | Scoped API keys (`admin`, `operator`, `viewer`) with cluster scope (`*`, names, or `group:<n>`) |
+| Multi-tenant RBAC      | Scoped API keys (`admin`, `operator`, `viewer`) with cluster scope (`*`, names, or `group:<n>`) on writes. Reads are not scoped |
 | Audit log              | Every mutating request captured. Queryable at `GET /api/admin/audit`. Retention via `--audit-retention` |
 | Declarative ops        | `ClusterScan` CRD with an in-process reconciler |
 | GitOps integrations    | `FleetDriftReport` CR plus `PolicyReport` (wgpolicyk8s.io) |
