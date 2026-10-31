@@ -11,13 +11,22 @@ does, it warns (advisory mode) or denies (enforce mode).
 The baseline is a small set of fleet-wide fractions, refreshed once a
 minute from the latest scan in the Fleetsweeper database:
 
-| Fraction&nbsp;                     | What it measures                                            |
-|------------------------------------|-------------------------------------------------------------|
-| `digest_pin_fraction`              | Containers using `image@sha256:...` rather than a tag.      |
-| `non_root_fraction`                | Containers not declared to run as UID 0.                    |
-| `no_privilege_escalation_fraction` | Containers with `allowPrivilegeEscalation=false`.           |
-| `named_service_account_fraction`   | Pods running under a ServiceAccount other than `default`.   |
-| `read_only_root_fs_fraction`       | Containers with `readOnlyRootFilesystem=true`.              |
+| Fraction&nbsp;                     | What it measures                                          |
+|------------------------------------|-----------------------------------------------------------|
+| `digest_pin_fraction`              | Containers using `image@sha256:...` rather than a tag.    |
+| `non_root_fraction`                | Containers explicitly non-root, by the predicate below.   |
+| `no_privilege_escalation_fraction` | Containers that cannot gain privileges.                   |
+| `named_service_account_fraction`   | Pods running under a ServiceAccount other than `default`. |
+| `read_only_root_fs_fraction`       | Containers with `readOnlyRootFilesystem=true`.            |
+
+A container counts as non-root, in both the fraction and the `non-root`
+check, only when its effective `runAsUser` is above 0, or is unset while
+its effective `runAsNonRoot` is true, with each container setting winning
+over the pod setting, so a container that sets neither is not non-root. A container
+cannot gain privileges when `allowPrivilegeEscalation` is false and it is
+neither privileged nor adds `SYS_ADMIN`. Every container fraction except
+the digest one counts init and regular containers only, the ones admission
+sees, and leaves ephemeral debug containers out.
 
 Each cluster contributes its own counts, and a scanner that did not
 complete on a cluster contributes nothing, so a blind cluster cannot

@@ -36,15 +36,16 @@ type Baseline struct {
 	SampleContainers int `json:"sample_containers" yaml:"sample_containers"`
 	// DigestPinFraction is the share of containers using @sha256: digest pins.
 	DigestPinFraction float64 `json:"digest_pin_fraction" yaml:"digest_pin_fraction"`
-	// NonRootFraction is the share of containers not declared to run as UID 0.
+	// NonRootFraction is the share of init and regular containers explicitly non-root, the
+	// predicate the non-root check applies.
 	NonRootFraction float64 `json:"non_root_fraction" yaml:"non_root_fraction"`
-	// NoPrivilegeEscalationFraction is the share of containers with
-	// allowPrivilegeEscalation set false (the PSS-restricted check).
+	// NoPrivilegeEscalationFraction is the share of init and regular containers that cannot
+	// gain privileges (the PSS-restricted check).
 	NoPrivilegeEscalationFraction float64 `json:"no_privilege_escalation_fraction" yaml:"no_privilege_escalation_fraction"`
 	// NamedServiceAccountFraction is the share of pods using a named
 	// ServiceAccount (not "default").
 	NamedServiceAccountFraction float64 `json:"named_service_account_fraction" yaml:"named_service_account_fraction"`
-	// ReadOnlyRootFSFraction is the share of containers with
+	// ReadOnlyRootFSFraction is the share of init and regular containers with
 	// readOnlyRootFilesystem=true.
 	ReadOnlyRootFSFraction float64 `json:"read_only_root_fs_fraction" yaml:"read_only_root_fs_fraction"`
 	// SourceScanID is the scan the baseline was derived from.

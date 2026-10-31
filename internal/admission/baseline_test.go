@@ -85,10 +85,11 @@ func imageAuditData(totalContainers, noDigest int) scanner.Result {
 }
 
 // workloadSecData builds a workload-security scanner Data payload.
-func workloadSecData(totalPods, runAsRoot, allowPrivEsc, noReadOnly, defaultSA int) scanner.Result {
+func workloadSecData(totalPods, containers, nonRoot, allowPrivEsc, noReadOnly, defaultSA int) scanner.Result {
 	return scanner.Result{Scanner: "workload-security", Data: map[string]any{
 		"total_pods":                   totalPods,
-		"run_as_root_containers":       runAsRoot,
+		"baseline_containers":          containers,
+		"run_as_non_root_containers":   nonRoot,
 		"allow_privilege_escalation":   allowPrivEsc,
 		"no_read_only_root":            noReadOnly,
 		"default_service_account_pods": defaultSA,
@@ -169,13 +170,16 @@ func TestTallyWorkloadSec(t *testing.T) {
 		{ // Test 0: Ordinary payload.
 			Data: map[string]any{
 				"total_pods":                   20,
+				"baseline_containers":          40,
 				"run_as_root_containers":       8,
+				"run_as_non_root_containers":   30,
 				"allow_privilege_escalation":   10,
 				"no_read_only_root":            12,
 				"default_service_account_pods": 5,
 			},
 			WantResult: workloadSecTally{
-				totalPods: 20, runAsRoot: 8, allowPrivEsc: 10, noReadOnlyRoot: 12, defaultSA: 5,
+				totalPods: 20, containers: 40, nonRoot: 30, allowPrivEsc: 10, noReadOnlyRoot: 12,
+				defaultSA: 5,
 			},
 		},
 		{ // Test 1: Unmarshalable channel value yields a zero tally.
@@ -238,7 +242,7 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 				results: map[string]map[string]scanner.Result{
 					"clusterA": {
 						"image-audit":       imageAuditData(40, 4),
-						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+						"workload-security": workloadSecData(20, 40, 32, 10, 12, 5),
 					},
 				},
 			},
@@ -283,8 +287,8 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 			WantErr: true,
 		},
 		{ // Test 6: Two clusters aggregate per-cluster counts. A has 40 containers
-			// (4 unpinned, 8 root, 10 priv-esc, 12 writable root) and 20 pods (5
-			// default SA). B has 10 containers (0 unpinned, 10 root, 0 priv-esc,
+			// (4 unpinned, 32 non-root, 10 priv-esc, 12 writable root) and 20 pods (5
+			// default SA). B has 10 containers (0 unpinned, 0 non-root, 0 priv-esc,
 			// 10 writable root) and 10 pods (0 default SA). Digest (36+10)/50=0.92,
 			// non-root (32+0)/50=0.64, no-priv-esc (30+10)/50=0.8, read-only
 			// (28+0)/50=0.56, named SA (15+10)/30.
@@ -293,11 +297,11 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 				results: map[string]map[string]scanner.Result{
 					"clusterA": {
 						"image-audit":       imageAuditData(40, 4),
-						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+						"workload-security": workloadSecData(20, 40, 32, 10, 12, 5),
 					},
 					"clusterB": {
 						"image-audit":       imageAuditData(10, 0),
-						"workload-security": workloadSecData(10, 10, 0, 10, 0),
+						"workload-security": workloadSecData(10, 10, 0, 0, 10, 0),
 					},
 				},
 			},
@@ -319,11 +323,11 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 				results: map[string]map[string]scanner.Result{
 					"clusterA": {
 						"image-audit":       imageAuditData(40, 4),
-						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+						"workload-security": workloadSecData(20, 40, 32, 10, 12, 5),
 					},
 					"clusterB": {
 						"image-audit":       imageAuditData(10, 0),
-						"workload-security": degraded(workloadSecData(10, 10, 0, 10, 0)),
+						"workload-security": degraded(workloadSecData(10, 10, 0, 0, 10, 0)),
 					},
 				},
 			},
@@ -338,18 +342,19 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 				SourceScanID:                  "scan-1",
 			},
 		},
-		{ // Test 8: An errored image-audit result on B removes B's containers
-			// entirely; B's pods still count toward the service account fraction.
+		{ // Test 8: An errored image-audit result on B removes B's containers from the
+			// digest fraction only. B's workload-security counts still feed the container
+			// fractions and its pods the service account fraction.
 			Store: &fakeStore{
 				scans: oneScan,
 				results: map[string]map[string]scanner.Result{
 					"clusterA": {
 						"image-audit":       imageAuditData(40, 4),
-						"workload-security": workloadSecData(20, 8, 10, 12, 5),
+						"workload-security": workloadSecData(20, 40, 32, 10, 12, 5),
 					},
 					"clusterB": {
 						"image-audit":       errored(imageAuditData(10, 0)),
-						"workload-security": workloadSecData(10, 10, 0, 10, 0),
+						"workload-security": workloadSecData(10, 10, 0, 0, 10, 0),
 					},
 				},
 			},
@@ -357,10 +362,54 @@ func TestStoreBaselineProviderRecompute(t *testing.T) {
 				SampleContainers:              40,
 				SamplePods:                    30,
 				DigestPinFraction:             0.9,
-				NonRootFraction:               0.8,
-				NoPrivilegeEscalationFraction: 0.75,
-				ReadOnlyRootFSFraction:        0.7,
+				NonRootFraction:               0.64,
+				NoPrivilegeEscalationFraction: 0.8,
+				ReadOnlyRootFSFraction:        0.56,
 				NamedServiceAccountFraction:   25.0 / 30.0,
+				SourceScanID:                  "scan-1",
+			},
+		},
+		{ // Test 9: Unknown containers count as not non-root, so 20 explicit non-root of
+			// 40 is half even with no container running as root.
+			Store: &fakeStore{
+				scans: oneScan,
+				results: map[string]map[string]scanner.Result{
+					"clusterA": {
+						"image-audit":       imageAuditData(40, 0),
+						"workload-security": workloadSecData(20, 40, 20, 0, 0, 0),
+					},
+				},
+			},
+			WantBaseline: Baseline{
+				SampleContainers:              40,
+				SamplePods:                    20,
+				DigestPinFraction:             1,
+				NonRootFraction:               0.5,
+				NoPrivilegeEscalationFraction: 1,
+				ReadOnlyRootFSFraction:        1,
+				NamedServiceAccountFraction:   1,
+				SourceScanID:                  "scan-1",
+			},
+		},
+		{ // Test 10: Container fractions use baseline containers, not the image-audit
+			// total, which also counts ephemeral containers.
+			Store: &fakeStore{
+				scans: oneScan,
+				results: map[string]map[string]scanner.Result{
+					"clusterA": {
+						"image-audit":       imageAuditData(50, 0),
+						"workload-security": workloadSecData(20, 40, 40, 10, 20, 0),
+					},
+				},
+			},
+			WantBaseline: Baseline{
+				SampleContainers:              50,
+				SamplePods:                    20,
+				DigestPinFraction:             1,
+				NonRootFraction:               1,
+				NoPrivilegeEscalationFraction: 0.75,
+				ReadOnlyRootFSFraction:        0.5,
+				NamedServiceAccountFraction:   1,
 				SourceScanID:                  "scan-1",
 			},
 		},

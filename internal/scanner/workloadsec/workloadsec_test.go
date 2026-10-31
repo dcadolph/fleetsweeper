@@ -28,11 +28,11 @@ func boolPtr(b bool) *bool { return &b }
 // int64Ptr returns a pointer to n.
 func int64Ptr(n int64) *int64 { return &n }
 
-// lockedPod builds a pod whose single container trips no security checks, so
+// lockedPod builds a pod in namespace "a" whose single container trips no security checks, so
 // the supplied pod-level security context alone drives the root-status result.
-func lockedPod(namespace, name string, podSC *corev1.PodSecurityContext) *corev1.Pod {
+func lockedPod(name string, podSC *corev1.PodSecurityContext) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: name},
 		Spec: corev1.PodSpec{
 			ServiceAccountName: "svc",
 			SecurityContext:    podSC,
@@ -51,6 +51,20 @@ func lockedPod(namespace, name string, podSC *corev1.PodSecurityContext) *corev1
 	}
 }
 
+// lockedContainerPod builds a pod whose single container trips no capability, escalation, or
+// filesystem check, so the given pod and container security contexts alone drive the root and
+// seccomp results.
+func lockedContainerPod(name string, podSC *corev1.PodSecurityContext, sc *corev1.SecurityContext) *corev1.Pod {
+	pod := lockedPod(name, podSC)
+	locked := pod.Spec.Containers[0].SecurityContext
+	locked.RunAsUser, locked.RunAsNonRoot = sc.RunAsUser, sc.RunAsNonRoot
+	if sc.SeccompProfile != nil {
+		locked.SeccompProfile = sc.SeccompProfile
+	}
+	return pod
+}
+
+// TestNewScanner checks the counts and the risky pod list the scanner builds from pods.
 func TestNewScanner(t *testing.T) {
 	t.Parallel()
 
@@ -80,7 +94,7 @@ func TestNewScanner(t *testing.T) {
 				}},
 			},
 		}},
-		WantData: Data{TotalPods: 1},
+		WantData: Data{TotalPods: 1, BaselineContainers: 1, RunAsNonRootContainers: 1},
 	}, { // Test 2: A privileged host pod trips every check and is high risk.
 		Pods: []*corev1.Pod{{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "privileged"},
@@ -104,6 +118,7 @@ func TestNewScanner(t *testing.T) {
 		}},
 		WantData: Data{
 			TotalPods:                 1,
+			BaselineContainers:        1,
 			PrivilegedContainers:      1,
 			HostNetworkPods:           1,
 			HostPIDPods:               1,
@@ -142,7 +157,8 @@ func TestNewScanner(t *testing.T) {
 		}},
 		WantData: Data{
 			TotalPods:                 1,
-			UnknownRootContainers:     1,
+			BaselineContainers:        1,
+			RunAsUnknownContainers:    1,
 			MissingCapabilityDropAll:  1,
 			AllowPrivilegeEscalation:  1,
 			MissingSeccompProfile:     1,
@@ -155,7 +171,7 @@ func TestNewScanner(t *testing.T) {
 				Risks:     []string{"allow-privilege-escalation", "writable-root-fs"},
 			}},
 		},
-	}, { // Test 4: Container run-as-user and an ephemeral container, pod-level seccomp.
+	}, { // Test 4: An ephemeral container is in the risk list but not the baseline counts.
 		Pods: []*corev1.Pod{{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "nonroot"},
 			Spec: corev1.PodSpec{
@@ -179,15 +195,16 @@ func TestNewScanner(t *testing.T) {
 		}},
 		WantData: Data{
 			TotalPods:                1,
-			RunAsRootContainers:      1,
+			BaselineContainers:       1,
+			RunAsNonRootContainers:   1,
 			MissingCapabilityDropAll: 2,
-			AllowPrivilegeEscalation: 2,
-			NoReadOnlyRoot:           2,
+			AllowPrivilegeEscalation: 1,
+			NoReadOnlyRoot:           1,
 			HighRiskPods: []PodRisk{{
 				Namespace: "app",
 				Pod:       "nonroot",
 				Container: "debug",
-				Risks:     []string{"runs-as-root", "allow-privilege-escalation", "writable-root-fs"},
+				Risks:     []string{"allow-privilege-escalation", "writable-root-fs"},
 			}, {
 				Namespace: "app",
 				Pod:       "nonroot",
@@ -216,17 +233,45 @@ func TestNewScanner(t *testing.T) {
 		}},
 		WantData: Data{
 			TotalPods:           1,
+			BaselineContainers:  1,
 			RunAsRootContainers: 1,
 		},
-	}, { // Test 6: Pod-level user settings drive root status for clean containers.
+	}, { // Test 6: Pod-level user settings drive root status, and runAsNonRoot false is unknown.
 		Pods: []*corev1.Pod{
-			lockedPod("a", "pod-nonroot-user", &corev1.PodSecurityContext{RunAsUser: int64Ptr(2000)}),
-			lockedPod("a", "pod-nonroot-flag", &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(true)}),
-			lockedPod("a", "pod-root-flag", &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(false)}),
+			lockedPod("pod-nonroot-user", &corev1.PodSecurityContext{RunAsUser: int64Ptr(2000)}),
+			lockedPod("pod-nonroot-flag", &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(true)}),
+			lockedPod("pod-root-flag", &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(false)}),
 		},
 		WantData: Data{
-			TotalPods:           3,
-			RunAsRootContainers: 1,
+			TotalPods:              3,
+			BaselineContainers:     3,
+			RunAsNonRootContainers: 2,
+			RunAsUnknownContainers: 1,
+		},
+	}, { // Test 7: Container settings win over pod settings for root status and seccomp.
+		Pods: []*corev1.Pod{
+			lockedContainerPod("nonroot-under-pod-root",
+				&corev1.PodSecurityContext{RunAsUser: int64Ptr(0)},
+				&corev1.SecurityContext{RunAsNonRoot: boolPtr(true)}),
+			lockedContainerPod("false-under-pod-true",
+				&corev1.PodSecurityContext{RunAsNonRoot: boolPtr(true)},
+				&corev1.SecurityContext{RunAsNonRoot: boolPtr(false)}),
+			lockedContainerPod("unconfined-under-pod-default",
+				&corev1.PodSecurityContext{
+					RunAsUser:      int64Ptr(1000),
+					SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+				},
+				&corev1.SecurityContext{
+					SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeUnconfined},
+				}),
+		},
+		WantData: Data{
+			TotalPods:              3,
+			BaselineContainers:     3,
+			RunAsRootContainers:    1,
+			RunAsNonRootContainers: 1,
+			RunAsUnknownContainers: 1,
+			MissingSeccompProfile:  1,
 		},
 	}}
 

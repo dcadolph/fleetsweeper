@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/dcadolph/fleetsweeper/internal/podsec"
 )
 
 // DefaultChecks returns the built-in fleet-norm checks. They lean on the
@@ -50,18 +52,14 @@ type readOnlyRootFSCheck struct{}
 // Name returns the check identifier.
 func (readOnlyRootFSCheck) Name() string { return "read-only-root-fs" }
 
-// Evaluate inspects containers' SecurityContext.ReadOnlyRootFilesystem.
+// Evaluate flags each admitted container whose root filesystem is not read-only.
 func (readOnlyRootFSCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 	if b.ReadOnlyRootFSFraction < Threshold {
 		return nil, ""
 	}
 	var offenders []string
 	for _, c := range admittedContainers(pod) {
-		ro := false
-		if c.SecurityContext != nil && c.SecurityContext.ReadOnlyRootFilesystem != nil {
-			ro = *c.SecurityContext.ReadOnlyRootFilesystem
-		}
-		if !ro {
+		if !podsec.ReadOnlyRootFS(c) {
 			offenders = append(offenders, c.Name)
 		}
 	}
@@ -101,31 +99,21 @@ func (digestPinCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 	return []string{msg}, msg
 }
 
-// nonRootCheck flags containers without runAsNonRoot when most of the
-// fleet runs as non-root.
+// nonRootCheck flags containers that are not explicitly non-root when most of the fleet is.
 type nonRootCheck struct{}
 
 // Name returns the check identifier.
 func (nonRootCheck) Name() string { return "non-root" }
 
-// Evaluate inspects both pod-level and container-level SecurityContext for
-// the runAsNonRoot signal. Pod-level wins when set; container-level
-// otherwise.
+// Evaluate flags each admitted container whose effective user is not explicitly non-root, the
+// same predicate the baseline fraction counts. Container settings win over pod settings.
 func (nonRootCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 	if b.NonRootFraction < Threshold {
 		return nil, ""
 	}
-	podLevel := false
-	if pod.Spec.SecurityContext != nil && pod.Spec.SecurityContext.RunAsNonRoot != nil {
-		podLevel = *pod.Spec.SecurityContext.RunAsNonRoot
-	}
 	var offenders []string
 	for _, c := range admittedContainers(pod) {
-		containerLevel := false
-		if c.SecurityContext != nil && c.SecurityContext.RunAsNonRoot != nil {
-			containerLevel = *c.SecurityContext.RunAsNonRoot
-		}
-		if !podLevel && !containerLevel {
+		if podsec.RootStatus(pod, c) != podsec.NonRoot {
 			offenders = append(offenders, c.Name)
 		}
 	}
@@ -138,26 +126,21 @@ func (nonRootCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 	return []string{msg}, msg
 }
 
-// noPrivEscCheck flags containers without allowPrivilegeEscalation set
-// false when most of the fleet has it set.
+// noPrivEscCheck flags containers that may gain privileges when most of the fleet cannot.
 type noPrivEscCheck struct{}
 
 // Name returns the check identifier.
 func (noPrivEscCheck) Name() string { return "no-privilege-escalation" }
 
-// Evaluate inspects container SecurityContext.AllowPrivilegeEscalation.
-// nil counts as "not set" which is equivalent to "true" in PSS-restricted.
+// Evaluate flags each admitted container that may gain privileges, which an unset
+// allowPrivilegeEscalation allows.
 func (noPrivEscCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 	if b.NoPrivilegeEscalationFraction < Threshold {
 		return nil, ""
 	}
 	var offenders []string
 	for _, c := range admittedContainers(pod) {
-		set := false
-		if c.SecurityContext != nil && c.SecurityContext.AllowPrivilegeEscalation != nil {
-			set = !*c.SecurityContext.AllowPrivilegeEscalation
-		}
-		if !set {
+		if podsec.AllowsPrivilegeEscalation(c) {
 			offenders = append(offenders, c.Name)
 		}
 	}
@@ -174,8 +157,5 @@ func (noPrivEscCheck) Evaluate(pod *corev1.Pod, b Baseline) ([]string, string) {
 // containers are left out on purpose: they arrive later through the ephemeralcontainers
 // subresource, never on pod create, so admission never sees them.
 func admittedContainers(pod *corev1.Pod) []corev1.Container {
-	out := make([]corev1.Container, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
-	out = append(out, pod.Spec.InitContainers...)
-	out = append(out, pod.Spec.Containers...)
-	return out
+	return podsec.Containers(pod, false)
 }

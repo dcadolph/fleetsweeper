@@ -1,6 +1,8 @@
 package admission
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -106,19 +108,76 @@ func TestNoPrivEscCheck(t *testing.T) {
 	}
 }
 
-// TestNonRootCheckContainerLevel verifies a container-level runAsNonRoot=true
-// clears the non-root check even without a pod-level setting.
-func TestNonRootCheckContainerLevel(t *testing.T) {
+// TestNonRootCheckPrecedence verifies the non-root check flags every admitted container whose
+// effective user is not explicitly non-root, with container settings winning over pod settings.
+func TestNonRootCheckPrecedence(t *testing.T) {
 	t.Parallel()
-	yes := true
-	pod := &corev1.Pod{Spec: corev1.PodSpec{
-		Containers: []corev1.Container{{
-			Name:            "c",
-			SecurityContext: &corev1.SecurityContext{RunAsNonRoot: &yes},
+	yes, no := true, false
+	root, user := int64(0), int64(1000)
+	pod := func(psc *corev1.PodSecurityContext, sc *corev1.SecurityContext) *corev1.Pod {
+		return &corev1.Pod{Spec: corev1.PodSpec{
+			SecurityContext: psc,
+			Containers:      []corev1.Container{{Name: "c", SecurityContext: sc}},
+		}}
+	}
+	tests := []struct {
+		Pod           *corev1.Pod
+		WantOffenders int
+		Fraction      float64
+	}{{ // Test 0: Pod runAsNonRoot true with container false offends (R-4).
+		Pod: pod(&corev1.PodSecurityContext{RunAsNonRoot: &yes},
+			&corev1.SecurityContext{RunAsNonRoot: &no}),
+		Fraction: 0.9, WantOffenders: 1,
+	}, { // Test 1: Container runAsNonRoot true passes without a pod setting.
+		Pod:      pod(nil, &corev1.SecurityContext{RunAsNonRoot: &yes}),
+		Fraction: 0.9,
+	}, { // Test 2: Pod runAsNonRoot true passes a container that sets nothing.
+		Pod:      pod(&corev1.PodSecurityContext{RunAsNonRoot: &yes}, nil),
+		Fraction: 0.9,
+	}, { // Test 3: Nothing set is unknown and offends.
+		Pod:      pod(nil, nil),
+		Fraction: 0.9, WantOffenders: 1,
+	}, { // Test 4: A runAsUser above zero is explicitly non-root.
+		Pod:      pod(nil, &corev1.SecurityContext{RunAsUser: &user}),
+		Fraction: 0.9,
+	}, { // Test 5: Pod runAsUser 0 under container runAsNonRoot true is root and offends.
+		Pod: pod(&corev1.PodSecurityContext{RunAsUser: &root},
+			&corev1.SecurityContext{RunAsNonRoot: &yes}),
+		Fraction: 0.9, WantOffenders: 1,
+	}, { // Test 6: Below threshold stays quiet even with an offender.
+		Pod:      pod(nil, nil),
+		Fraction: 0.5,
+	}, { // Test 7: An ephemeral container is never admitted, so it never offends.
+		Pod: &corev1.Pod{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "c", SecurityContext: &corev1.SecurityContext{RunAsNonRoot: &yes},
+			}},
+			EphemeralContainers: []corev1.EphemeralContainer{{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debug"},
+			}},
 		}},
+		Fraction: 0.9,
+	}, { // Test 8: Init and regular offenders are both counted.
+		Pod: &corev1.Pod{Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{Name: "init"}},
+			Containers:     []corev1.Container{{Name: "c"}},
+		}},
+		Fraction: 0.9, WantOffenders: 2,
 	}}
-	warns, deny := nonRootCheck{}.Evaluate(pod, Baseline{NonRootFraction: 0.9})
-	if len(warns) != 0 || deny != "" {
-		t.Errorf("container-level runAsNonRoot should pass, got warns=%v deny=%q", warns, deny)
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			warns, deny := nonRootCheck{}.Evaluate(test.Pod, Baseline{NonRootFraction: test.Fraction})
+			want := ""
+			if test.WantOffenders > 0 {
+				want = fmt.Sprintf("%d here do not", test.WantOffenders)
+			}
+			if !strings.Contains(deny, want) || (want == "") != (deny == "") {
+				t.Errorf("deny = %q, want offender phrase %q", deny, want)
+			}
+			if diff := cmp.Diff(test.WantOffenders > 0, len(warns) > 0); diff != "" {
+				t.Errorf("fired mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

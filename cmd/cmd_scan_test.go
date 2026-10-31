@@ -220,6 +220,7 @@ func TestScanFlagsDefined(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
+			defer lockRootCmd(t)()
 			f := test.Cmd.Flags().Lookup(test.WantFlag)
 			if f == nil {
 				t.Fatalf("%s: flag --%s not defined", test.Cmd.Name(), test.WantFlag)

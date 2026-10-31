@@ -196,6 +196,9 @@ var fieldSpecs = []fieldSpec{
 		Polarity:  UpIsBad,
 		CountedBy: "workload-security/run-as-root",
 	},
+	{FieldRef: ref("workload-security", "run_as_non_root_containers"), Polarity: DownIsBad},
+	{FieldRef: ref("workload-security", "run_as_unknown_containers")},
+	{FieldRef: ref("workload-security", "baseline_containers")},
 	{
 		FieldRef:  ref("workload-security", "capability_additions"),
 		Severity:  SeverityWarning,

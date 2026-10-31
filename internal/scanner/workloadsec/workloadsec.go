@@ -10,23 +10,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/dcadolph/fleetsweeper/internal/kube"
+	"github.com/dcadolph/fleetsweeper/internal/podsec"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
 // Name is the registry key for this scanner.
 const Name = "workload-security"
-
-// Root status values describe what we know about a container's identity.
-const (
-	// RootStatusRoot means the container is explicitly configured to run as UID 0.
-	RootStatusRoot = "root"
-	// RootStatusNonRoot means the container is configured to run as a non-root user.
-	RootStatusNonRoot = "non-root"
-	// RootStatusUnknown means neither the pod nor the container specifies a user.
-	// We cannot tell without inspecting the image, so we report this honestly
-	// rather than defaulting to "root" (which produced enormous false positives).
-	RootStatusUnknown = "unknown"
-)
 
 // PodRisk describes a pod with a security concern.
 type PodRisk struct {
@@ -44,7 +33,7 @@ type PodRisk struct {
 type Data struct {
 	// TotalPods is the number of pods scanned.
 	TotalPods int `json:"total_pods"`
-	// PrivilegedContainers is containers running with privileged=true.
+	// PrivilegedContainers is containers, ephemeral included, running with privileged=true.
 	PrivilegedContainers int `json:"privileged_containers"`
 	// HostNetworkPods is pods using the host network namespace.
 	HostNetworkPods int `json:"host_network_pods"`
@@ -54,28 +43,36 @@ type Data struct {
 	HostIPCPods int `json:"host_ipc_pods"`
 	// HostPathVolumes is pods that mount a hostPath volume.
 	HostPathVolumes int `json:"host_path_volumes"`
-	// RunAsRootContainers is containers explicitly configured to run as UID 0.
+	// BaselineContainers is the init and regular containers, the denominator of every count
+	// that feeds the admission baseline. Ephemeral containers are left out, since admission
+	// never sees them.
+	BaselineContainers int `json:"baseline_containers"`
+	// RunAsRootContainers is baseline containers whose effective runAsUser is 0.
 	RunAsRootContainers int `json:"run_as_root_containers"`
-	// UnknownRootContainers is containers without explicit user configuration.
-	// These may or may not run as root depending on the image; flag them as
-	// "unknown" so operators can audit selectively rather than treating every
-	// undeclared workload as a violation.
-	UnknownRootContainers int `json:"unknown_root_containers"`
-	// CapabilityAdditions is containers that add Linux capabilities beyond the default set.
+	// RunAsNonRootContainers is baseline containers explicitly non-root, by an effective
+	// runAsUser above 0, or an unset one under an effective runAsNonRoot of true.
+	RunAsNonRootContainers int `json:"run_as_non_root_containers"`
+	// RunAsUnknownContainers is baseline containers whose spec does not settle the user, so
+	// only the image can.
+	RunAsUnknownContainers int `json:"run_as_unknown_containers"`
+	// CapabilityAdditions is containers, ephemeral included, that add Linux capabilities beyond
+	// the default set.
 	CapabilityAdditions int `json:"capability_additions"`
-	// MissingCapabilityDropAll is containers that do not drop ALL capabilities.
+	// MissingCapabilityDropAll is containers, ephemeral included, that do not drop ALL
+	// capabilities.
 	MissingCapabilityDropAll int `json:"missing_capability_drop_all"`
-	// AllowPrivilegeEscalation is containers that do not explicitly set
-	// allowPrivilegeEscalation=false (the field defaults to true, which is
-	// the PSS-restricted defining check).
+	// AllowPrivilegeEscalation is baseline containers that may gain privileges, by an unset or
+	// true allowPrivilegeEscalation, privileged, or an added CAP_SYS_ADMIN.
 	AllowPrivilegeEscalation int `json:"allow_privilege_escalation"`
-	// MissingSeccompProfile is containers/pods without an explicit seccomp profile.
+	// MissingSeccompProfile is containers, ephemeral included, not confined by a RuntimeDefault
+	// or Localhost seccomp profile.
 	MissingSeccompProfile int `json:"missing_seccomp_profile"`
-	// NoReadOnlyRoot is containers without a read-only root filesystem.
+	// NoReadOnlyRoot is baseline containers without a read-only root filesystem.
 	NoReadOnlyRoot int `json:"no_read_only_root"`
 	// DefaultServiceAccountPods is pods using the namespace's default ServiceAccount.
 	DefaultServiceAccountPods int `json:"default_service_account_pods"`
-	// HighRiskPods lists pods with the most concerning security postures.
+	// HighRiskPods lists the containers, ephemeral included, with the most concerning security
+	// postures.
 	HighRiskPods []PodRisk `json:"high_risk_pods"`
 }
 
@@ -112,42 +109,54 @@ func NewScanner() scanner.Scanner {
 				data.DefaultServiceAccountPods++
 			}
 
-			containers := allContainers(pod)
-			for _, c := range containers {
+			baseline := len(pod.Spec.InitContainers) + len(pod.Spec.Containers)
+			data.BaselineContainers += baseline
+			for j, c := range podsec.Containers(pod, true) {
 				var risks []string
 				sc := c.SecurityContext
+				inBaseline := j < baseline
 
 				if sc != nil && sc.Privileged != nil && *sc.Privileged {
 					data.PrivilegedContainers++
 					risks = append(risks, "privileged")
 				}
 
-				switch rootStatus(pod, sc) {
-				case RootStatusRoot:
-					data.RunAsRootContainers++
+				status := podsec.RootStatus(pod, c)
+				if status == podsec.Root {
 					risks = append(risks, "runs-as-root")
-				case RootStatusUnknown:
-					data.UnknownRootContainers++
+				}
+				if inBaseline {
+					switch status {
+					case podsec.Root:
+						data.RunAsRootContainers++
+					case podsec.NonRoot:
+						data.RunAsNonRootContainers++
+					default:
+						data.RunAsUnknownContainers++
+					}
 				}
 
 				if sc != nil && sc.Capabilities != nil && len(sc.Capabilities.Add) > 0 {
 					data.CapabilityAdditions++
 					risks = append(risks, fmt.Sprintf("capabilities-add:%v", sc.Capabilities.Add))
 				}
-				if !dropsAllCapabilities(sc) {
+				if !podsec.DropsAllCapabilities(c) {
 					data.MissingCapabilityDropAll++
 				}
-				if allowsPrivilegeEscalation(sc) {
-					data.AllowPrivilegeEscalation++
+				escalates := podsec.AllowsPrivilegeEscalation(c)
+				if escalates {
+					if inBaseline {
+						data.AllowPrivilegeEscalation++
+					}
 					risks = append(risks, "allow-privilege-escalation")
 				}
-				if !hasSeccompProfile(pod, sc) {
+				if !podsec.SeccompConfined(pod, c) {
 					data.MissingSeccompProfile++
 				}
-
-				readOnly := sc != nil && sc.ReadOnlyRootFilesystem != nil && *sc.ReadOnlyRootFilesystem
-				if !readOnly {
-					data.NoReadOnlyRoot++
+				if !podsec.ReadOnlyRootFS(c) {
+					if inBaseline {
+						data.NoReadOnlyRoot++
+					}
 					risks = append(risks, "writable-root-fs")
 				}
 
@@ -164,7 +173,7 @@ func NewScanner() scanner.Scanner {
 				isHighRisk := (sc != nil && sc.Privileged != nil && *sc.Privileged) ||
 					hostNet || hostPID || hostIPC ||
 					(sc != nil && sc.Capabilities != nil && len(sc.Capabilities.Add) > 0) ||
-					allowsPrivilegeEscalation(sc)
+					escalates
 				if isHighRisk {
 					data.HighRiskPods = append(data.HighRiskPods, PodRisk{
 						Namespace: pod.Namespace,
@@ -180,103 +189,6 @@ func NewScanner() scanner.Scanner {
 
 		return cov.Finish(Name, data)
 	})
-}
-
-// allContainers returns every container that can run in the pod: init,
-// regular, and ephemeral. Ephemeral containers are included because a
-// running pod can carry kubectl-debug containers that admission never saw.
-func allContainers(pod *corev1.Pod) []corev1.Container {
-	out := make([]corev1.Container, 0, len(pod.Spec.InitContainers)+len(pod.Spec.Containers)+len(pod.Spec.EphemeralContainers))
-	out = append(out, pod.Spec.InitContainers...)
-	out = append(out, pod.Spec.Containers...)
-	for _, ec := range pod.Spec.EphemeralContainers {
-		out = append(out, corev1.Container{
-			Name:            ec.Name,
-			Image:           ec.Image,
-			Command:         ec.Command,
-			Args:            ec.Args,
-			SecurityContext: ec.SecurityContext,
-		})
-	}
-	return out
-}
-
-// rootStatus classifies a container's effective user. We prefer explicit
-// pod-level then container-level signals; only when neither is present do we
-// return Unknown rather than guess.
-func rootStatus(pod *corev1.Pod, sc *corev1.SecurityContext) string {
-	if sc != nil && sc.RunAsUser != nil {
-		if *sc.RunAsUser == 0 {
-			return RootStatusRoot
-		}
-		return RootStatusNonRoot
-	}
-	if sc != nil && sc.RunAsNonRoot != nil {
-		if *sc.RunAsNonRoot {
-			return RootStatusNonRoot
-		}
-		return RootStatusRoot
-	}
-	if pod.Spec.SecurityContext != nil {
-		if pod.Spec.SecurityContext.RunAsUser != nil {
-			if *pod.Spec.SecurityContext.RunAsUser == 0 {
-				return RootStatusRoot
-			}
-			return RootStatusNonRoot
-		}
-		if pod.Spec.SecurityContext.RunAsNonRoot != nil {
-			if *pod.Spec.SecurityContext.RunAsNonRoot {
-				return RootStatusNonRoot
-			}
-			return RootStatusRoot
-		}
-	}
-	return RootStatusUnknown
-}
-
-// allowsPrivilegeEscalation reports whether the container allows escalation.
-// The field defaults to true when unset, which is the PSS-restricted
-// defining check. Setting privileged=true forces the field to true as well.
-func allowsPrivilegeEscalation(sc *corev1.SecurityContext) bool {
-	if sc == nil {
-		return true
-	}
-	if sc.Privileged != nil && *sc.Privileged {
-		return true
-	}
-	if sc.AllowPrivilegeEscalation == nil {
-		return true
-	}
-	return *sc.AllowPrivilegeEscalation
-}
-
-// dropsAllCapabilities reports whether the container drops ALL capabilities.
-// The PSS-baseline standard requires this explicit drop.
-func dropsAllCapabilities(sc *corev1.SecurityContext) bool {
-	if sc == nil || sc.Capabilities == nil {
-		return false
-	}
-	for _, drop := range sc.Capabilities.Drop {
-		if drop == "ALL" || drop == "all" {
-			return true
-		}
-	}
-	return false
-}
-
-// hasSeccompProfile reports whether either the pod or container has an
-// explicit seccomp profile set. RuntimeDefault and Localhost both satisfy
-// PSS-baseline.
-func hasSeccompProfile(pod *corev1.Pod, sc *corev1.SecurityContext) bool {
-	if sc != nil && sc.SeccompProfile != nil && sc.SeccompProfile.Type != "" && sc.SeccompProfile.Type != corev1.SeccompProfileTypeUnconfined {
-		return true
-	}
-	if pod.Spec.SecurityContext != nil && pod.Spec.SecurityContext.SeccompProfile != nil &&
-		pod.Spec.SecurityContext.SeccompProfile.Type != "" &&
-		pod.Spec.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeUnconfined {
-		return true
-	}
-	return false
 }
 
 // hasHostPath reports whether the pod mounts a hostPath volume.

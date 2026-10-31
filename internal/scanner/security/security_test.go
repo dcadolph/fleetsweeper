@@ -19,45 +19,63 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
+// testNamespace returns a namespace named name whose PSS enforce label is enforce, or unlabeled
+// when enforce is empty.
+func testNamespace(name, enforce string) *corev1.Namespace {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if enforce != "" {
+		ns.Labels = map[string]string{"pod-security.kubernetes.io/enforce": enforce}
+	}
+	return ns
+}
+
+// TestNewScanner checks the enforced and unenforced counts and the level distribution.
 func TestNewScanner(t *testing.T) {
 	t.Parallel()
-
-	enforced := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "prod",
-			Labels: map[string]string{
-				"pod-security.kubernetes.io/enforce": "restricted",
-			},
+	tests := []struct {
+		WantLevels     map[string]int
+		Namespaces     []runtime.Object
+		WantCount      int
+		WantEnforced   int
+		WantUnenforced int
+	}{{ // Test 0: One restricted and one unlabeled namespace.
+		Namespaces:     []runtime.Object{testNamespace("prod", "restricted"), testNamespace("dev", "")},
+		WantCount:      2,
+		WantEnforced:   1,
+		WantUnenforced: 1,
+		WantLevels:     map[string]int{"restricted": 1, "none": 1},
+	}, { // Test 1: Enforce privileged enforces nothing, so it counts as unenforced.
+		Namespaces: []runtime.Object{
+			testNamespace("prod", "baseline"),
+			testNamespace("kube-system", "privileged"),
 		},
-	}
-	unenforced := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: "dev"},
-	}
-
-	cs := fakeclientset.NewSimpleClientset(enforced, unenforced)
-	client := kube.NewTestClientWithClientset("test", cs)
-
-	result, err := NewScanner().Scan(context.Background(), client)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	data, ok := result.Data.(Data)
-	if !ok {
-		t.Fatalf("expected Data type, got %T", result.Data)
-	}
-
-	if diff := cmp.Diff(2, data.NamespaceCount); diff != "" {
-		t.Errorf("namespace count mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(1, data.EnforcedCount); diff != "" {
-		t.Errorf("enforced count mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(1, data.UnenforcedCount); diff != "" {
-		t.Errorf("unenforced count mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff(1, data.LevelDistribution["restricted"]); diff != "" {
-		t.Errorf("restricted count mismatch (-want +got):\n%s", diff)
+		WantCount:      2,
+		WantEnforced:   1,
+		WantUnenforced: 1,
+		WantLevels:     map[string]int{"baseline": 1, "privileged": 1},
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			cs := fakeclientset.NewSimpleClientset(test.Namespaces...)
+			client := kube.NewTestClientWithClientset("test", cs)
+			result, err := NewScanner().Scan(context.Background(), client)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			data, ok := result.Data.(Data)
+			if !ok {
+				t.Fatalf("expected Data type, got %T", result.Data)
+			}
+			got := []int{data.NamespaceCount, data.EnforcedCount, data.UnenforcedCount}
+			want := []int{test.WantCount, test.WantEnforced, test.WantUnenforced}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("namespace, enforced, unenforced counts mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantLevels, data.LevelDistribution); diff != "" {
+				t.Errorf("level distribution mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
