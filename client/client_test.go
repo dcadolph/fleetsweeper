@@ -56,8 +56,8 @@ func newContractServer(t *testing.T, insecure bool, token string) (*client.Clien
 func seedScan(t *testing.T, st store.Store) string {
 	t.Helper()
 	results := map[string]map[string]scanner.Result{
-		"prod-a": {"version": {Scanner: "version", Data: map[string]any{"gitVersion": "v1.29.0"}}},
-		"prod-b": {"version": {Scanner: "version", Data: map[string]any{"gitVersion": "v1.28.3"}}},
+		"prod-a": {"version": {Scanner: "version", Data: map[string]any{"git_version": "v1.29.0"}}},
+		"prod-b": {"version": {Scanner: "version", Data: map[string]any{"git_version": "v1.28.3"}}},
 	}
 	id, err := st.SaveScan(context.Background(), []string{"prod-a", "prod-b"}, results)
 	if err != nil {
@@ -203,13 +203,26 @@ func TestContract(t *testing.T) {
 	})
 
 	t.Run("findings ack", func(t *testing.T) {
-		const fp = "fp-contract-1"
+		report, err := c.GetScanReport(ctx, scanID)
+		if err != nil {
+			t.Fatalf("get scan report: %v", err)
+		}
+		if len(report.Findings) == 0 {
+			t.Fatal("seeded report has no findings to ack")
+		}
+		f := report.Findings[0]
+		fp := f.Fingerprint
 		ack, err := c.AckFinding(ctx, fp, client.AckRequest{AckBy: "tester", Reason: "known noise"})
 		if err != nil {
 			t.Fatalf("ack finding: %v", err)
 		}
-		if ack.Fingerprint != fp {
-			t.Errorf("ack fingerprint = %q, want %q", ack.Fingerprint, fp)
+		want := client.AckRecord{
+			Fingerprint: fp, Cluster: f.Cluster, Scanner: f.Scanner, Title: f.Title,
+			AckBy: "tester", Reason: "known noise",
+		}
+		ignore := cmpopts.IgnoreFields(client.AckRecord{}, "CreatedAt")
+		if diff := cmp.Diff(want, *ack, ignore); diff != "" {
+			t.Errorf("ack mismatch (-want +got):\n%s", diff)
 		}
 		acks, err := c.ListAcks(ctx)
 		if err != nil {
@@ -270,6 +283,17 @@ func TestContract(t *testing.T) {
 		}
 		if apiErr.Message != "no contexts specified" {
 			t.Errorf("message = %q, want %q", apiErr.Message, "no contexts specified")
+		}
+	})
+
+	t.Run("ack finding unknown", func(t *testing.T) {
+		_, err := c.AckFinding(ctx, "fp-unknown", client.AckRequest{AckBy: "tester"})
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) {
+			t.Fatalf("ack finding: want *APIError, got %v", err)
+		}
+		if apiErr.StatusCode != http.StatusNotFound {
+			t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusNotFound)
 		}
 	})
 

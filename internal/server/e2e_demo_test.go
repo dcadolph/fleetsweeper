@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 
+	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -181,8 +182,10 @@ type mutationCase struct {
 var demoMutations = []mutationCase{ //nolint:gochecknoglobals // Not modified, simplifies testing.
 	{Name: "trigger", Method: http.MethodPost, Path: "/api/scans",
 		Body: `{"all_contexts":true}`, WantDemo: http.StatusAccepted},
-	{Name: "ack", Method: http.MethodPost, Path: "/api/findings/abc123/ack",
-		Body: `{"cluster":"fleet","reason":"demo"}`, WantDemo: http.StatusCreated},
+	{Name: "ack", Method: http.MethodPost, Path: "/api/findings/" +
+		report.FindingFingerprint(report.Finding{
+			Cluster: "prod-eu-central-1", Scanner: "deprecated-apis", Rule: "deprecated-apis/in-use",
+		}) + "/ack", Body: `{"reason":"demo"}`, WantDemo: http.StatusCreated},
 	{Name: "tag", Method: http.MethodPut, Path: "/api/clusters/prod-us-east-1/tags/cohort",
 		Body: `{"value":"edge"}`, WantDemo: http.StatusOK},
 }

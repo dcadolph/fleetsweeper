@@ -523,9 +523,8 @@ func TestHandleGetOutliers_AckDoesNotTouchCache(t *testing.T) {
 		t.Fatal("want findings above zero, got none")
 	}
 	f := first.Findings[0]
-	body := `{"cluster":"` + f.Cluster + `","scanner":"` + f.Scanner + `","title":"` + f.Title + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/findings/"+f.Fingerprint+"/ack",
-		strings.NewReader(body))
+		strings.NewReader(`{"reason":"known"}`))
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {

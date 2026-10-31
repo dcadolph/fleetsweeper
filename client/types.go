@@ -358,14 +358,9 @@ type IntegrationStatus struct {
 	Hint string `json:"hint,omitempty"`
 }
 
-// AckRequest is the body for acknowledging a finding.
+// AckRequest is the body for acknowledging a finding. The server takes the
+// cluster, scanner, and title from the finding it holds.
 type AckRequest struct {
-	// Cluster narrows the ack to one cluster.
-	Cluster string `json:"cluster,omitempty"`
-	// Scanner narrows the ack to one scanner.
-	Scanner string `json:"scanner,omitempty"`
-	// Title narrows the ack to one finding title.
-	Title string `json:"title,omitempty"`
 	// AckBy identifies who acknowledged the finding.
 	AckBy string `json:"ack_by,omitempty"`
 	// Reason records why the finding was acknowledged.

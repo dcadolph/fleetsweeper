@@ -528,10 +528,10 @@ components:
 
     AckRequest:
       type: object
+      description: |
+        Human context for an ack. The server takes cluster, scanner, and title
+        from the finding it holds, and rejects a body that names them.
       properties:
-        cluster: {type: string}
-        scanner: {type: string}
-        title: {type: string}
         ack_by: {type: string}
         reason: {type: string}
         snooze_until: {type: string, format: date-time}
@@ -989,13 +989,18 @@ paths:
   /api/findings/{fingerprint}/ack:
     post:
       summary: Record a finding acknowledgement
+      description: |
+        The fingerprint must belong to a finding in the latest report. The
+        server checks the caller's cluster scope against that finding's
+        cluster and stores the finding's cluster, scanner, and title. A
+        fleet-scoped finding needs wildcard scope.
       parameters:
         - in: path
           name: fingerprint
           required: true
           schema: {type: string}
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema: {$ref: "#/components/schemas/AckRequest"}
@@ -1005,15 +1010,23 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/AckRecord"}
+        "400": {description: Unreadable body, unknown field, or snooze_until not RFC 3339}
+        "403": {description: Finding cluster outside the caller's scope}
+        "404": {description: No finding in the latest report carries this fingerprint}
     delete:
       summary: Remove a finding acknowledgement
+      description: |
+        The server checks the caller's cluster scope against the cluster stored
+        on the ack. A fleet-scoped ack needs wildcard scope. A missing ack
+        returns 204.
       parameters:
         - in: path
           name: fingerprint
           required: true
           schema: {type: string}
       responses:
-        "204": {description: Deleted}
+        "204": {description: Deleted, or no ack existed}
+        "403": {description: Ack cluster outside the caller's scope}
 
   /api/alerts:
     get:

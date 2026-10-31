@@ -199,26 +199,36 @@ func emitPolicyReportMetrics(w io.Writer, r *report.Report, log *zap.Logger) {
 }
 
 // latestReportForMetrics returns the rebuilt report for the most recent scan,
-// or nil when no scan exists.
+// or nil when no scan exists or the store fails.
 func (s *Server) latestReportForMetrics(ctx context.Context) *report.Report {
-	scans, err := s.store.ListScans(ctx, 1)
+	rpt, err := s.latestReport(ctx)
 	if err != nil {
-		s.log.Warn("metrics: list scans", zap.Error(err))
+		s.log.Warn("metrics: latest report", zap.Error(err))
 		return nil
 	}
+	return rpt
+}
+
+// latestReport returns the cached report for the most recent scan, or nil with
+// no error when no scan exists. The report is shared, so callers must not
+// modify it.
+func (s *Server) latestReport(ctx context.Context) (*report.Report, error) {
+	scans, err := s.store.ListScans(ctx, 1)
+	if err != nil {
+		return nil, fmt.Errorf("list scans: %w", err)
+	}
 	if len(scans) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	latest := scans[0]
 	results, err := s.store.GetScanResults(ctx, latest.ID)
 	if err != nil {
-		s.log.Warn("metrics: get scan results", zap.Error(err))
-		return nil
+		return nil, fmt.Errorf("get scan results: %w", err)
 	}
 	opts := s.reportOptions(ctx, s.log)
 	opts.Timestamp = latest.Timestamp
-	return s.reports.get(latest.ID, latest.Clusters, results, opts)
+	return s.reports.get(latest.ID, latest.Clusters, results, opts), nil
 }
 
 // emit writes one line of Prometheus exposition followed by a newline.
