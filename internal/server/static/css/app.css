@@ -306,6 +306,7 @@ a.cc:hover { text-decoration: none; }
 .sc-main { display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 10px; }
 .sc-num { font-size: var(--fs-display); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .sc-grade { font-size: var(--fs-28); font-weight: 700; }
+.sc-grade-none { font-size: var(--fs-14); font-weight: 600; }
 .sc-main .eyebrow { grid-column: 1 / -1; margin-top: 6px; }
 .sc-side { flex: 1 1 260px; min-width: 0; }
 .sc-move { font-size: var(--fs-14); margin-bottom: 4px; }
@@ -776,3 +777,4 @@ kbd {
 .meter-value { font-size: var(--fs-28); font-weight: 700; font-variant-numeric: tabular-nums; }
 .meter-bar { width: 100%; height: 6px; margin-top: 6px; }
 .whatif-score { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 8px; }
+.c-muted { color: var(--text-3); }

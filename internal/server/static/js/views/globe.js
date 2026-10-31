@@ -10,12 +10,12 @@ import { nav, onLeave } from '../router.js';
 import { on, onChange } from '../actions.js';
 import { findingsHref } from './findings.js';
 
-const STATUSES = ['critical', 'degraded', 'busy', 'healthy'];
+const STATUSES = ['critical', 'degraded', 'busy', 'unknown', 'healthy'];
 const SOURCE_LABELS = { manual: 'manual override', configmap: 'in-cluster ConfigMap', annotation: 'in-cluster annotation', auto: 'auto-detected' };
 
 const state = {
   points: [],
-  filter: { healthy: true, busy: true, degraded: true, critical: true },
+  filter: { healthy: true, unknown: true, busy: true, degraded: true, critical: true },
   selected: null,
   search: '',
   globe: null,
@@ -202,7 +202,7 @@ function applyLayers() {
 function renderSide() {
   const filterEl = byId('globeFilter');
   if (!filterEl) return;
-  const counts = { critical: 0, degraded: 0, busy: 0, healthy: 0 };
+  const counts = { critical: 0, degraded: 0, busy: 0, unknown: 0, healthy: 0 };
   state.points.forEach((p) => { if (counts[norm(p.status)] !== undefined) counts[norm(p.status)]++; });
   filterEl.innerHTML = STATUSES.map((s) => `<button class="btn filter-btn${state.filter[s] ? ' c-' + statusTone(s) : ' off'}" data-action="globe-filter" data-status="${s}" aria-pressed="${state.filter[s]}">${s} ${counts[s]}</button>`).join('');
   byId('globe-summary').innerHTML = STATUSES.map((s) => `<div class="flex between"><span>${s[0].toUpperCase() + s.slice(1)}</span><span class="c-${statusTone(s)} fw-600">${counts[s]}</span></div>`).join('');

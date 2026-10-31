@@ -242,8 +242,8 @@ function renderOverview(){
   h+='<div class="row row-3">';
   (R.cluster_healths||[]).forEach(function(ch){
     if(hiddenClusters[ch.name])return;
-    var sc=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
-    var sb=ch.status==='critical'?'var(--crb)':ch.status==='degraded'?'var(--wnb)':'var(--okb)';
+    var sc=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':ch.status==='unknown'?'var(--t3)':'var(--ok)';
+    var sb=ch.status==='critical'?'var(--crb)':ch.status==='degraded'?'var(--wnb)':ch.status==='unknown'?'rgba(139,148,158,.12)':'var(--okb)';
     h+='<div class="card ch"><div class="bar" style="background:'+sc+'"></div>';
     h+='<h3>'+esc(ch.name)+'</h3>';
     h+='<span class="st" style="background:'+sb+';color:'+sc+'">'+ch.status+'</span>';
@@ -293,8 +293,8 @@ function renderClusters(){
   var h='<div class="row row-3">';
   (R.cluster_healths||[]).forEach(function(ch){
     if(hiddenClusters[ch.name])return;
-    var sc=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':'var(--ok)';
-    var sb=ch.status==='critical'?'var(--crb)':ch.status==='degraded'?'var(--wnb)':'var(--okb)';
+    var sc=ch.status==='critical'?'var(--cr)':ch.status==='degraded'?'var(--wn)':ch.status==='unknown'?'var(--t3)':'var(--ok)';
+    var sb=ch.status==='critical'?'var(--crb)':ch.status==='degraded'?'var(--wnb)':ch.status==='unknown'?'rgba(139,148,158,.12)':'var(--okb)';
     h+='<div class="card ch"><div class="bar" style="background:'+sc+'"></div>';
     h+='<h3>'+esc(ch.name)+'</h3>';
     h+='<span class="st" style="background:'+sb+';color:'+sc+'">'+ch.status+'</span>';
@@ -383,7 +383,7 @@ function initCharts(){
   var vis=R.clusters.filter(function(c){return !hiddenClusters[c]});
   var colors=vis.map(function(c){return CC[c]});
   var bgColors=vis.map(function(c){return CC[c]+'40'});
-  function getData(scanner,field){var sec=R.sections[scanner];return vis.map(function(c){if(!sec||!sec.per_cluster[c])return 0;var d=JSON.parse(JSON.stringify(sec.per_cluster[c]));return d[field]||0})}
+  function getData(scanner,field){var sec=R.sections[scanner];return vis.map(function(c){if(!sec||!sec.per_cluster[c])return null;var v=sec.per_cluster[c][field];return typeof v==='number'?v:null})}
 
   // CPU
   var el=document.getElementById('cpuC');
@@ -423,6 +423,7 @@ function initCharts(){
 
 function drawGauge(id,value,color){
   var el=document.getElementById(id);if(!el)return;
+  if(typeof value!=='number'){el.style.display='none';var na=document.createElement('div');na.textContent='N/A';na.style.cssText='color:var(--t3);font-size:14px;text-align:center';el.parentNode.insertBefore(na,el.nextSibling);return}
   new Chart(el,{type:'doughnut',data:{datasets:[{data:[value,100-value],backgroundColor:[color,'#21262d'],borderWidth:0}]},options:{responsive:false,cutout:'75%',rotation:-90,circumference:180,plugins:{legend:{display:false},tooltip:{enabled:false}},animation:{animateRotate:true}},plugins:[{id:'gaugeText',afterDraw:function(chart){var ctx=chart.ctx;var w=chart.width/2;var h=chart.height-20;ctx.save();ctx.textAlign='center';ctx.fillStyle=value>85?'#f85149':value>70?'#d29922':'#e6edf3';ctx.font='bold 20px -apple-system,sans-serif';ctx.fillText(Math.round(value)+'%',w,h);ctx.restore()}}]});
 }
 

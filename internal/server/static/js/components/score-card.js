@@ -31,6 +31,14 @@ export function topTerms(attribution, n) {
   return ((attribution && attribution.terms) || []).filter((t) => t.cost > 0).slice().sort((a, b) => b.cost - a.cost).slice(0, n);
 }
 
+// coverageLine returns the scanner coverage sentence for a score's coverage,
+// or an empty string when the report carries none.
+export function coverageLine(cov) {
+  if (!cov || !(cov.expected_runs > 0)) return '';
+  const blind = cov.blind_clusters || 0;
+  return `${cov.observed_runs} of ${cov.expected_runs} scanner runs observed (${blind} cluster${blind === 1 ? '' : 's'} blind).`;
+}
+
 // moveLine returns the line for the score's move since the previous scan and
 // the projection for the next one, or an empty string when neither is known.
 export function moveLine(score, prev, forecast) {
@@ -56,8 +64,9 @@ export function moveLine(score, prev, forecast) {
 // action, tip} for the scan's counts.
 export function renderScoreCard(fs, attribution, prev, forecast, facts) {
   if (!fs || typeof fs.score !== 'number') return '';
-  const tone = scoreTone(fs.score);
-  const gradeTone = GRADE_TONES[fs.grade] || 't2';
+  const graded = fs.graded !== false && !!fs.grade;
+  const tone = graded ? scoreTone(fs.score) : 't2';
+  const gradeTone = graded ? GRADE_TONES[fs.grade] || 't2' : 't2';
   let prov = '';
   if (fs.sample_size > 0) {
     prov = `Scored from ${fs.sample_size} cluster${fs.sample_size === 1 ? '' : 's'} across ${fs.dimensions || 0} dimension${fs.dimensions === 1 ? '' : 's'}.`;
@@ -65,6 +74,8 @@ export function renderScoreCard(fs, attribution, prev, forecast, facts) {
   } else {
     prov = fs.headline || 'No clusters scored yet.';
   }
+  if (!graded && fs.headline && fs.sample_size > 0) prov = fs.headline + ' ' + prov;
+  const cov = coverageLine(fs.coverage);
   const chips = topTerms(attribution, 3).map((t) =>
     `<button class="chip chip-btn" data-action="score-term" data-term="${esc(t.term)}" data-tip="${esc(t.reason)}. Click for the findings behind it.">` +
     `${esc(TERM_LABELS[t.term] || t.reason)} <span class="c-crit fw-600">&minus;${esc(num(Math.round(t.cost * 10) / 10))}</span></button>`).join('');
@@ -77,9 +88,11 @@ export function renderScoreCard(fs, attribution, prev, forecast, facts) {
   }).join('');
   return `<section class="cd score-card" data-tour="fleet-score" aria-label="Fleet score">` +
     `<div class="sc-main" data-tip="Fleet score, 0 to 100. It starts at 100 and each term below takes points away.">` +
-    `<span class="sc-num c-${tone}">${fs.score}</span><span class="sc-grade c-${gradeTone}" aria-label="Grade ${esc(fs.grade)}">${esc(fs.grade)}</span>` +
+    `<span class="sc-num c-${tone}"${graded ? '' : ' data-tip="Observed-only score. Too little of the fleet was observed to grade it."'}>${fs.score}</span>` +
+    (graded ? `<span class="sc-grade c-${gradeTone}" aria-label="Grade ${esc(fs.grade)}">${esc(fs.grade)}</span>` : '<span class="sc-grade sc-grade-none c-t2">Not graded</span>') +
     '<span class="eyebrow">Fleet score</span></div>' +
     `<div class="sc-side">${moveLine(fs.score, prev, forecast)}<div class="sc-prov">${esc(prov)}</div>` +
+    (cov ? `<div class="sc-cov fs-12 c-t3">${esc(cov)}</div>` : '') +
     (chips ? `<div class="chips" aria-label="What cost the most points">${chips}</div>` : '') +
     (factHTML ? `<div class="sc-facts">${factHTML}</div>` : '') + '</div></section>';
 }

@@ -23,6 +23,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
+	"github.com/dcadolph/fleetsweeper/internal/scanner/metrics"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -683,5 +684,70 @@ func TestDashboardEmpty(t *testing.T) {
 		if errs := log.take(); len(errs) > 0 {
 			t.Errorf("route %s: console errors:\n%s", id, strings.Join(errs, "\n"))
 		}
+	}
+}
+
+// TestDashboardUngraded saves a scan in which every scanner run errored and checks the score
+// card says "Not graded" with its coverage line, shows no letter grade, and the page logs no
+// console errors.
+func TestDashboardUngraded(t *testing.T) {
+	st, err := store.NewSQLite(filepath.Join(t.TempDir(), "ungraded.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	clusters := []string{"blind-a", "blind-b", "blind-c"}
+	results := map[string]map[string]scanner.Result{}
+	for _, c := range clusters {
+		results[c] = map[string]scanner.Result{metrics.Name: {
+			Scanner: metrics.Name, State: scanner.StateErrored, Reason: "forbidden", Data: metrics.Data{},
+		}}
+	}
+	rec := store.ScanRecord{ID: "ungraded-01", Timestamp: time.Now().UTC().Truncate(time.Minute), Clusters: clusters}
+	if _, err := st.SaveScanRecord(t.Context(), rec, results); err != nil {
+		t.Fatalf("save scan: %v", err)
+	}
+	srv := server.New(server.Config{
+		Store: st, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Workers: 2, Demo: true,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.Close()
+		srv.Close()
+		st.Close()
+	})
+
+	ctx := newBrowser(t)
+	log := &consoleLog{route: "boot"}
+	log.listen(ctx)
+	boot(t, ctx, ts)
+	hash, err := visit(ctx, "dash", clusters[0], rec.ID, chromedp.ActionFunc(func(context.Context) error { return nil }))
+	if err != nil {
+		t.Fatalf("dash (%s): view never settled: %v", hash, err)
+	}
+	var card, grade, table string
+	if err := run(ctx, 10*time.Second,
+		chromedp.Poll(`!!document.querySelector('.score-card')`, nil, chromedp.WithPollingTimeout(settleTimeout)),
+		chromedp.Evaluate(`document.querySelector('.score-card').innerText`, &card),
+		chromedp.Evaluate(`document.querySelectorAll('.sc-grade:not(.sc-grade-none)').length + ''`, &grade),
+		chromedp.Evaluate(`document.querySelector('#ct').innerText`, &table),
+	); err != nil {
+		t.Fatalf("read score card: %v", err)
+	}
+	for _, want := range []string{"Not graded", "Not enough data"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("score card lacks %q:\n%s", want, card)
+		}
+	}
+	if !regexp.MustCompile(`\d+ of \d+ scanner runs observed \(3 clusters blind\)\.`).MatchString(card) {
+		t.Errorf("score card lacks the coverage line:\n%s", card)
+	}
+	if grade != "0" {
+		t.Errorf("score card renders %s letter grades, want 0", grade)
+	}
+	if !strings.Contains(table, "unknown") {
+		t.Errorf("cluster table shows no unknown status:\n%s", table)
+	}
+	if errs := log.take(); len(errs) > 0 {
+		t.Errorf("console errors:\n%s", strings.Join(errs, "\n"))
 	}
 }

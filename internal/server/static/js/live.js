@@ -36,7 +36,7 @@ function connect() {
   };
   es.addEventListener('scan.complete', (ev) => {
     const p = payloadOf(ev);
-    toast(`Scan complete${typeof p.score === 'number' ? `: fleet score ${p.score} (${p.grade})` : ''}.`, 'ok');
+    toast(`Scan complete${typeof p.score === 'number' ? (p.grade ? `: fleet score ${p.score} (${p.grade})` : ': not graded, too little of the fleet was observed') : ''}.`, 'ok');
     refresh();
   });
   es.addEventListener('scan.failed', (ev) => {

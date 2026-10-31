@@ -42,7 +42,7 @@ export async function renderDash() {
   const [rpt, prev, forecast, ledger, forecasts, cohorts] = await Promise.all([
     api('/scans/' + encodeURIComponent(scans[0].id) + '/report'),
     scans.length >= 2
-      ? api('/scans/' + encodeURIComponent(scans[1].id) + '/report').then((r) => ({ score: r.fleet_score.score, ts: scans[1].timestamp })).catch(() => null)
+      ? api('/scans/' + encodeURIComponent(scans[1].id) + '/report').then((r) => (r.fleet_score.graded === false ? null : { score: r.fleet_score.score, ts: scans[1].timestamp })).catch(() => null)
       : null,
     api('/forecast/fleet-score').then((r) => (r && r.forecast) || null).catch(() => null),
     api(`/drift?scans=${DRIFT_SCANS}&since=${encodeURIComponent(since)}`).catch(() => null),
@@ -112,8 +112,8 @@ function clusterRows(rpt, forecasts) {
   ((forecasts && forecasts.forecasts) || []).forEach((f) => {
     if (f.forecast && f.forecast.sufficient) projected[f.cluster] = f.forecast.predicted - f.current_score;
   });
-  const rank = { critical: 0, degraded: 1, busy: 2, healthy: 3 };
-  const worse = (a, b) => ((rank[a] ?? 3) <= (rank[b] ?? 3) ? a : b);
+  const rank = { critical: 0, degraded: 1, busy: 2, unknown: 3, healthy: 4 };
+  const worse = (a, b) => ((rank[a] ?? 4) <= (rank[b] ?? 4) ? a : b);
   return (rpt.cluster_healths || []).map((ch) => {
     const cap = status[ch.name] === 'strained' ? 'degraded' : status[ch.name];
     const counts = ch.finding_counts || {};
