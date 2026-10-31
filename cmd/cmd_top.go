@@ -270,7 +270,7 @@ func (s *topState) lessFn(rows []topRow) func(i, j int) bool {
 	case sortByName:
 		return func(i, j int) bool { return rows[i].Cluster < rows[j].Cluster }
 	case sortByStatus:
-		order := map[string]int{"critical": 0, "degraded": 1, "busy": 2, "healthy": 3}
+		order := map[string]int{"critical": 0, "degraded": 1, "busy": 2, "unknown": 3, "healthy": 4}
 		return func(i, j int) bool {
 			if order[rows[i].Status] != order[rows[j].Status] {
 				return order[rows[i].Status] < order[rows[j].Status]
@@ -507,6 +507,8 @@ func statusColor(status string) string {
 		return "33"
 	case "busy":
 		return "34"
+	case "unknown":
+		return "90"
 	default:
 		return "32"
 	}

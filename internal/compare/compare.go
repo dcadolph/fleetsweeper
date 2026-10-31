@@ -80,9 +80,9 @@ type SetDrift struct {
 type ClusterStatusChange struct {
 	// Cluster is the kubeconfig context name.
 	Cluster string `json:"cluster"`
-	// Before is the status in A.
+	// Before is the status in A: healthy, unknown, degraded, or critical.
 	Before string `json:"before"`
-	// After is the status in B.
+	// After is the status in B, from the same set as Before.
 	After string `json:"after"`
 }
 

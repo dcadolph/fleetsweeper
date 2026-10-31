@@ -15,6 +15,12 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/policyreportingest"
 )
 
+// clusterStatuses lists every cluster health status the metrics export one series for, so a
+// cluster in any status has exactly one series at 1.
+func clusterStatuses() []string {
+	return []string{"healthy", "busy", "unknown", "degraded", "critical"}
+}
+
 // writeMetrics emits the Prometheus exposition for the server's current state
 // to w. The function is structured top-down: counters that always exist first,
 // then per-scan gauges, then per-cluster and per-finding labels. When no scan
@@ -102,9 +108,8 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer) {
 
 	emit(w, "# HELP fleetsweeper_cluster_health Cluster status indicator (1 = cluster is in that status, 0 = not).")
 	emit(w, "# TYPE fleetsweeper_cluster_health gauge")
-	statuses := []string{"healthy", "busy", "degraded", "critical"}
 	for _, ch := range r.ClusterHealths {
-		for _, st := range statuses {
+		for _, st := range clusterStatuses() {
 			v := 0
 			if ch.Status == st {
 				v = 1

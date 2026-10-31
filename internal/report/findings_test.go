@@ -1509,6 +1509,87 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 	}
 }
 
+// TestClusterHealthUnknown verifies a cluster with a blind scanner run and nothing charging it
+// reads unknown, not healthy, and that findings still outrank the unknown. Other replaces the
+// second cluster's runs when set.
+func TestClusterHealthUnknown(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+	ns := okRun("namespaces", map[string]any{"count": 3})
+	quotas := func(n int) scanner.Result {
+		return okRun("resource-quotas", map[string]any{"namespaces_with_quotas": n})
+	}
+	tests := []struct {
+		Name       string
+		Runs       map[string]scanner.Result
+		Other      map[string]scanner.Result
+		WantStatus string
+		WantBlind  int
+	}{{ // Test 0: Every run errored and no finding charges the cluster.
+		Name: "all errored",
+		Runs: map[string]scanner.Result{
+			"namespaces":      erroredRun("namespaces"),
+			"resource-quotas": erroredRun("resource-quotas"),
+		},
+		WantStatus: "unknown", WantBlind: 2,
+	}, { // Test 1: One errored run is enough when nothing else charges the cluster.
+		Name: "one errored",
+		Runs: map[string]scanner.Result{
+			"namespaces": ns, "resource-quotas": erroredRun("resource-quotas"),
+		},
+		WantStatus: "unknown", WantBlind: 1,
+	}, { // Test 2: A warning finding outranks the errored run.
+		Name: "errored with a warning",
+		Runs: map[string]scanner.Result{
+			"namespaces": ns, "resource-quotas": quotas(0), "certs": erroredRun("certs"),
+		},
+		Other: map[string]scanner.Result{
+			"namespaces": ns, "resource-quotas": quotas(3),
+			"certs": okRun("certs", map[string]any{}),
+		},
+		WantStatus: "degraded", WantBlind: 1,
+	}, { // Test 3: A degraded run is partial, not blind, so the cluster stays healthy.
+		Name: "degraded only",
+		Runs: map[string]scanner.Result{
+			"namespaces": ns,
+			"resource-quotas": degradedRun("resource-quotas",
+				map[string]any{"namespaces_with_quotas": 3}),
+		},
+		WantStatus: "healthy",
+	}, { // Test 4: Every run OK and nothing charges the cluster.
+		Name:       "all ok",
+		Runs:       map[string]scanner.Result{"namespaces": ns, "resource-quotas": quotas(3)},
+		WantStatus: "healthy",
+	}, { // Test 5: A scanner that ran on another cluster but never on this one is blind here.
+		Name:       "absent run",
+		Runs:       map[string]scanner.Result{"resource-quotas": quotas(3)},
+		WantStatus: "unknown", WantBlind: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			other := test.Other
+			if other == nil {
+				other = map[string]scanner.Result{"namespaces": ns, "resource-quotas": quotas(3)}
+			}
+			r := Build([]string{"c1", "c2"},
+				map[string]map[string]scanner.Result{"c1": test.Runs, "c2": other})
+			got := map[string]ClusterHealth{}
+			for _, h := range r.ClusterHealths {
+				got[h.Name] = h
+			}
+			if diff := cmp.Diff(test.WantStatus, got["c1"].Status); diff != "" {
+				t.Errorf("c1 status mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantBlind, got["c1"].BlindScanners); diff != "" {
+				t.Errorf("c1 blind scanners mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff("healthy", got["c2"].Status); diff != "" {
+				t.Errorf("c2 status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // TestNodeHealthFindings verifies pressure findings name the affected nodes.
 func TestNodeHealthFindings(t *testing.T) {
 	t.Parallel()

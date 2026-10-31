@@ -28,7 +28,7 @@ Then scrape `:8081/metrics`. The admin endpoint also exposes pprof at
 | `fleetsweeper_fleet_score_excluded_clusters` | gauge | none | Clusters excluded from the Fleet Score for insufficient data. |
 | `fleetsweeper_findings_total` | gauge | `severity` | Findings in the most recent scan by severity. |
 | `fleetsweeper_finding_count` | gauge | `severity`, `scanner` | Findings in the most recent scan by severity and scanner. |
-| `fleetsweeper_cluster_health` | gauge | `cluster`, `status` | One series per cluster and status. The series for the cluster's current status is 1, the others are 0. Statuses are `healthy`, `busy`, `degraded`, and `critical`. |
+| `fleetsweeper_cluster_health` | gauge | `cluster`, `status` | One series per cluster and status. The series for the cluster's current status is 1, the others are 0. Statuses are `healthy`, `busy`, `unknown`, `degraded`, and `critical`. `unknown` means a scanner run did not observe the cluster and no finding made it degraded or critical. |
 | `fleetsweeper_outlier_score` | gauge | `cluster`, `scanner`, `field`, `severity` | Modified z-score of an outlying cluster value in the most recent scan. Held outliers (explained by a cohort) are excluded. |
 | `fleetsweeper_cluster_avg_cpu_percent` | gauge | `cluster` | Average CPU utilization per cluster. |
 | `fleetsweeper_cluster_avg_memory_percent` | gauge | `cluster` | Average memory utilization per cluster. |

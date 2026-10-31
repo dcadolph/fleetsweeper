@@ -89,6 +89,35 @@ func TestDiff_ClusterStatusMoves(t *testing.T) {
 	}
 }
 
+// TestDiff_ClusterStatusUnknown verifies moves into and out of the unknown status are recorded.
+func TestDiff_ClusterStatusUnknown(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Before     string
+		After      string
+		WantChange []ClusterStatusChange
+	}{{ // Test 0: Healthy to unknown is a move.
+		Before: "healthy", After: "unknown",
+		WantChange: []ClusterStatusChange{{Cluster: "c1", Before: "healthy", After: "unknown"}},
+	}, { // Test 1: Unknown to degraded is a move.
+		Before: "unknown", After: "degraded",
+		WantChange: []ClusterStatusChange{{Cluster: "c1", Before: "unknown", After: "degraded"}},
+	}, { // Test 2: Unknown in both scans is no move.
+		Before: "unknown", After: "unknown",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			a := &report.Report{ClusterHealths: []report.ClusterHealth{{Name: "c1", Status: test.Before}}}
+			b := &report.Report{ClusterHealths: []report.ClusterHealth{{Name: "c1", Status: test.After}}}
+			got := Diff(a, b).ClusterStatusChanges
+			if diff := cmp.Diff(test.WantChange, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("status change mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestRenderText_IncludesAllSections(t *testing.T) {
 	t.Parallel()
 	d := ScanDiff{

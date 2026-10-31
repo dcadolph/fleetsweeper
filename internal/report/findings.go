@@ -76,7 +76,8 @@ type ClusterMark struct {
 type ClusterHealth struct {
 	// Name is the cluster context name.
 	Name string `json:"name"`
-	// Status is "healthy", "degraded", or "critical".
+	// Status is "healthy", "unknown", "degraded", or "critical". Unknown means a scanner run
+	// did not observe the cluster and no finding made it degraded or critical.
 	Status string `json:"status"`
 	// FindingCounts maps severity to count for this cluster.
 	FindingCounts map[string]int `json:"finding_counts"`
@@ -98,6 +99,9 @@ type ClusterHealth struct {
 	// trustworthy data for this cluster (errored, degraded, or unavailable).
 	// Nonzero means this cluster's report rests on partial coverage.
 	DegradedScanners int `json:"degraded_scanners,omitempty"`
+	// BlindScanners is how many expected scanner runs did not observe this cluster: they
+	// errored or never ran on it.
+	BlindScanners int `json:"blind_scanners,omitempty"`
 }
 
 // pairwiseFleetLimit is the largest fleet that keeps the fleet-wide version,
@@ -412,10 +416,13 @@ func outlierKey(cluster, field, scanner string) string {
 // generateClusterHealth builds per-cluster health summaries. A cluster's
 // status and counts come from its own findings and from fleet-scoped findings
 // that mark it: a fleet finding such as version skew is the fleet's, scored
-// once through its own term, and sets status only on the clusters it names.
+// once through its own term, and sets status only on the clusters it names. A
+// cluster that no finding made degraded or critical reads unknown rather than
+// healthy when any expected scanner run did not observe it.
 func generateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 	healths := make([]ClusterHealth, 0, len(r.Clusters))
 	degradedByCluster := r.DegradedByCluster()
+	scanners := expectedScanners(r)
 	for _, cluster := range r.Clusters {
 		h := ClusterHealth{
 			Name:          cluster,
@@ -436,6 +443,10 @@ func generateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 		h.WarningEvents, _ = observeInt(r, "events", cluster, "warning_events")
 		h.NamespaceCount, _ = observeInt(r, "namespaces", cluster, "count")
 		h.DegradedScanners = degradedByCluster[cluster]
+		_, h.BlindScanners = clusterRunCounts(r, cluster, scanners)
+		if h.Status == "healthy" && h.BlindScanners > 0 {
+			h.Status = "unknown"
+		}
 
 		healths = append(healths, h)
 	}

@@ -73,6 +73,9 @@ func TestWriteMetrics_DemoMode(t *testing.T) {
 	mustContain(t, out, "fleetsweeper_fleet_score ")
 	mustContain(t, out, "fleetsweeper_findings_total{severity=\"critical\"}")
 	mustContain(t, out, "fleetsweeper_cluster_health{cluster=")
+	// The demo's edge cluster has a forbidden metrics read and no finding, so it reads unknown.
+	mustContain(t, out, `fleetsweeper_cluster_health{cluster="edge-lagos",status="unknown"} 1`)
+	mustContain(t, out, `fleetsweeper_cluster_health{cluster="edge-lagos",status="healthy"} 0`)
 	mustContain(t, out, "fleetsweeper_finding_count{severity=")
 	if !strings.HasSuffix(out, "\n") {
 		t.Errorf("metrics output does not end with newline")

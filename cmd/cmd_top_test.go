@@ -70,7 +70,7 @@ func TestColorCodeHelpers(t *testing.T) {
 	// Test 0: statusColor mapping.
 	statusCases := map[string]string{
 		"critical": "31", "degraded": "33", "strained": "33",
-		"busy": "34", "healthy": "32", "unknown": "32",
+		"busy": "34", "healthy": "32", "unknown": "90",
 	}
 	for status, want := range statusCases {
 		if got := statusColor(status); got != want {
@@ -214,15 +214,19 @@ func TestLessFn(t *testing.T) {
 		{Cluster: "beta", Status: "healthy", Score: 90},
 		{Cluster: "alpha", Status: "critical", Score: 40},
 		{Cluster: "gamma", Status: "busy", Score: 70},
+		{Cluster: "delta", Status: "unknown", Score: 95},
 	}
 
 	tests := []struct {
 		WantOrder []string
 		Mode      topSortMode
 	}{
-		{WantOrder: []string{"alpha", "gamma", "beta"}, Mode: sortByScore},  // Test 0: Worst score first.
-		{WantOrder: []string{"alpha", "beta", "gamma"}, Mode: sortByName},   // Test 1: Alphabetical.
-		{WantOrder: []string{"alpha", "gamma", "beta"}, Mode: sortByStatus}, // Test 2: critical<busy<healthy.
+		// Test 0: Worst score first.
+		{WantOrder: []string{"alpha", "gamma", "beta", "delta"}, Mode: sortByScore},
+		// Test 1: Alphabetical.
+		{WantOrder: []string{"alpha", "beta", "delta", "gamma"}, Mode: sortByName},
+		// Test 2: critical<busy<unknown<healthy.
+		{WantOrder: []string{"alpha", "gamma", "delta", "beta"}, Mode: sortByStatus},
 	}
 	for testNum, test := range tests {
 		t.Run(test.WantOrder[0], func(t *testing.T) {

@@ -176,7 +176,7 @@ components:
       required: [name, status]
       properties:
         name: {type: string}
-        status: {type: string, enum: [healthy, busy, degraded, critical]}
+        status: {type: string, enum: [healthy, busy, unknown, degraded, critical]}
         kubernetes_version: {type: string}
         node_count: {type: integer}
         healthy_nodes: {type: integer}

@@ -113,9 +113,8 @@ func (s *Server) initOTelMetrics() error {
 				metric.WithAttributes(attribute.String("severity", sev)))
 		}
 
-		statuses := []string{"healthy", "busy", "degraded", "critical"}
 		for _, ch := range r.ClusterHealths {
-			for _, st := range statuses {
+			for _, st := range clusterStatuses() {
 				v := int64(0)
 				if ch.Status == st {
 					v = 1
