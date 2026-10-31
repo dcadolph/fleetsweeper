@@ -2,6 +2,7 @@
 package security
 
 import (
+	"cmp"
 	"context"
 	"sort"
 
@@ -23,6 +24,9 @@ const (
 	labelWarn       = "pod-security.kubernetes.io/warn"
 	labelWarnVer    = "pod-security.kubernetes.io/warn-version"
 )
+
+// levelPrivileged is the PSS level that enforces nothing.
+const levelPrivileged = "privileged"
 
 // NamespaceSecurity describes the Pod Security Standards labels on a namespace.
 type NamespaceSecurity struct {
@@ -46,11 +50,12 @@ type NamespaceSecurity struct {
 type Data struct {
 	// NamespaceCount is the total number of namespaces.
 	NamespaceCount int `json:"namespace_count"`
-	// EnforcedCount is the number of namespaces with a PSS enforce label.
+	// EnforcedCount is the number of namespaces with a PSS enforce label above privileged.
 	EnforcedCount int `json:"enforced_count"`
-	// UnenorcedCount is the number of namespaces without a PSS enforce label.
+	// UnenforcedCount is the number of namespaces with no PSS enforce label or with enforce
+	// privileged, which enforces nothing.
 	UnenforcedCount int `json:"unenforced_count"`
-	// LevelDistribution maps PSS levels to namespace counts.
+	// LevelDistribution maps PSS enforce levels to namespace counts, with "none" for unlabeled.
 	LevelDistribution map[string]int `json:"level_distribution"`
 	// Namespaces lists per-namespace security details.
 	Namespaces []NamespaceSecurity `json:"namespaces"`
@@ -81,13 +86,12 @@ func NewScanner() scanner.Scanner {
 				Warn:           ns.Labels[labelWarn],
 				WarnVersion:    ns.Labels[labelWarnVer],
 			}
-			if sec.Enforce != "" {
+			if Enforced(sec.Enforce) {
 				data.EnforcedCount++
-				data.LevelDistribution[sec.Enforce]++
 			} else {
 				data.UnenforcedCount++
-				data.LevelDistribution["none"]++
 			}
+			data.LevelDistribution[cmp.Or(sec.Enforce, "none")]++
 			data.Namespaces = append(data.Namespaces, sec)
 		}
 
@@ -97,4 +101,10 @@ func NewScanner() scanner.Scanner {
 
 		return cov.Finish(Name, data)
 	})
+}
+
+// Enforced reports whether a PSS enforce level restricts pods. An empty level and privileged
+// both enforce nothing.
+func Enforced(level string) bool {
+	return level != "" && level != levelPrivileged
 }

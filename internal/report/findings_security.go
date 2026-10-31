@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/dcadolph/fleetsweeper/internal/scanner/security"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -30,22 +31,22 @@ func securityFindings(r *Report) []Finding {
 					sev = SeverityCritical
 				}
 			}
-			names := unenforcedNamespaces(r, cluster)
+			unlabeled, privileged := unenforcedNamespaces(r, cluster)
 			cmd := fmt.Sprintf("kubectl --context %s label namespace <ns> "+
 				"pod-security.kubernetes.io/enforce=baseline --overwrite", cluster)
-			if len(names) > 0 {
+			if len(unlabeled) > 0 {
 				cmd = fmt.Sprintf("kubectl --context %s label namespace %s "+
 					"pod-security.kubernetes.io/enforce=baseline --overwrite",
-					cluster, strings.Join(names[:min(len(names), maxAffected)], " "))
+					cluster, strings.Join(unlabeled[:min(len(unlabeled), maxAffected)], " "))
 			}
 			findings = append(findings, Finding{
 				Rule:        "security/psa-unenforced",
 				Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, unenforced),
-				Description: share + " have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
+				Description: share + " have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
 				Severity:    sev,
 				Cluster:     cluster,
 				Scanner:     "security",
-				Affected:    capList(names),
+				Affected:    capList(append(unlabeled, privileged...)),
 				Remediation: &Remediation{Command: cmd},
 			})
 		}
@@ -53,11 +54,11 @@ func securityFindings(r *Report) []Finding {
 	return findings
 }
 
-// unenforcedNamespaces returns the names of namespaces with no enforce level in a cluster's
-// security payload, or nil when the payload has no namespaces list.
-func unenforcedNamespaces(r *Report, cluster string) []string {
+// unenforcedNamespaces returns the namespaces in a cluster's security payload that enforce
+// nothing, split into those with no enforce label and those that enforce privileged. The
+// remediation labels only the first, since a namespace set to privileged was set on purpose.
+func unenforcedNamespaces(r *Report, cluster string) (unlabeled, privileged []string) {
 	raw, _ := clusterData(r, "security", cluster)["namespaces"].([]any)
-	var out []string
 	for _, item := range raw {
 		entry, ok := item.(map[string]any)
 		if !ok {
@@ -65,11 +66,15 @@ func unenforcedNamespaces(r *Report, cluster string) []string {
 		}
 		name, _ := entry["namespace"].(string)
 		enforce, _ := entry["enforce"].(string)
-		if name != "" && enforce == "" {
-			out = append(out, name)
+		switch {
+		case name == "" || security.Enforced(enforce):
+		case enforce == "":
+			unlabeled = append(unlabeled, name)
+		default:
+			privileged = append(privileged, name)
 		}
 	}
-	return out
+	return unlabeled, privileged
 }
 
 // networkFindings reports namespaces with no NetworkPolicy coverage and
@@ -168,7 +173,7 @@ func workloadSecFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "workload-security/run-as-root",
 				Title:       fmt.Sprintf("%s has %d container(s) explicitly running as root (%.0f%%)", cluster, rootCount, pct),
-				Description: "These containers have runAsUser=0 or runAsNonRoot=false set explicitly. Container escape vulnerabilities have higher impact when the workload is root.",
+				Description: "These containers have an effective runAsUser of 0, set on the container or inherited from the pod. Container escape vulnerabilities have higher impact when the workload is root.",
 				Severity:    sev,
 				Cluster:     cluster,
 				Scanner:     "workload-security",

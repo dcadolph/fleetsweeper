@@ -96,13 +96,15 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			"unenforced_count": 6, "namespace_count": 10,
 			"namespaces": []any{
 				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "kube-system", "enforce": "privileged"},
 				map[string]any{"namespace": "prod", "enforce": "restricted"},
 			},
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 6 namespace(s) without Pod Security enforcement",
-			Description: "6 of 10 namespaces (60%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
-			Severity:    SeverityCritical, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
+			Description: "6 of 10 namespaces (60%) have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Severity:    SeverityCritical, Cluster: "a", Scanner: "security",
+			Affected:    []string{"dev", "qa", "kube-system"},
 			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 3: Exactly half unenforced stays a warning.
@@ -117,7 +119,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 5 namespace(s) without Pod Security enforcement",
-			Description: "5 of 10 namespaces (50%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
+			Description: "5 of 10 namespaces (50%) have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
 			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
@@ -129,7 +131,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 4 namespace(s) without Pod Security enforcement",
-			Description: "4 namespaces have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
+			Description: "4 namespaces have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "security",
 			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
@@ -222,7 +224,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "workload-security", Affected: []string{"ns/p/c"},
 		}, {
 			Rule: "workload-security/run-as-root", Title: "a has 6 container(s) explicitly running as root (60%)",
-			Description: "These containers have runAsUser=0 or runAsNonRoot=false set explicitly. Container escape vulnerabilities have higher impact when the workload is root.",
+			Description: "These containers have an effective runAsUser of 0, set on the container or inherited from the pod. Container escape vulnerabilities have higher impact when the workload is root.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "workload-security",
 		}, {
 			Rule: "workload-security/capability-add", Title: "a has 1 container(s) with added Linux capabilities",
@@ -521,7 +523,8 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 12 namespace(s) without Pod Security enforcement",
-			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label. " +
+			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label " +
+				"or enforce only privileged. " +
 				"Pods in these namespaces can run with any privileges.",
 			Severity: SeverityCritical, Cluster: "a", Scanner: "security",
 			Affected: []string{
