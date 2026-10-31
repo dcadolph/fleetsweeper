@@ -15,7 +15,8 @@ type Status string
 const (
 	// Root means the effective runAsUser is 0.
 	Root Status = "root"
-	// NonRoot means the effective runAsNonRoot is true or the effective runAsUser is above 0.
+	// NonRoot means the effective runAsUser is above 0, or it is unset and the effective
+	// runAsNonRoot is true.
 	NonRoot Status = "non-root"
 	// Unknown means the spec does not settle the user, so only the image can.
 	Unknown Status = "unknown"
