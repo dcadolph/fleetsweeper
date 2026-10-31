@@ -138,9 +138,9 @@ func (p *StoreBaselineProvider) recompute(ctx context.Context) (Baseline, error)
 }
 
 // scanBaseline tallies the fractions the built-in checks rely on from one scan. Each cluster
-// contributes its own counts: container fractions from workload-security are measured against
-// that cluster's image-audit container count, and a scanner result whose State is not OK
-// contributes nothing.
+// contributes its own counts: the digest fraction comes from image-audit, the other container
+// fractions from workload-security over its baseline containers (init and regular, as admission
+// sees them), and a scanner result whose State is not OK contributes nothing.
 func (p *StoreBaselineProvider) scanBaseline(ctx context.Context, scanID string) (Baseline, error) {
 	results, err := p.store.GetScanResults(ctx, scanID)
 	if err != nil {
@@ -153,10 +153,8 @@ func (p *StoreBaselineProvider) scanBaseline(ctx context.Context, scanID string)
 		totalPods, defaultSAPods                 int
 	)
 	for _, perScanner := range results {
-		clusterContainers := 0
 		if raw, ok := perScanner["image-audit"]; ok && raw.State == scanner.StateOK {
 			c, d := tallyImageAudit(raw.Data)
-			clusterContainers = c
 			totalContainers += c
 			withDigest += d
 		}
@@ -167,13 +165,13 @@ func (p *StoreBaselineProvider) scanBaseline(ctx context.Context, scanID string)
 		t := tallyWorkloadSec(raw.Data)
 		totalPods += t.totalPods
 		defaultSAPods += t.defaultSA
-		if clusterContainers == 0 {
+		if t.containers <= 0 {
 			continue
 		}
-		wsContainers += clusterContainers
-		nonRoot += max(clusterContainers-t.runAsRoot, 0)
-		noPrivEsc += max(clusterContainers-t.allowPrivEsc, 0)
-		readRO += max(clusterContainers-t.noReadOnlyRoot, 0)
+		wsContainers += t.containers
+		nonRoot += min(max(t.nonRoot, 0), t.containers)
+		noPrivEsc += max(t.containers-t.allowPrivEsc, 0)
+		readRO += max(t.containers-t.noReadOnlyRoot, 0)
 	}
 
 	return Baseline{
@@ -283,13 +281,14 @@ func tallyImageAudit(data any) (total int, digestPinned int) {
 type workloadSecTally struct {
 	// totalPods is the count of pods scanned.
 	totalPods int
-	// runAsRoot is the count of containers explicitly running as UID 0.
-	runAsRoot int
-	// allowPrivEsc is the count of containers with allowPrivilegeEscalation
-	// implicitly or explicitly true.
+	// containers is the count of init and regular containers, the denominator of every
+	// container fraction except the digest one.
+	containers int
+	// nonRoot is the count of containers explicitly non-root.
+	nonRoot int
+	// allowPrivEsc is the count of containers that may gain privileges.
 	allowPrivEsc int
-	// noReadOnlyRoot is the count of containers without
-	// readOnlyRootFilesystem=true.
+	// noReadOnlyRoot is the count of containers without a read-only root filesystem.
 	noReadOnlyRoot int
 	// defaultSA is the count of pods running under the default ServiceAccount.
 	defaultSA int
@@ -304,7 +303,8 @@ func tallyWorkloadSec(data any) workloadSecTally {
 	}
 	var m struct {
 		TotalPods                int `json:"total_pods"`
-		RunAsRootContainers      int `json:"run_as_root_containers"`
+		BaselineContainers       int `json:"baseline_containers"`
+		RunAsNonRootContainers   int `json:"run_as_non_root_containers"`
 		AllowPrivilegeEscalation int `json:"allow_privilege_escalation"`
 		NoReadOnlyRoot           int `json:"no_read_only_root"`
 		DefaultServiceAccount    int `json:"default_service_account_pods"`
@@ -314,7 +314,8 @@ func tallyWorkloadSec(data any) workloadSecTally {
 	}
 	return workloadSecTally{
 		totalPods:      m.TotalPods,
-		runAsRoot:      m.RunAsRootContainers,
+		containers:     m.BaselineContainers,
+		nonRoot:        m.RunAsNonRootContainers,
 		allowPrivEsc:   m.AllowPrivilegeEscalation,
 		noReadOnlyRoot: m.NoReadOnlyRoot,
 		defaultSA:      m.DefaultServiceAccount,
