@@ -17,23 +17,24 @@ func imageAuditFindings(r *Report) []Finding {
 	var findings []Finding
 	for _, cluster := range r.Clusters {
 		risks := imageRisks(r, cluster)
-		latestTag := getIntField(r, "image-audit", cluster, "latest_tag")
-		noDigest := getIntField(r, "image-audit", cluster, "no_digest")
-		total := getIntField(r, "image-audit", cluster, "total_containers")
+		latestTag, latestObs := observeInt(r, "image-audit", cluster, "latest_tag")
+		noDigest, noDigestObs := observeInt(r, "image-audit", cluster, "no_digest")
+		total, totalObs := observeInt(r, "image-audit", cluster, "total_containers")
 
-		if latestTag > 0 {
+		if latestObs.seen() && latestTag > 0 {
 			affected := filterImagesByRisk(risks, "latest-tag")
 			findings = append(findings, Finding{
 				Rule:        "image-audit/latest-tag",
 				Title:       fmt.Sprintf("%s has %d container(s) using :latest or no tag", cluster, latestTag),
-				Description: fmt.Sprintf("Out of %d containers, %d use :latest or omit a tag. Without a pinned tag, rollbacks and audits are unreliable.", total, latestTag),
+				Description: fmt.Sprintf("Out of %d containers, %d use :latest or omit a tag. Without a pinned tag, rollbacks and audits are unreliable.", total, latestTag) + weakest(latestObs, totalObs).note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "image-audit",
 				Affected:    affected,
 			})
 		}
-		if noDigest > 0 && total > 0 {
+		digestObs := weakest(noDigestObs, totalObs)
+		if digestObs.seen() && noDigest > 0 && total > 0 {
 			pct := float64(noDigest) / float64(total) * 100
 			sev := SeverityInfo
 			if pct > 80 {
@@ -42,7 +43,7 @@ func imageAuditFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "image-audit/no-digest",
 				Title:       fmt.Sprintf("%s has %d container(s) without digest pins (%.0f%%)", cluster, noDigest, pct),
-				Description: "Images without @sha256: digest pins can change content without changing the tag. Pinning digests ensures reproducible deployments.",
+				Description: "Images without @sha256: digest pins can change content without changing the tag. Pinning digests ensures reproducible deployments." + digestObs.note(),
 				Severity:    sev,
 				Cluster:     cluster,
 				Scanner:     "image-audit",
@@ -64,8 +65,8 @@ type imageRisk struct {
 
 // imageRisks extracts the image-audit scanner's image_risks slice.
 func imageRisks(r *Report, cluster string) []imageRisk {
-	m := clusterData(r, "image-audit", cluster)
-	if m == nil {
+	m, obs := clusterView(r, "image-audit", cluster)
+	if !obs.seen() {
 		return nil
 	}
 	raw, _ := m["image_risks"].([]any)
@@ -114,8 +115,8 @@ func coverageFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		m := clusterData(r, "workload-coverage", cluster)
-		if m == nil {
+		m, obs := clusterView(r, "workload-coverage", cluster)
+		if obs != observed {
 			continue
 		}
 		raw, _ := m["gaps"].([]any)
@@ -261,8 +262,8 @@ func namespacesWithImageRisk(r *Report, cluster string) map[string]struct{} {
 // include any of the supplied reasons.
 func namespacesWithEventReasons(r *Report, cluster string, reasons map[string]bool) map[string]struct{} {
 	out := make(map[string]struct{})
-	m := clusterData(r, "events", cluster)
-	if m == nil {
+	m, obs := clusterView(r, "events", cluster)
+	if !obs.seen() {
 		return out
 	}
 	rec, _ := m["recent_warnings"].([]any)

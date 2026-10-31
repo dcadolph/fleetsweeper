@@ -470,12 +470,6 @@ func clusterData(r *Report, scannerName, cluster string) map[string]any {
 	return m
 }
 
-// getStringField extracts a string field from a cluster's scanner data.
-func getStringField(r *Report, scannerName, cluster, field string) string {
-	s, _ := clusterData(r, scannerName, cluster)[field].(string)
-	return s
-}
-
 // getIntField extracts an integer field from a cluster's scanner data.
 func getIntField(r *Report, scannerName, cluster, field string) int {
 	n, _ := util.Float64(clusterData(r, scannerName, cluster)[field])

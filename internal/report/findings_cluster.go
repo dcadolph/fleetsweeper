@@ -62,7 +62,10 @@ func versionFindings(r *Report) []Finding {
 	uniqueVersions := make([]string, 0, len(r.Clusters))
 	seen := make(map[string]bool)
 	for _, cluster := range r.Clusters {
-		v := getStringField(r, "version", cluster, "git_version")
+		v, obs := observeString(r, "version", cluster, "git_version")
+		if !obs.seen() {
+			continue
+		}
 		versions[cluster] = v
 		if v != "" && !seen[v] {
 			seen[v] = true
@@ -159,7 +162,9 @@ func namespaceFindings(r *Report) []Finding {
 	}
 	counts := make(map[string]int, len(r.Clusters))
 	for _, cluster := range r.Clusters {
-		counts[cluster] = countNonSystemNamespaces(r, cluster)
+		if n, obs := countNonSystemNamespaces(r, cluster); obs.seen() {
+			counts[cluster] = n
+		}
 	}
 	if len(counts) < 2 {
 		return nil
@@ -195,11 +200,12 @@ func namespaceFindings(r *Report) []Finding {
 
 // countNonSystemNamespaces reads the namespace scanner's per-namespace list
 // when present and counts those not in the system allowlist. Falls back to
-// the bare count when the scanner did not emit names.
-func countNonSystemNamespaces(r *Report, cluster string) int {
-	m := clusterData(r, "namespaces", cluster)
-	if m == nil {
-		return 0
+// the bare count when the scanner did not emit names. An unobserved cluster reports its
+// observation so the caller can leave it out of the comparison.
+func countNonSystemNamespaces(r *Report, cluster string) (int, observation) {
+	m, obs := clusterView(r, "namespaces", cluster)
+	if !obs.seen() {
+		return 0, unobserved
 	}
 	if raw, ok := m["namespaces"].([]any); ok {
 		count := 0
@@ -213,10 +219,13 @@ func countNonSystemNamespaces(r *Report, cluster string) int {
 				count++
 			}
 		}
-		return count
+		return count, obs
 	}
-	count, _ := util.Float64(m["count"])
-	return int(count)
+	count, ok := util.Float64(m["count"])
+	if !ok {
+		return 0, unobserved
+	}
+	return int(count), obs
 }
 
 // rbacFindings emits a fleet-level warning when RBAC objects diverge.
@@ -248,8 +257,8 @@ func deprecatedAPIFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		m := clusterData(r, "deprecated-apis", cluster)
-		if m == nil {
+		m, obs := clusterView(r, "deprecated-apis", cluster)
+		if !obs.seen() {
 			continue
 		}
 		raw, _ := m["deprecated"].([]any)
@@ -272,7 +281,7 @@ func deprecatedAPIFindings(r *Report) []Finding {
 		findings = append(findings, Finding{
 			Rule:        "deprecated-apis/in-use",
 			Title:       fmt.Sprintf("%s uses %d deprecated API version(s)", cluster, len(raw)),
-			Description: "These API versions have been deprecated or removed in newer Kubernetes minor releases. Migrate before the next upgrade or workloads will fail.",
+			Description: "These API versions have been deprecated or removed in newer Kubernetes minor releases. Migrate before the next upgrade or workloads will fail." + obs.note(),
 			Severity:    SeverityWarning,
 			Cluster:     cluster,
 			Scanner:     "deprecated-apis",
@@ -295,8 +304,8 @@ func clusterInfoFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		m := clusterData(r, "cluster-info", cluster)
-		if m == nil {
+		m, obs := clusterView(r, "cluster-info", cluster)
+		if !obs.seen() {
 			continue
 		}
 		hasDrift, _ := m["has_drift"].(bool)
@@ -319,7 +328,7 @@ func clusterInfoFindings(r *Report) []Finding {
 		findings = append(findings, Finding{
 			Rule:        "cluster-info/node-platform-drift",
 			Title:       fmt.Sprintf("%s has node-level platform drift", cluster),
-			Description: "Different nodes report different platform identities. Common cause: rolling node-pool replacement, stale AMI, or partially-completed upgrade.",
+			Description: "Different nodes report different platform identities. Common cause: rolling node-pool replacement, stale AMI, or partially-completed upgrade." + obs.note(),
 			Severity:    SeverityWarning,
 			Cluster:     cluster,
 			Scanner:     "cluster-info",
