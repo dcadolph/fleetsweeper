@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/dcadolph/fleetsweeper/internal/scanner/metrics"
 )
 
 // TestRecommendNodeCount verifies a recommendation names a node count only
@@ -203,6 +205,26 @@ func TestAnalyzeCapacity(t *testing.T) {
 		Degraded:   []ScannerStatus{{Cluster: "c1", Scanner: "metrics", State: "degraded"}},
 		WantStatus: capacityHealthy, WantHeadroomCPU: new(80.0), WantHeadroomMem: new(70.0),
 		WantText: partialScanNote,
+	}, { // Test 13: An errored run's stale zero averages are not read as 100 percent headroom.
+		Sections: map[string]map[string]any{
+			"node-health": {"c1": nodes},
+			"metrics":     {"c1": map[string]any{"avg_cpu_percent": 0.0, "avg_memory_percent": 0.0}},
+		},
+		Degraded:   []ScannerStatus{{Cluster: "c1", Scanner: "metrics", State: "errored"}},
+		WantStatus: capacityUnknown, WantText: "node metrics read failed",
+	}, { // Test 14: The metrics scanner's payload with no averages invents no headroom (R-1).
+		Sections: map[string]map[string]any{
+			"node-health": {"c1": nodes},
+			"metrics":     {"c1": metrics.Data{Available: true, NodeCount: 3}},
+		},
+		Degraded:   []ScannerStatus{{Cluster: "c1", Scanner: "metrics", State: "degraded"}},
+		WantStatus: capacityUnknown, WantText: "list nodes",
+	}, { // Test 15: Only one observed average is not enough to report either figure.
+		Sections: map[string]map[string]any{
+			"node-health": {"c1": nodes},
+			"metrics":     {"c1": map[string]any{"avg_cpu_percent": 20.0}},
+		},
+		WantStatus: capacityUnknown, WantText: "list nodes",
 	}}
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
