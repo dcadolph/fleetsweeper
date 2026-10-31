@@ -104,6 +104,9 @@ type Report struct {
 	// Notes explain analysis the report could not run, such as outlier
 	// detection on a fleet too small to have a norm.
 	Notes []string `json:"notes,omitempty"`
+	// runs holds each scanner run's state by scanner and cluster. Build fills it, and a
+	// decoded report derives the same table from Degraded and Sections on demand.
+	runs map[runKey]scanner.State
 }
 
 // ScannerStatus records a scanner run that did not return complete,
@@ -225,6 +228,7 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		r.Sections[name] = section
 	}
 	sortScannerStatuses(r.Degraded)
+	r.runs = indexRuns(r)
 
 	r.Categories = buildCategories(scannerNames)
 	r.Summary = buildSummary(clusters, r.Sections)

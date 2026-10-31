@@ -428,13 +428,13 @@ func generateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 			h.Status = "degraded"
 		}
 
-		h.KubernetesVersion = getStringField(r, "version", cluster, "git_version")
-		h.NodeCount = getIntField(r, "node-health", cluster, "node_count")
-		h.HealthyNodes = getIntField(r, "node-health", cluster, "healthy_nodes")
-		h.AvgCPU = getMetricsFloat(r, cluster, "avg_cpu_percent")
-		h.AvgMemory = getMetricsFloat(r, cluster, "avg_memory_percent")
-		h.WarningEvents = getIntField(r, "events", cluster, "warning_events")
-		h.NamespaceCount = getIntField(r, "namespaces", cluster, "count")
+		h.KubernetesVersion, _ = observeString(r, "version", cluster, "git_version")
+		h.NodeCount, _ = observeInt(r, "node-health", cluster, "node_count")
+		h.HealthyNodes, _ = observeInt(r, "node-health", cluster, "healthy_nodes")
+		h.AvgCPU, _ = observe(r, "metrics", cluster, "avg_cpu_percent")
+		h.AvgMemory, _ = observe(r, "metrics", cluster, "avg_memory_percent")
+		h.WarningEvents, _ = observeInt(r, "events", cluster, "warning_events")
+		h.NamespaceCount, _ = observeInt(r, "namespaces", cluster, "count")
 		h.DegradedScanners = degradedByCluster[cluster]
 
 		healths = append(healths, h)
