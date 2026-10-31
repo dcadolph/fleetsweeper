@@ -9,7 +9,9 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// securityFindings reports Pod Security Standard enforcement gaps.
+// securityFindings reports namespaces with no Pod Security Standards enforce label. A namespace
+// labeled to enforce privileged enforces nothing but was set on purpose, so it is listed in the
+// finding without being charged, and the true unenforced count stays in the scanner payload.
 func securityFindings(r *Report) []Finding {
 	sec := r.Sections["security"]
 	if sec == nil {
@@ -17,41 +19,43 @@ func securityFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		unenforced, unenforcedObs := observeInt(r, "security", cluster, "unenforced_count")
+		_, listObs := clusterView(r, "security", cluster)
+		unlabeled, privileged := unenforcedNamespaces(r, cluster)
 		total, totalObs := observeInt(r, "security", cluster, "namespace_count")
-		// Every namespace unenforced is an absence claim, so it needs a completed run.
-		allUnenforced := totalObs.seen() && total > 0 && unenforced == total
-		if unenforcedObs.seen() && unenforced > 0 && (!allUnenforced || weakest(unenforcedObs, totalObs) == observed) {
-			// A namespace total below the unenforced count means the total
-			// is missing, so the share is unknown rather than over 100%.
-			share := fmt.Sprintf("%d namespaces", unenforced)
-			sev := SeverityWarning
-			if totalObs.seen() && total >= unenforced {
-				pct := float64(unenforced) / float64(total) * 100
-				share = fmt.Sprintf("%d of %d namespaces (%.0f%%)", unenforced, total, pct)
-				if pct > 50 {
-					sev = SeverityCritical
-				}
-			}
-			unlabeled, privileged := unenforcedNamespaces(r, cluster)
-			cmd := fmt.Sprintf("kubectl --context %s label namespace <ns> "+
-				"pod-security.kubernetes.io/enforce=baseline --overwrite", cluster)
-			if len(unlabeled) > 0 {
-				cmd = fmt.Sprintf("kubectl --context %s label namespace %s "+
-					"pod-security.kubernetes.io/enforce=baseline --overwrite",
-					cluster, strings.Join(unlabeled[:min(len(unlabeled), maxAffected)], " "))
-			}
-			findings = append(findings, Finding{
-				Rule:        "security/psa-unenforced",
-				Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, unenforced),
-				Description: share + " have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges." + weakest(unenforcedObs, totalObs).note(),
-				Severity:    sev,
-				Cluster:     cluster,
-				Scanner:     "security",
-				Affected:    capList(append(unlabeled, privileged...)),
-				Remediation: &Remediation{Command: cmd},
-			})
+		n := len(unlabeled)
+		// Every namespace unlabeled is an absence claim, so it needs a completed run.
+		allUnlabeled := totalObs.seen() && total > 0 && n == total
+		if !listObs.seen() || n == 0 || (allUnlabeled && weakest(listObs, totalObs) != observed) {
+			continue
 		}
+		// A namespace total below the unlabeled count means the total is missing, so the
+		// share is unknown rather than over 100%.
+		share := fmt.Sprintf("%d namespaces", n)
+		sev := SeverityWarning
+		if totalObs.seen() && total >= n {
+			pct := float64(n) / float64(total) * 100
+			share = fmt.Sprintf("%d of %d namespaces (%.0f%%)", n, total, pct)
+			if pct > 50 {
+				sev = SeverityCritical
+			}
+		}
+		desc := share + " have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges."
+		if len(privileged) > 0 {
+			desc += fmt.Sprintf(" %d more namespace(s) enforce only privileged, so they are listed but not charged.",
+				len(privileged))
+		}
+		findings = append(findings, Finding{
+			Rule:        "security/psa-unenforced",
+			Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, n),
+			Description: desc + weakest(listObs, totalObs).note(),
+			Severity:    sev,
+			Cluster:     cluster,
+			Scanner:     "security",
+			Affected:    capList(append(unlabeled, privileged...)),
+			Remediation: &Remediation{Command: fmt.Sprintf("kubectl --context %s label namespace %s "+
+				"pod-security.kubernetes.io/enforce=baseline --overwrite",
+				cluster, strings.Join(unlabeled[:min(n, maxAffected)], " "))},
+		})
 	}
 	return findings
 }

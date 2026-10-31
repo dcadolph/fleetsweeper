@@ -23,10 +23,12 @@ func TestGeneratorCoverage(t *testing.T) {
 		Absence bool
 	}{{ // Test 0: Unenforced namespaces are a presence rule.
 		Gen: securityFindings, Scanner: "security", Rule: "security/psa-unenforced",
-		Data: map[string]any{"unenforced_count": 2, "namespace_count": 5},
+		Data: map[string]any{"unenforced_count": 2, "namespace_count": 5,
+			"namespaces": unenforcedNamespaceList(2)},
 	}, { // Test 1: Every namespace unenforced is an absence claim.
 		Gen: securityFindings, Scanner: "security", Rule: "security/psa-unenforced", Absence: true,
-		Data: map[string]any{"unenforced_count": 5, "namespace_count": 5},
+		Data: map[string]any{"unenforced_count": 5, "namespace_count": 5,
+			"namespaces": unenforcedNamespaceList(5)},
 	}, { // Test 2: Namespaces without network policies is an absence rule.
 		Gen: networkFindings, Scanner: "network-policies", Rule: "network-policies/no-policy",
 		Absence: true, Data: map[string]any{"namespaces_without_policies": 2},

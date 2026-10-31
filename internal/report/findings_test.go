@@ -93,33 +93,34 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Name:     "psa critical",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
-			"unenforced_count": 6, "namespace_count": 10,
+			"unenforced_count": 5, "namespace_count": 6,
 			"namespaces": []any{
 				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "ci"}, map[string]any{"namespace": "sandbox"},
 				map[string]any{"namespace": "kube-system", "enforce": "privileged"},
 				map[string]any{"namespace": "prod", "enforce": "restricted"},
 			},
 		}}}),
 		WantResult: []Finding{{
-			Rule: "security/psa-unenforced", Title: "a has 6 namespace(s) without Pod Security enforcement",
-			Description: "6 of 10 namespaces (60%) have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Rule: "security/psa-unenforced", Title: "a has 4 namespace(s) without Pod Security enforcement",
+			Description: "4 of 6 namespaces (67%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges. 1 more namespace(s) enforce only privileged, so they are listed but not charged.",
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "security",
-			Affected:    []string{"dev", "qa", "kube-system"},
-			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Affected:    []string{"dev", "qa", "ci", "sandbox", "kube-system"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa ci sandbox pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 3: Exactly half unenforced stays a warning.
 		Name:     "psa half",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
-			"unenforced_count": 5, "namespace_count": 10,
+			"unenforced_count": 2, "namespace_count": 4,
 			"namespaces": []any{
 				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
 				map[string]any{"namespace": "prod", "enforce": "restricted"},
 			},
 		}}}),
 		WantResult: []Finding{{
-			Rule: "security/psa-unenforced", Title: "a has 5 namespace(s) without Pod Security enforcement",
-			Description: "5 of 10 namespaces (50%) have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Rule: "security/psa-unenforced", Title: "a has 2 namespace(s) without Pod Security enforcement",
+			Description: "2 of 4 namespaces (50%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
 			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
@@ -127,13 +128,14 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Name:     "psa no total",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
-			"unenforced_count": 4,
+			"unenforced_count": 4, "namespaces": unenforcedNamespaceList(4),
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 4 namespace(s) without Pod Security enforcement",
-			Description: "4 namespaces have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Description: "4 namespaces have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "security",
-			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Affected:    []string{"n00", "n01", "n02", "n03"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace n00 n01 n02 n03 pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 5: Namespaces without policies get the default-deny manifest.
 		Name:     "network policies",
@@ -524,8 +526,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 12 namespace(s) without Pod Security enforcement",
-			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label " +
-				"or enforce only privileged. " +
+			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label. " +
 				"Pods in these namespaces can run with any privileges.",
 			Severity: SeverityCritical, Cluster: "a", Scanner: "security",
 			Affected: []string{

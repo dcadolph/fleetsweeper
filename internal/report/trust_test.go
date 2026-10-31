@@ -147,7 +147,8 @@ func trustFixtures() []trustFixture {
 			map[string]any{"reason": "OOMKilling", "count": 4},
 		}}},
 		"c05": {"resource-quotas": {"namespaces_with_quotas": 0}},
-		"c06": {"security": {"unenforced_count": 2, "enforced_count": 6}},
+		"c06": {"security": {"unenforced_count": 2, "enforced_count": 6,
+			"namespaces": unenforcedNamespaceList(2)}},
 		"c07": {"network-policies": {"namespaces_without_policies": 3, "namespaces_with_policies": 5}},
 		"c08": {"workload-security": {"privileged_containers": 1}},
 		"c09": {"version": {"git_version": "v1.30.4", "minor": "30"}},
@@ -155,7 +156,8 @@ func trustFixtures() []trustFixture {
 	sample := trustFleet("sample", []string{"prod-us-east", "prod-us-west", "staging-eu"},
 		map[string]map[string]map[string]any{
 			"prod-us-east": {"metrics": {"avg_cpu_percent": 42.3, "avg_memory_percent": 58.1}},
-			"prod-us-west": {"security": {"unenforced_count": 1, "enforced_count": 7}},
+			"prod-us-west": {"security": {"unenforced_count": 1, "enforced_count": 7,
+				"namespaces": unenforcedNamespaceList(1)}},
 			"staging-eu": {
 				"version":         {"git_version": "v1.30.6", "minor": "30"},
 				"resource-quotas": {"namespaces_with_quotas": 0},
@@ -445,7 +447,8 @@ func TestTrustAbsenceRulesNeedCompleteRun(t *testing.T) {
 		Data: map[string]any{"count": 0, "namespaces_with_policies": 0, "namespaces_without_policies": 8},
 	}, { // Test 2: Every namespace without Pod Security enforcement.
 		Scanner: "security", Rule: "security/psa-unenforced",
-		Data: map[string]any{"namespace_count": 8, "enforced_count": 0, "unenforced_count": 8},
+		Data: map[string]any{"namespace_count": 8, "enforced_count": 0, "unenforced_count": 8,
+			"namespaces": unenforcedNamespaceList(8)},
 	}, { // Test 3: Images without digest pins, a presence count marked partial when degraded.
 		Scanner: "image-audit", Rule: "image-audit/no-digest", WantDegraded: 1,
 		Data: map[string]any{"total_containers": 50, "latest_tag": 0, "no_digest": 50},
