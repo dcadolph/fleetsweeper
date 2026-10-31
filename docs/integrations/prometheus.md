@@ -22,7 +22,9 @@ Then scrape `:8081/metrics`. The admin endpoint also exposes pprof at
 | `fleetsweeper_alerts_received_total` | counter | `source` (`alertmanager`, `falco`) | Inbound alerts persisted since startup. |
 | `fleetsweeper_last_scan_duration_seconds` | gauge | none | Duration of the most recent scan. Emitted once a scan has run since startup. |
 | `fleetsweeper_cluster_count` | gauge | none | Clusters in the most recent scan. |
-| `fleetsweeper_fleet_score` | gauge | none | Fleet Score (0-100) from the most recent scan. |
+| `fleetsweeper_fleet_score` | gauge | none | Fleet Score (0-100) from the most recent scan. Absent while the scan is not graded. |
+| `fleetsweeper_fleet_score_graded` | gauge | none | 1 when the scan observed enough of the fleet to grade it, 0 otherwise. |
+| `fleetsweeper_coverage_ratio` | gauge | none | Share of expected scanner runs that observed the fleet (0-1). |
 | `fleetsweeper_fleet_score_sample_clusters` | gauge | none | Clusters that contributed scanner data to the Fleet Score. |
 | `fleetsweeper_fleet_score_dimensions` | gauge | none | Scan dimensions that contributed data to the Fleet Score. |
 | `fleetsweeper_fleet_score_excluded_clusters` | gauge | none | Clusters excluded from the Fleet Score for insufficient data. |

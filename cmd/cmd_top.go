@@ -295,8 +295,9 @@ type topReport struct {
 
 // topFleetScore mirrors the wire shape.
 type topFleetScore struct {
-	Score int    `json:"score"`
-	Grade string `json:"grade"`
+	Score  int    `json:"score"`
+	Grade  string `json:"grade"`
+	Graded bool   `json:"graded"`
 }
 
 // topClusterHealth mirrors the wire shape.
@@ -352,9 +353,11 @@ func (s *topState) fetchReport(ctx context.Context, id string) (*topReport, erro
 		return nil, err
 	}
 	out := &topReport{
-		Timestamp:  rpt.Timestamp,
-		Clusters:   rpt.Clusters,
-		FleetScore: topFleetScore{Score: rpt.FleetScore.Score, Grade: rpt.FleetScore.Grade},
+		Timestamp: rpt.Timestamp,
+		Clusters:  rpt.Clusters,
+		FleetScore: topFleetScore{
+			Score: rpt.FleetScore.Score, Grade: rpt.FleetScore.Grade, Graded: rpt.FleetScore.Graded,
+		},
 	}
 	for _, h := range rpt.ClusterHealths {
 		out.ClusterHealths = append(out.ClusterHealths, topClusterHealth{
@@ -405,13 +408,19 @@ func (s *topState) printHeader(rpt, prev *topReport) {
 	}
 	fmt.Fprintf(s.out, "fleetsweeper top  -  %s%s\r\n", s.server, pausedNote)
 	delta := ""
-	if prev != nil && prev.FleetScore.Score != 0 {
+	if prev != nil && prev.FleetScore.Graded && rpt.FleetScore.Graded && prev.FleetScore.Score != 0 {
 		d := rpt.FleetScore.Score - prev.FleetScore.Score
 		sign := ""
 		if d > 0 {
 			sign = "+"
 		}
 		delta = fmt.Sprintf("  (%s%d vs previous)", sign, d)
+	}
+	if !rpt.FleetScore.Graded {
+		fmt.Fprintf(s.out, "Fleet Score: not graded  %d clusters  sorted by %s\r\n",
+			len(rpt.Clusters), s.sortLabel())
+		fmt.Fprintln(s.out)
+		return
 	}
 	fmt.Fprintf(s.out, "Fleet Score: %s%d (%s)%s%s  %d clusters  sorted by %s\r\n",
 		s.color3(s.fleetColor(rpt.FleetScore.Score)),

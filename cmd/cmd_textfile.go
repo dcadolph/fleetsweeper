@@ -82,9 +82,23 @@ func runExportMetrics(cmd *cobra.Command, args []string) error {
 // Metric names follow the fleetsweeper_<noun>_<unit> convention so they
 // blend with the rest of the metrics surface exposed at /metrics.
 func writeProm(w io.Writer, rpt *report.Report, scanID string, now time.Time) error {
-	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score Overall fleet health score in [0, 100].")
-	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score gauge")
-	fmt.Fprintf(w, "fleetsweeper_fleet_score{scan_id=%q} %d\n", scanID, rpt.FleetScore.Score)
+	if rpt.FleetScore.Graded {
+		fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score Overall fleet health score in [0, 100].")
+		fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score gauge")
+		fmt.Fprintf(w, "fleetsweeper_fleet_score{scan_id=%q} %d\n", scanID, rpt.FleetScore.Score)
+	}
+
+	graded := 0
+	if rpt.FleetScore.Graded {
+		graded = 1
+	}
+	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score_graded 1 when the scan observed enough of the fleet to grade it.")
+	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score_graded gauge")
+	fmt.Fprintf(w, "fleetsweeper_fleet_score_graded{scan_id=%q} %d\n", scanID, graded)
+
+	fmt.Fprintln(w, "# HELP fleetsweeper_coverage_ratio Share of expected scanner runs that observed the fleet.")
+	fmt.Fprintln(w, "# TYPE fleetsweeper_coverage_ratio gauge")
+	fmt.Fprintf(w, "fleetsweeper_coverage_ratio{scan_id=%q} %g\n", scanID, rpt.FleetScore.Coverage.Fraction)
 
 	fmt.Fprintln(w, "# HELP fleetsweeper_fleet_score_sample_clusters Clusters that contributed scanner data to the Fleet Score.")
 	fmt.Fprintln(w, "# TYPE fleetsweeper_fleet_score_sample_clusters gauge")

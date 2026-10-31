@@ -98,7 +98,7 @@ spec:
                   description: Fleet score from the most recent scan.
                 observedGrade:
                   type: string
-                  enum: [A, B, C, D, F]
+                  enum: ["", A, B, C, D, F]
                 observedCritical:
                   type: integer
                   minimum: 0

@@ -32,6 +32,10 @@ type ScanDiff struct {
 	GradeBefore string `json:"grade_before"`
 	// GradeAfter is the grade from B.
 	GradeAfter string `json:"grade_after"`
+	// GradedBefore is true when A was graded. An ungraded score is not comparable.
+	GradedBefore bool `json:"graded_before"`
+	// GradedAfter is true when B was graded.
+	GradedAfter bool `json:"graded_after"`
 	// New are findings present in B but not in A.
 	New []report.Finding `json:"new"`
 	// Resolved are findings present in A but not in B.
@@ -104,10 +108,37 @@ func (d *ScanDiff) populateScore(a, b *report.Report) {
 	if a != nil {
 		d.ScoreBefore = a.FleetScore.Score
 		d.GradeBefore = a.FleetScore.Grade
+		d.GradedBefore = a.FleetScore.Graded
 	}
 	if b != nil {
 		d.ScoreAfter = b.FleetScore.Score
 		d.GradeAfter = b.FleetScore.Grade
+		d.GradedAfter = b.FleetScore.Graded
+	}
+}
+
+// ScoreComparable reports whether both sides were graded, so the score delta means something.
+func (d ScanDiff) ScoreComparable() bool {
+	return d.GradedBefore && d.GradedAfter
+}
+
+// scoreCell renders one side of the score comparison, or "not graded" for an ungraded side.
+func scoreCell(score int, grade string, graded bool) string {
+	if !graded {
+		return "not graded"
+	}
+	return fmt.Sprintf("%d (%s)", score, grade)
+}
+
+// ungradedNote names which side of the comparison is not graded.
+func (d ScanDiff) ungradedNote() string {
+	switch {
+	case !d.GradedBefore && !d.GradedAfter:
+		return "neither scan graded"
+	case !d.GradedBefore:
+		return "before not graded"
+	default:
+		return "after not graded"
 	}
 }
 
@@ -271,6 +302,8 @@ func RenderText(d ScanDiff, color bool) string {
 	delta := d.ScoreAfter - d.ScoreBefore
 	deltaStr := fmt.Sprintf("%+d", delta)
 	switch {
+	case !d.ScoreComparable():
+		deltaStr = dim + d.ungradedNote() + reset()
 	case delta < 0:
 		deltaStr = red + deltaStr + reset()
 	case delta > 0:
@@ -279,8 +312,9 @@ func RenderText(d ScanDiff, color bool) string {
 		deltaStr = dim + deltaStr + reset()
 	}
 
-	fmt.Fprintf(&b, "Fleet Score:  %d (%s) -> %d (%s)  (%s)\n",
-		d.ScoreBefore, d.GradeBefore, d.ScoreAfter, d.GradeAfter, deltaStr)
+	fmt.Fprintf(&b, "Fleet Score:  %s -> %s  (%s)\n",
+		scoreCell(d.ScoreBefore, d.GradeBefore, d.GradedBefore),
+		scoreCell(d.ScoreAfter, d.GradeAfter, d.GradedAfter), deltaStr)
 	fmt.Fprintf(&b, "Critical:     %d -> %d\n", d.CriticalBefore, d.CriticalAfter)
 	fmt.Fprintf(&b, "Warning:      %d -> %d\n", d.WarningBefore, d.WarningAfter)
 	fmt.Fprintln(&b)
@@ -360,8 +394,13 @@ func RenderMarkdown(d ScanDiff) string {
 	fmt.Fprintf(&b, "## Fleetsweeper scan diff\n\n")
 	fmt.Fprintf(&b, "| Metric | Before | After | Delta |\n")
 	fmt.Fprintf(&b, "| ------ | ------ | ----- | ----- |\n")
-	fmt.Fprintf(&b, "| Fleet Score | %d (%s) | %d (%s) | %s %+d |\n",
-		d.ScoreBefore, d.GradeBefore, d.ScoreAfter, d.GradeAfter, deltaEmoji, delta)
+	deltaCell := fmt.Sprintf("%s %+d", deltaEmoji, delta)
+	if !d.ScoreComparable() {
+		deltaCell = d.ungradedNote()
+	}
+	fmt.Fprintf(&b, "| Fleet Score | %s | %s | %s |\n",
+		scoreCell(d.ScoreBefore, d.GradeBefore, d.GradedBefore),
+		scoreCell(d.ScoreAfter, d.GradeAfter, d.GradedAfter), deltaCell)
 	fmt.Fprintf(&b, "| Critical findings | %d | %d | %+d |\n",
 		d.CriticalBefore, d.CriticalAfter, d.CriticalAfter-d.CriticalBefore)
 	fmt.Fprintf(&b, "| Warning findings | %d | %d | %+d |\n\n",

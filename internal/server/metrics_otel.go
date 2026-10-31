@@ -38,6 +38,16 @@ func (s *Server) initOTelMetrics() error {
 	if err != nil {
 		return err
 	}
+	scoreGraded, err := m.Int64ObservableGauge("fleetsweeper.fleet.score.graded",
+		metric.WithDescription("1 when the most recent scan was graded, 0 otherwise."))
+	if err != nil {
+		return err
+	}
+	coverageRatio, err := m.Float64ObservableGauge("fleetsweeper.coverage.ratio",
+		metric.WithDescription("Share of expected scanner runs that observed the fleet."))
+	if err != nil {
+		return err
+	}
 	clusterCount, err := m.Int64ObservableGauge("fleetsweeper.cluster.count",
 		metric.WithDescription("Number of clusters in the most recent scan."))
 	if err != nil {
@@ -94,7 +104,11 @@ func (s *Server) initOTelMetrics() error {
 		if r == nil {
 			return nil
 		}
-		obs.ObserveInt64(fleetScore, int64(r.FleetScore.Score))
+		if r.FleetScore.Graded {
+			obs.ObserveInt64(fleetScore, int64(r.FleetScore.Score))
+		}
+		obs.ObserveInt64(scoreGraded, int64(boolToInt(r.FleetScore.Graded)))
+		obs.ObserveFloat64(coverageRatio, r.FleetScore.Coverage.Fraction)
 		obs.ObserveInt64(clusterCount, int64(len(r.Clusters)))
 		obs.ObserveInt64(scoreSample, int64(r.FleetScore.SampleSize))
 		obs.ObserveInt64(scoreDimensions, int64(r.FleetScore.Dimensions))
@@ -130,7 +144,7 @@ func (s *Server) initOTelMetrics() error {
 				metric.WithAttributes(attribute.String("cluster", ch.Name)))
 		}
 		return nil
-	}, fleetScore, clusterCount, scoreSample, scoreDimensions, scoreExcluded,
+	}, fleetScore, scoreGraded, coverageRatio, clusterCount, scoreSample, scoreDimensions, scoreExcluded,
 		findingsTotal, clusterHealth, cpuPercent, memPercent, scanDuration)
 	return err
 }

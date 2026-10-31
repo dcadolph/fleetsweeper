@@ -53,6 +53,10 @@ type whatChangedDiff struct {
 	ScanB string `json:"scan_b"`
 	// FleetScoreDelta is ScanB.FleetScore - ScanA.FleetScore.
 	FleetScoreDelta int `json:"fleet_score_delta"`
+	// GradedA is true when the older scan was graded.
+	GradedA bool `json:"graded_a"`
+	// GradedB is true when the newer scan was graded.
+	GradedB bool `json:"graded_b"`
 	// FleetScoreA is the fleet score from the older scan.
 	FleetScoreA int `json:"fleet_score_a"`
 	// FleetScoreB is the fleet score from the newer scan.
@@ -200,6 +204,8 @@ func computeWhatChanged(a, b *report.Report, idA, idB, minSeverity string) whatC
 		ScanB:       idB,
 		FleetScoreA: a.FleetScore.Score,
 		FleetScoreB: b.FleetScore.Score,
+		GradedA:     a.FleetScore.Graded,
+		GradedB:     b.FleetScore.Graded,
 	}
 	diff.FleetScoreDelta = diff.FleetScoreB - diff.FleetScoreA
 
@@ -287,8 +293,17 @@ func writeWhatChanged(w io.Writer, diff whatChangedDiff, jsonOut bool) error {
 		return enc.Encode(diff)
 	}
 	fmt.Fprintf(w, "Comparing %s -> %s\n", diff.ScanA, diff.ScanB)
-	fmt.Fprintf(w, "Fleet score: %d -> %d (%+d)\n",
-		diff.FleetScoreA, diff.FleetScoreB, diff.FleetScoreDelta)
+	switch {
+	case diff.GradedA && diff.GradedB:
+		fmt.Fprintf(w, "Fleet score: %d -> %d (%+d)\n",
+			diff.FleetScoreA, diff.FleetScoreB, diff.FleetScoreDelta)
+	case !diff.GradedA && !diff.GradedB:
+		fmt.Fprintln(w, "Fleet score: not graded in either scan.")
+	case !diff.GradedA:
+		fmt.Fprintf(w, "Fleet score: not graded -> %d\n", diff.FleetScoreB)
+	default:
+		fmt.Fprintf(w, "Fleet score: %d -> not graded\n", diff.FleetScoreA)
+	}
 	fmt.Fprintln(w)
 
 	fmt.Fprintf(w, "Drifted clusters (%d):\n", len(diff.Drift.Clusters))

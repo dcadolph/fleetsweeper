@@ -78,6 +78,7 @@ func TestBuildSlackPayload_Shape(t *testing.T) {
 		FleetScore: report.FleetScore{
 			Score:            73,
 			Grade:            "C",
+			Graded:           true,
 			Headline:         "two clusters",
 			SampleSize:       2,
 			Dimensions:       5,

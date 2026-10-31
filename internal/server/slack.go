@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -176,11 +177,16 @@ func buildSlackPayload(fresh []report.Finding, r *report.Report) slackPayload {
 		len(fresh), util.Plural(len(fresh)))
 	score := ""
 	if r != nil {
-		score = fmt.Sprintf("Fleet Score: %d/%s ; scored from %d cluster%s across %d dimension%s.",
-			r.FleetScore.Score, r.FleetScore.Grade,
-			r.FleetScore.SampleSize, util.Plural(r.FleetScore.SampleSize),
-			r.FleetScore.Dimensions, util.Plural(r.FleetScore.Dimensions))
-		if r.FleetScore.ExcludedClusters > 0 {
+		if r.FleetScore.Graded {
+			score = fmt.Sprintf("Fleet Score: %d/%s ; scored from %d cluster%s across %d dimension%s.",
+				r.FleetScore.Score, r.FleetScore.Grade,
+				r.FleetScore.SampleSize, util.Plural(r.FleetScore.SampleSize),
+				r.FleetScore.Dimensions, util.Plural(r.FleetScore.Dimensions))
+		} else {
+			score = fmt.Sprintf("Fleet not graded (coverage %d%%).",
+				int(math.Round(r.FleetScore.Coverage.Fraction*100)))
+		}
+		if r.FleetScore.Graded && r.FleetScore.ExcludedClusters > 0 {
 			score += fmt.Sprintf(" %d cluster%s excluded for insufficient data.",
 				r.FleetScore.ExcludedClusters, util.Plural(r.FleetScore.ExcludedClusters))
 		}

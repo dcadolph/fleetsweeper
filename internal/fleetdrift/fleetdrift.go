@@ -74,6 +74,10 @@ type FleetScoreSpec struct {
 	Score int `json:"score"`
 	// Grade is the letter grade rollup.
 	Grade string `json:"grade"`
+	// Graded is true when the scan observed enough of the fleet to grade it.
+	Graded bool `json:"graded"`
+	// Coverage is the share of expected scanner runs that observed the fleet, 0 to 1.
+	Coverage float64 `json:"coverage"`
 }
 
 // Status reflects the per-cluster findings and a small summary block.
@@ -138,7 +142,10 @@ func ReportsFor(r *report.Report, scanID, namespace string) []Report {
 	if err != nil {
 		scanTime = time.Now().UTC()
 	}
-	score := FleetScoreSpec{Score: r.FleetScore.Score, Grade: r.FleetScore.Grade}
+	score := FleetScoreSpec{
+		Score: r.FleetScore.Score, Grade: r.FleetScore.Grade,
+		Graded: r.FleetScore.Graded, Coverage: r.FleetScore.Coverage.Fraction,
+	}
 
 	out := make([]Report, 0, len(r.Clusters))
 	for _, cluster := range r.Clusters {

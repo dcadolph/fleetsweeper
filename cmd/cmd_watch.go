@@ -149,5 +149,5 @@ func diffHasChanges(d compare.ScanDiff) bool {
 	return len(d.New) > 0 || len(d.Resolved) > 0 ||
 		len(d.ClusterStatusChanges) > 0 ||
 		len(d.AddedClusters) > 0 || len(d.RemovedClusters) > 0 ||
-		d.ScoreAfter != d.ScoreBefore
+		d.GradedBefore != d.GradedAfter || (d.ScoreComparable() && d.ScoreAfter != d.ScoreBefore)
 }

@@ -58,6 +58,9 @@ func (s *Server) fleetScoreHistory(ctx context.Context, limit int) []report.Flee
 		}
 		opts.Timestamp = scan.Timestamp
 		rpt := s.reports.get(scan.ID, scan.Clusters, results, opts)
+		if !rpt.FleetScore.Graded {
+			continue
+		}
 		out = append(out, report.FleetScoreHistoryPoint{
 			ScanID:    scan.ID,
 			Timestamp: scan.Timestamp,

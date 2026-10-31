@@ -51,7 +51,16 @@ spec:
                       description: Fleet-wide health score from this scan.
                     grade:
                       type: string
-                      enum: [A, B, C, D, F]
+                      enum: ["", A, B, C, D, F]
+                      description: Letter grade, empty when the scan is not graded.
+                    graded:
+                      type: boolean
+                      description: True when the scan observed enough of the fleet to grade it.
+                    coverage:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                      description: Share of expected scanner runs that observed the fleet.
             status:
               type: object
               properties:

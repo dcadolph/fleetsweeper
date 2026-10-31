@@ -25,13 +25,13 @@ func TestDiffHasChanges(t *testing.T) {
 		In       compare.ScanDiff
 		WantBool bool
 	}{
-		{In: compare.ScanDiff{}, WantBool: false},                                                                   // Test 0: Empty diff.
-		{In: compare.ScanDiff{New: []report.Finding{finding}}, WantBool: true},                                      // Test 1: New finding.
-		{In: compare.ScanDiff{Resolved: []report.Finding{finding}}, WantBool: true},                                 // Test 2: Resolved finding.
-		{In: compare.ScanDiff{AddedClusters: []string{"a"}}, WantBool: true},                                        // Test 3: Added cluster.
-		{In: compare.ScanDiff{RemovedClusters: []string{"a"}}, WantBool: true},                                      // Test 4: Removed cluster.
-		{In: compare.ScanDiff{ScoreBefore: 80, ScoreAfter: 70}, WantBool: true},                                     // Test 5: Score moved.
-		{In: compare.ScanDiff{ClusterStatusChanges: []compare.ClusterStatusChange{{Cluster: "a"}}}, WantBool: true}, // Test 6: Status change.
+		{In: compare.ScanDiff{}, WantBool: false},                                                                      // Test 0: Empty diff.
+		{In: compare.ScanDiff{New: []report.Finding{finding}}, WantBool: true},                                         // Test 1: New finding.
+		{In: compare.ScanDiff{Resolved: []report.Finding{finding}}, WantBool: true},                                    // Test 2: Resolved finding.
+		{In: compare.ScanDiff{AddedClusters: []string{"a"}}, WantBool: true},                                           // Test 3: Added cluster.
+		{In: compare.ScanDiff{RemovedClusters: []string{"a"}}, WantBool: true},                                         // Test 4: Removed cluster.
+		{In: compare.ScanDiff{ScoreBefore: 80, ScoreAfter: 70, GradedBefore: true, GradedAfter: true}, WantBool: true}, // Test 5: Score moved.
+		{In: compare.ScanDiff{ClusterStatusChanges: []compare.ClusterStatusChange{{Cluster: "a"}}}, WantBool: true},    // Test 6: Status change.
 	}
 	for testNum, test := range tests {
 		t.Run("case", func(t *testing.T) {
