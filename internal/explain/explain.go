@@ -186,8 +186,9 @@ func topics() []Topic {
 			Remediation: []string{
 				"Drop privileged: true unless the workload genuinely needs full host access.",
 				"Add seccompProfile: { type: RuntimeDefault } as a baseline.",
-				"Move legitimately-privileged workloads into a dedicated namespace with " +
-					"Pod Security enforce=privileged for clarity.",
+				"Move legitimately-privileged workloads into a dedicated namespace labeled " +
+					"enforce=privileged. That label enforces nothing, so the namespace is " +
+					"listed by security/psa-unenforced but not charged.",
 			},
 			Related: []string{"security", "rbac-audit"},
 		},

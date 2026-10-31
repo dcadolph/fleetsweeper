@@ -88,7 +88,7 @@ curl -X POST -H "Authorization: Bearer $BOOTSTRAP" \
   https://fleetsweeper.example.com/api/admin/keys
 ```
 
-The response contains the raw token. Save it now; the server stores only
+The response contains the raw token. Save it now. The server stores only
 its SHA-256 hash and cannot reveal it again.
 
 ## Listing and revoking
@@ -118,7 +118,7 @@ Filters:
 
 Audit entries include actor identity, method, path, status, duration, and
 a short error excerpt for failures. Read-only requests are not audited to
-keep the volume manageable; they are still captured by the request log at
+keep the volume manageable. They are still captured by the request log at
 info level.
 
 ## Whoami
@@ -135,7 +135,7 @@ A fresh deployment looks like this:
 2. Start fleetsweeper. The token grants admin access.
 3. Mint a scoped operator key per pipeline:
    `fleetsweeper apikey create --name ci-prod --role operator --scope 'group:prod'`
-4. Hand the scoped key to that pipeline; rotate the bootstrap token to
+4. Hand the scoped key to that pipeline. Rotate the bootstrap token to
    long-term storage as the emergency credential.
 5. Use `GET /api/admin/audit` to confirm the pipelines are using their own
    keys and the bootstrap token is no longer being used in normal traffic.
