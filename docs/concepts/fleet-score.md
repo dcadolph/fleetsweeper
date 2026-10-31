@@ -38,6 +38,35 @@ with every rule and cluster it charged and what each cap forgave, is
 The exact weights live in `internal/report/score.go` and are documented
 inline.
 
+## Coverage gate
+
+A score is only graded when enough of the fleet was observed to back it.
+Every report counts its scanner runs: one expected run per listed cluster
+for every scanner that ran on at least one cluster. A run is observed when
+it finished OK or found its feature not served (unavailable), partial when
+it was degraded, and blind when it errored or never ran on that cluster.
+
+The score is graded when both hold:
+
+- Every listed cluster has at least one observed run.
+- At least 80 percent of expected runs are observed. The floor is the
+  constant `minCoverageFraction` in `internal/report/score.go`.
+
+An ungraded score has `graded: false` and an empty `grade`. Its headline
+leads with the gap and labels the number, for example "Not enough data: 6
+of 6 scanner runs did not observe the fleet, and 2 of 2 clusters had no
+complete scanner run. Observed-only score 100." The number is still
+computed from what was observed, so it is there for inspection, but it is
+not the fleet's health. The brief leads with the same sentence.
+
+A graded score with blind or partial runs names them after the band, and
+its top band reads "nothing flagged in what was observed" in place of "no
+meaningful drift", because a blind run cannot vouch for anything. A fully
+observed fleet reads exactly as before.
+
+The counts travel in `coverage`: `expected_runs`, `observed_runs`,
+`blind_runs`, `blind_clusters`, and `fraction` (observed over expected).
+
 ## Cluster score
 
 Each cluster also gets a 0-100 score on the same scale. It charges the
@@ -48,6 +77,12 @@ A fleet finding that marks no cluster costs no cluster anything and counts
 once in the Fleet Score. This is the same rule that sets cluster status, so
 a cluster that reads healthy never loses points to a critical or warning
 finding.
+
+A cluster with any blind scanner run (errored, or never run on it) that no
+finding made degraded or critical reads `unknown` instead of `healthy`. Its
+cluster score pays the degraded status cost, and its headline reads
+"Unknown. N scanner runs did not observe this cluster." The Fleet Score
+does not charge unknown clusters. The coverage gate covers them instead.
 
 ## Provenance
 
@@ -60,6 +95,8 @@ metadata, and the Prometheus and OpenTelemetry metrics) also carries:
   one cluster.
 - `excluded_clusters`: scanned clusters that produced no usable data and
   were left out of the statistical population.
+- `coverage`: the scanner runs behind the score and how many observed the
+  fleet (see [Coverage gate](#coverage-gate)).
 
 A score computed across six clusters and one computed across sixty are
 different claims. The provenance says which one you are reading.
