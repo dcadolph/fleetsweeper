@@ -58,7 +58,7 @@ Paths below are under `/api` unless they start with a root path.
 | GET | `/integrations` | Which optional integrations are on. |
 | GET | `/scanners` | Every scanner with its label, description, and category. |
 | GET | `/acks` | Active finding acknowledgements. |
-| POST, DELETE | `/findings/{fingerprint}/ack` | Acknowledge a finding or remove the acknowledgement. |
+| POST, DELETE | `/findings/{fingerprint}/ack` | Acknowledge a finding in the latest report or remove the acknowledgement. The server takes the cluster, scanner, and title from the finding. |
 | GET | `/findings/timeline`, `/findings/persistence` | Findings over recent scans and how often each recurs. |
 | GET | `/alerts` | Inbound AlertManager and Falco alerts, each with its ack state. |
 | POST | `/alerts/{fingerprint}/ack` | Acknowledge an inbound alert. |

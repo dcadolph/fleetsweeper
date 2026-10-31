@@ -14,7 +14,7 @@ Fleetsweeper has two authentication paths, designed to coexist:
 | Role | Permissions |
 | --- | --- |
 | `admin` | Everything, including key management and audit log. |
-| `operator` | Trigger scans, acknowledge findings, manage groups and locations within scope. Cannot manage keys. |
+| `operator` | Trigger scans, acknowledge findings, and manage tags and locations within scope. Cannot manage groups or keys. |
 | `viewer` | Read-only. Cannot reach `/admin/*`. |
 
 Read-only endpoints (GET) are open to viewers and above (or to anyone when
@@ -33,14 +33,38 @@ Each key carries `cluster_scope`, a JSON array. The semantics are:
 
 Cluster scope is enforced on:
 
-- `POST /api/scans` (contexts list is filtered; a request becomes 403 only
-  when no contexts remain).
+- `POST /api/scans`. The contexts list is filtered to the key's scope. A
+  request becomes 403 only when no contexts remain.
 - `PUT /api/locations/{cluster}` and `DELETE /api/locations/{cluster}`.
-- `POST /api/findings/{fingerprint}/ack` (when the request body carries a
-  `cluster` field).
+- `PUT /api/clusters/{name}/tags/{key}` and
+  `DELETE /api/clusters/{name}/tags/{key}`.
+- `POST /api/whatif`, against the cluster the request names.
+- `POST /api/findings/{fingerprint}/ack` and
+  `DELETE /api/findings/{fingerprint}/ack`.
+- `POST /api/alerts/{fingerprint}/ack`, against the cluster stored on the
+  alert. An alert with no cluster needs a key with `*` scope.
 
-Group management (`POST /api/groups`, `DELETE /api/groups/{name}`) is
-admin-only because groups cross cluster boundaries.
+Acks resolve the cluster on the server. The ack body carries only `ack_by`,
+`reason`, and `snooze_until`, and a body that names `cluster`, `scanner`, or
+`title` is rejected with 400. To create an ack, the server finds the finding
+with that fingerprint in the latest report and checks the key's scope against
+the finding's cluster. A fingerprint that no current finding carries returns
+404. To remove an ack, the server checks the cluster stored on the ack. A
+fleet-scoped finding or ack (cluster `fleet`) needs a key with `*` scope, so a
+key scoped to `prod-east` cannot silence a fleet-wide finding.
+
+Group management (`POST /api/groups`, `DELETE /api/groups/{name}`) needs
+the `admin` role. An operator is refused even with `*` scope. A group widens
+every key scoped to it, so defining one is an admin act.
+
+Cluster scope limits writes. Most read endpoints are not scoped, so a key
+scoped to `prod-west` can still read the findings and full scanner results of
+`prod-east`. Treat any caller that can read the API as able to see the whole
+fleet.
+
+`POST /api/webhooks/scan-trigger` takes no API key. Its HMAC secret is the
+authority, and a request signed with that secret may scan any context. Guard
+the secret as you would an admin token.
 
 ## Creating a key
 

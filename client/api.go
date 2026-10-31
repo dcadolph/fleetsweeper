@@ -205,8 +205,10 @@ func (c *Client) ListAcks(ctx context.Context) ([]AckRecord, error) {
 	return out, nil
 }
 
-// AckFinding records a finding acknowledgement. It requires a bearer token
-// unless the server runs with authentication disabled.
+// AckFinding records a finding acknowledgement. The fingerprint must belong to
+// a finding in the latest report, or the server answers 404, and the caller's
+// key must reach that finding's cluster. It requires a bearer token unless the
+// server runs with authentication disabled.
 func (c *Client) AckFinding(ctx context.Context, fingerprint string, req AckRequest) (*AckRecord, error) {
 	var out AckRecord
 	path := "/api/findings/" + url.PathEscape(fingerprint) + "/ack"

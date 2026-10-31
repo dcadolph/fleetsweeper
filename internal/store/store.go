@@ -152,6 +152,10 @@ type Store interface {
 	// DeleteAck removes an acknowledgement. Idempotent.
 	DeleteAck(ctx context.Context, fingerprint string) error
 
+	// GetAck returns the active acknowledgement for a fingerprint. Returns the
+	// wrapped ErrNotFound when no row matches or its snooze has expired.
+	GetAck(ctx context.Context, fingerprint string) (AckRecord, error)
+
 	// ListAcks returns every active acknowledgement (expired snoozes pruned).
 	ListAcks(ctx context.Context) ([]AckRecord, error)
 

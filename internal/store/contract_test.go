@@ -420,7 +420,7 @@ func contractLocations(t *testing.T, st Store) {
 	}
 }
 
-// contractAcks checks ack upsert, list, IsAcked, snooze expiry, delete, and
+// contractAcks checks ack upsert, list, IsAcked, GetAck, snooze expiry, delete, and
 // the empty-fingerprint refusal.
 func contractAcks(t *testing.T, st Store) {
 	ctx := context.Background()
@@ -460,6 +460,27 @@ func contractAcks(t *testing.T, st Store) {
 		}
 		if acked != wantAcked {
 			t.Errorf("IsAcked(%s) = %v, want %v", fp, acked, wantAcked)
+		}
+	}
+	for _, test := range []struct {
+		Fingerprint string
+		WantAck     AckRecord
+		Want        error
+	}{{ // Test 0: Refreshed ack returns its latest values.
+		Fingerprint: "fp-1", WantAck: acks[1],
+	}, { // Test 1: Snoozed ack is still active.
+		Fingerprint: "fp-2", WantAck: acks[2],
+	}, { // Test 2: Expired snooze reads as missing.
+		Fingerprint: "fp-3", Want: ErrNotFound,
+	}, { // Test 3: Unknown fingerprint.
+		Fingerprint: "fp-none", Want: ErrNotFound,
+	}} {
+		got, err := st.GetAck(ctx, test.Fingerprint)
+		if !errors.Is(err, test.Want) {
+			t.Errorf("GetAck(%s) error = %v, want %v", test.Fingerprint, err, test.Want)
+		}
+		if diff := cmp.Diff(test.WantAck, got); diff != "" {
+			t.Errorf("GetAck(%s) mismatch (-want +got):\n%s", test.Fingerprint, diff)
 		}
 	}
 

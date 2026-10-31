@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
@@ -55,6 +56,9 @@ func TestListClusters_IncludesTags(t *testing.T) {
 func TestJSONBodyLimits(t *testing.T) {
 	t.Parallel()
 	huge := `{"name":"` + strings.Repeat("a", 2<<20) + `"}`
+	eastFP := report.FindingFingerprint(report.Finding{
+		Cluster: "east", Scanner: "workload-security", Rule: "workload-security/privileged",
+	})
 	tests := []struct {
 		Method string
 		Path   string
@@ -67,7 +71,7 @@ func TestJSONBodyLimits(t *testing.T) {
 	}, { // Test 3: Set location.
 		Method: http.MethodPut, Path: "/api/locations/east",
 	}, { // Test 4: Ack a finding.
-		Method: http.MethodPost, Path: "/api/findings/abc123/ack",
+		Method: http.MethodPost, Path: "/api/findings/" + eastFP + "/ack",
 	}, { // Test 5: Ack an alert.
 		Method: http.MethodPost, Path: "/api/alerts/fp-1/ack",
 	}, { // Test 6: Create an API key.
@@ -82,6 +86,7 @@ func TestJSONBodyLimits(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("seed alert: %v", err)
 			}
+			seedAckFindings(t, srv, ss)
 
 			req := httptest.NewRequest(test.Method, test.Path, strings.NewReader(huge))
 			w := httptest.NewRecorder()

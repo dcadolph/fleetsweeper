@@ -161,7 +161,6 @@ function openAckDrawer(el) {
           snooze_until: snoozeUntil(Number(panel.querySelector('#ackSnooze').value)),
         };
         const path = isAlert ? '/alerts/' + encodeURIComponent(fp) + '/ack' : '/findings/' + encodeURIComponent(fp) + '/ack';
-        if (!isAlert) Object.assign(body, { cluster: el.dataset.cluster || '', scanner: el.dataset.scanner || '', title: el.dataset.title || '' });
         if (!await send('POST', path, body, 'Acknowledge')) return false;
         setAcked(fp, true);
         toast('Acknowledged.', 'ok');

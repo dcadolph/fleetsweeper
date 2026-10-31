@@ -429,7 +429,7 @@ type createGroupRequest struct {
 // it, because a group-scoped key gains whatever clusters its group lists.
 func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	if !actorFromContext(r.Context()).CanManageGroups() {
-		writeError(w, http.StatusForbidden, "admin role or wildcard scope required")
+		writeError(w, http.StatusForbidden, "admin role required")
 		return
 	}
 	var req createGroupRequest
@@ -453,7 +453,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 // handleCreateGroup, since deleting a group revokes every key scoped to it.
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	if !actorFromContext(r.Context()).CanManageGroups() {
-		writeError(w, http.StatusForbidden, "admin role or wildcard scope required")
+		writeError(w, http.StatusForbidden, "admin role required")
 		return
 	}
 	name := r.PathValue("name")

@@ -75,6 +75,29 @@ func (s *sqlStore) DeleteAck(ctx context.Context, fingerprint string) error {
 	return nil
 }
 
+// GetAck returns the active ack for fingerprint. Expired snoozes are pruned
+// first, so an elapsed ack reads as missing. Returns the wrapped ErrNotFound
+// when no row matches.
+func (s *sqlStore) GetAck(ctx context.Context, fingerprint string) (AckRecord, error) {
+	if err := s.pruneExpiredAcks(ctx); err != nil {
+		return AckRecord{}, err
+	}
+	rows, err := s.query(ctx, `
+SELECT fingerprint, cluster, scanner, title, ack_by, reason, snooze_until, created_at
+FROM finding_acks WHERE fingerprint = ?`, fingerprint)
+	if err != nil {
+		return AckRecord{}, fmt.Errorf("%w: get ack: %w", ErrQuery, err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return AckRecord{}, fmt.Errorf("%w: get ack: %w", ErrQuery, err)
+		}
+		return AckRecord{}, fmt.Errorf("%w: get ack", ErrNotFound)
+	}
+	return scanAckRow(rows)
+}
+
 // ListAcks returns every active ack. Expired snoozes are filtered out and
 // removed from the database as a side effect so the table stays small.
 func (s *sqlStore) ListAcks(ctx context.Context) ([]AckRecord, error) {
