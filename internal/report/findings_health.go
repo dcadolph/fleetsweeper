@@ -175,9 +175,11 @@ func capacityFindings(r *Report) []Finding {
 				Scanner:     "metrics",
 			})
 		case capacityBusy:
+			title := fmt.Sprintf("%s is busy but healthy (CPU %s, memory %s)",
+				ca.Cluster, pctText(ca.CPUUtilization), pctText(ca.MemoryUtilization))
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-busy",
-				Title:       fmt.Sprintf("%s is busy but healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
+				Title:       title,
 				Description: ca.Recommendation,
 				Severity:    SeverityInfo,
 				Cluster:     ca.Cluster,

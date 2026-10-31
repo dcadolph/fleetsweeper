@@ -453,31 +453,3 @@ func capList(items []string) []string {
 	out = append(out, fmt.Sprintf("...and %d more", len(items)-maxAffected))
 	return out
 }
-
-// clusterData returns a cluster's scanner payload as a generic map, or nil when the section,
-// cluster, or a valid conversion is absent. The map may be the report's own, so callers must not
-// modify it.
-func clusterData(r *Report, scannerName, cluster string) map[string]any {
-	sec := r.Sections[scannerName]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	m, _ := genericMap(data)
-	return m
-}
-
-// getIntField extracts an integer field from a cluster's scanner data.
-func getIntField(r *Report, scannerName, cluster, field string) int {
-	n, _ := util.Float64(clusterData(r, scannerName, cluster)[field])
-	return int(n)
-}
-
-// getMetricsFloat extracts a float field from a cluster's metrics scanner data.
-func getMetricsFloat(r *Report, cluster, field string) float64 {
-	n, _ := util.Float64(clusterData(r, "metrics", cluster)[field])
-	return n
-}

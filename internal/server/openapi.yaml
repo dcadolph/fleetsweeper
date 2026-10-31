@@ -204,9 +204,11 @@ components:
 
     CapacityAnalysis:
       type: object
+      description: >-
+        Utilization and headroom are absent when no scanner observed the cluster's utilization.
       properties:
         cluster: {type: string}
-        status: {type: string}
+        status: {type: string, description: "critical, strained, busy, healthy, or unknown."}
         cpu_utilization: {type: number}
         memory_utilization: {type: number}
         node_count: {type: integer}

@@ -326,7 +326,11 @@ func demoResources(p demoProfile) resources.Data {
 func demoMetrics(p demoProfile) metrics.Data {
 	cpu, mem := p.utilization()
 	names := p.nodeNames()
-	d := metrics.Data{Available: true, NodeCount: len(names), AvgCPUPercent: cpu, AvgMemoryPercent: mem}
+	d := metrics.Data{
+		Available: true, NodeCount: len(names), NodesWithUsage: len(names),
+		AvgCPUPercent: new(cpu), AvgMemoryPercent: new(mem),
+	}
+	var maxCPU, maxMem float64
 	for i, name := range names {
 		offset := 1.5 * (float64(i) - float64(len(names)-1)/2)
 		nc := min(cpu+offset, 99)
@@ -338,13 +342,14 @@ func demoMetrics(p demoProfile) metrics.Data {
 			Name: name, CPUPercent: nc, MemoryPercent: nm,
 			CPUUsage: fmt.Sprintf("%dm", int(nc*80)), MemoryUsage: fmt.Sprintf("%dMi", int(nm*320)),
 		})
-		if nc > d.MaxCPUPercent {
-			d.MaxCPUPercent, d.MaxCPUNode = nc, name
+		if nc > maxCPU {
+			maxCPU, d.MaxCPUNode = nc, name
 		}
-		if nm > d.MaxMemoryPercent {
-			d.MaxMemoryPercent, d.MaxMemoryNode = nm, name
+		if nm > maxMem {
+			maxMem, d.MaxMemoryNode = nm, name
 		}
 	}
+	d.MaxCPUPercent, d.MaxMemoryPercent = new(maxCPU), new(maxMem)
 	return d
 }
 

@@ -394,7 +394,8 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Report: &Report{Capacity: []CapacityAnalysis{
 			{Cluster: "a", Status: "critical", Recommendation: "r1"},
 			{
-				Cluster: "b", Status: "busy", CPUUtilization: 72, MemoryUtilization: 68, Recommendation: "r2",
+				Cluster: "b", Status: "busy", CPUUtilization: new(72.0), MemoryUtilization: new(68.0),
+				Recommendation: "r2",
 				GroupDeviation: `Memory is 20% points higher than group "g" average (80% vs 60%). `,
 			},
 		}},

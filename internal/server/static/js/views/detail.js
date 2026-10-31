@@ -113,10 +113,10 @@ function sections(sd) {
   if (sd.metrics && sd.metrics.available) {
     const m = sd.metrics;
     let c = '<div class="g g6">' +
-      stat(Math.round(m.avg_cpu_percent) + '%', 'Avg CPU', threshTone(m.avg_cpu_percent), TIPS.avg_cpu_percent) +
-      stat(Math.round(m.max_cpu_percent) + '%', `Peak CPU (${m.max_cpu_node})`, threshTone(m.max_cpu_percent), TIPS.max_cpu_percent) +
-      stat(Math.round(m.avg_memory_percent) + '%', 'Avg Mem', threshTone(m.avg_memory_percent), TIPS.avg_memory_percent) +
-      stat(Math.round(m.max_memory_percent) + '%', `Peak Mem (${m.max_memory_node})`, threshTone(m.max_memory_percent), TIPS.max_memory_percent) + '</div>';
+      stat(pct(m.avg_cpu_percent), 'Avg CPU', threshTone(m.avg_cpu_percent), TIPS.avg_cpu_percent) +
+      stat(pct(m.max_cpu_percent), m.max_cpu_node ? `Peak CPU (${m.max_cpu_node})` : 'Peak CPU', threshTone(m.max_cpu_percent), TIPS.max_cpu_percent) +
+      stat(pct(m.avg_memory_percent), 'Avg Mem', threshTone(m.avg_memory_percent), TIPS.avg_memory_percent) +
+      stat(pct(m.max_memory_percent), m.max_memory_node ? `Peak Mem (${m.max_memory_node})` : 'Peak Mem', threshTone(m.max_memory_percent), TIPS.max_memory_percent) + '</div>';
     if (m.nodes && m.nodes.length) {
       c += table(['Node', 'CPU usage', 'CPU %', 'Memory usage', 'Memory %'].map((x) => th(x)),
         m.nodes.map((n) => `<tr><td class="mono fw-500">${esc(n.name)}</td><td class="mono">${esc(n.cpu_usage)}</td>` +

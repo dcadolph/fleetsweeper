@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -14,6 +15,9 @@ const (
 	capacityStrained = "strained"
 	capacityBusy     = "busy"
 	capacityHealthy  = "healthy"
+	// capacityUnknown marks a cluster whose utilization no scanner observed and whose other
+	// signals show no strain, so neither healthy nor busy can be claimed.
+	capacityUnknown = "unknown"
 )
 
 // CapacityAnalysis holds smart analysis for a single cluster, correlating
@@ -21,10 +25,10 @@ const (
 type CapacityAnalysis struct {
 	// Cluster is the cluster name.
 	Cluster string `json:"cluster"`
-	// CPUUtilization is the average CPU percentage.
-	CPUUtilization float64 `json:"cpu_utilization"`
-	// MemoryUtilization is the average memory percentage.
-	MemoryUtilization float64 `json:"memory_utilization"`
+	// CPUUtilization is the average CPU percentage, nil when no scanner observed it.
+	CPUUtilization *float64 `json:"cpu_utilization,omitempty"`
+	// MemoryUtilization is the average memory percentage, nil when no scanner observed it.
+	MemoryUtilization *float64 `json:"memory_utilization,omitempty"`
 	// HasMemoryPressure is true when any node reports MemoryPressure=True.
 	HasMemoryPressure bool `json:"has_memory_pressure"`
 	// HasDiskPressure is true when any node reports DiskPressure=True.
@@ -37,11 +41,11 @@ type CapacityAnalysis struct {
 	NodeCount int `json:"node_count"`
 	// HealthyNodes is the number of healthy nodes.
 	HealthyNodes int `json:"healthy_nodes"`
-	// HeadroomCPU is the percentage of CPU capacity still available.
-	HeadroomCPU float64 `json:"headroom_cpu"`
-	// HeadroomMemory is the percentage of memory capacity still available.
-	HeadroomMemory float64 `json:"headroom_memory"`
-	// Status is the assessed state: healthy, busy, strained, critical.
+	// HeadroomCPU is the percentage of CPU capacity still available, nil when unobserved.
+	HeadroomCPU *float64 `json:"headroom_cpu,omitempty"`
+	// HeadroomMemory is the percentage of memory capacity still available, nil when unobserved.
+	HeadroomMemory *float64 `json:"headroom_memory,omitempty"`
+	// Status is the assessed state: healthy, busy, strained, critical, or unknown.
 	Status string `json:"status"`
 	// Recommendation is a plain English capacity recommendation.
 	Recommendation string `json:"recommendation,omitempty"`
@@ -53,15 +57,15 @@ type CapacityAnalysis struct {
 
 // clusterSignals holds extracted signals for capacity analysis.
 type clusterSignals struct {
-	// hasMetrics is true when the metrics scanner read the cluster, so the
-	// utilization fields are measurements rather than zero for unknown.
-	hasMetrics bool
+	// utilObs is how far cpuPct and memPct can be trusted. Unobserved means both are zero
+	// placeholders that must never be read as a measurement.
+	utilObs observation
+	// utilGap names the read that left utilization unobserved, empty when it was observed.
+	utilGap string
 	// cpuPct is the average CPU utilization percent.
 	cpuPct float64
 	// memPct is the average memory utilization percent.
 	memPct float64
-	// maxMemPct is the highest node memory utilization percent.
-	maxMemPct float64
 	// nodeCount is the number of nodes.
 	nodeCount int
 	// healthyNodes is the number of Ready nodes without pressure.
@@ -76,8 +80,6 @@ type clusterSignals struct {
 	oomEvents bool
 	// schedFail is true when recent warnings include FailedScheduling.
 	schedFail bool
-	// warnEvents is the warning event count.
-	warnEvents int
 }
 
 // analyzeCapacity runs smart capacity analysis across all clusters in a report.
@@ -104,20 +106,22 @@ func analyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 
 		ca := CapacityAnalysis{
 			Cluster:               cluster,
-			CPUUtilization:        sig.cpuPct,
-			MemoryUtilization:     sig.memPct,
 			HasMemoryPressure:     sig.memPressure > 0,
 			HasDiskPressure:       sig.diskPressure > 0,
 			HasOOMEvents:          sig.oomEvents,
 			HasSchedulingFailures: sig.schedFail,
 			NodeCount:             sig.nodeCount,
 			HealthyNodes:          sig.healthyNodes,
-			HeadroomCPU:           100 - sig.cpuPct,
-			HeadroomMemory:        100 - sig.memPct,
+		}
+		if sig.utilObs.seen() {
+			ca.CPUUtilization = new(sig.cpuPct)
+			ca.MemoryUtilization = new(sig.memPct)
+			ca.HeadroomCPU = new(100 - sig.cpuPct)
+			ca.HeadroomMemory = new(100 - sig.memPct)
 		}
 
 		ca.Status = assessStatus(sig)
-		ca.Recommendation = recommend(sig, ca.Status)
+		ca.Recommendation = recommend(sig, ca.Status) + sig.utilObs.note()
 		ca.NodesNeededForTarget = nodesNeeded(sig, 70.0)
 
 		// Compare to group peers.
@@ -138,7 +142,8 @@ func analyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 
 	sort.Slice(analyzes, func(i, j int) bool {
 		order := map[string]int{
-			capacityCritical: 0, capacityStrained: 1, capacityBusy: 2, capacityHealthy: 3,
+			capacityCritical: 0, capacityStrained: 1, capacityBusy: 2, capacityUnknown: 3,
+			capacityHealthy: 4,
 		}
 		return order[analyzes[i].Status] < order[analyzes[j].Status]
 	})
@@ -146,13 +151,16 @@ func analyzeCapacity(r *Report, groups map[string][]string) []CapacityAnalysis {
 	return analyzes
 }
 
-// assessStatus determines cluster state by correlating signals, not just
-// reading utilization numbers.
+// assessStatus determines cluster state by correlating signals, not just reading utilization
+// numbers. Pressure and failure events still mark a cluster strained or critical without a
+// utilization reading, but healthy and busy rest on utilization, so without one the status is
+// unknown.
 func assessStatus(sig clusterSignals) string {
+	seen := sig.utilObs.seen()
 	hasPressure := sig.memPressure > 0 || sig.diskPressure > 0
 	hasFailures := sig.oomEvents || sig.schedFail
-	highUtil := sig.memPct > 85 || sig.cpuPct > 85
-	elevatedUtil := sig.memPct > 70 || sig.cpuPct > 70
+	highUtil := seen && (sig.memPct > 85 || sig.cpuPct > 85)
+	elevatedUtil := seen && (sig.memPct > 70 || sig.cpuPct > 70)
 
 	// Critical: pressure + failures, or nodes down + high utilization.
 	if hasPressure && hasFailures {
@@ -177,13 +185,18 @@ func assessStatus(sig clusterSignals) string {
 	if elevatedUtil {
 		return capacityBusy
 	}
-
+	if !seen {
+		return capacityUnknown
+	}
 	return capacityHealthy
 }
 
-// recommend generates a capacity recommendation based on correlated signals.
+// recommend generates a capacity recommendation based on correlated signals. It states a
+// utilization figure only when one was observed.
 func recommend(sig clusterSignals, status string) string {
 	switch status {
+	case capacityUnknown:
+		return "Utilization is unknown: " + sig.utilGap
 	case capacityCritical:
 		needed := nodesNeeded(sig, 70.0)
 		if sig.oomEvents && sig.memPressure > 0 && needed == 0 {
@@ -209,6 +222,10 @@ func recommend(sig clusterSignals, status string) string {
 				"%d of %d nodes report MemoryPressure. Add %d node(s) to relieve pressure or evict low-priority workloads.",
 				sig.memPressure, sig.nodeCount, needed)
 		}
+		if sig.notReady > 0 && !sig.utilObs.seen() {
+			return fmt.Sprintf(
+				"%d node(s) are not Ready. Investigate node conditions before scaling.", sig.notReady)
+		}
 		if sig.notReady > 0 {
 			return fmt.Sprintf(
 				"%d node(s) are not Ready. Investigate node conditions before scaling. Remaining nodes are overloaded at %.0f%% memory.",
@@ -231,6 +248,9 @@ func recommend(sig clusterSignals, status string) string {
 			return fmt.Sprintf(
 				"FailedScheduling events indicate insufficient capacity. Add %d node(s) or reduce workload resource requests.",
 				needed)
+		}
+		if !sig.utilObs.seen() {
+			return "Nodes report pressure or failure events, but utilization is unknown: " + sig.utilGap
 		}
 		if sig.memPct > 85 {
 			return fmt.Sprintf(
@@ -258,11 +278,19 @@ func recommend(sig clusterSignals, status string) string {
 	}
 }
 
-// memClause returns ", while average memory is N%" for a cluster with a
-// memory reading, or nothing when metrics were unavailable and the reading
-// is zero.
+// pctText formats a utilization percentage as a whole number, or "unknown" when it was not
+// observed.
+func pctText(p *float64) string {
+	if p == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%.0f%%", *p)
+}
+
+// memClause returns " while average memory is N%" for a cluster with an observed memory
+// reading, or nothing when utilization was not observed.
 func memClause(sig clusterSignals) string {
-	if sig.memPct <= 0 {
+	if !sig.utilObs.seen() {
 		return ""
 	}
 	return fmt.Sprintf(" while average memory is %.0f%%", sig.memPct)
@@ -270,9 +298,10 @@ func memClause(sig clusterSignals) string {
 
 // nodesNeeded calculates how many additional nodes are required to bring
 // memory utilization below the target percentage, assuming each new node
-// adds the same capacity as existing nodes.
+// adds the same capacity as existing nodes. Without an observed utilization it
+// returns 0, since no count can be derived from an unknown.
 func nodesNeeded(sig clusterSignals, targetPct float64) int {
-	if sig.nodeCount == 0 || sig.memPct <= targetPct {
+	if !sig.utilObs.seen() || sig.nodeCount == 0 || sig.memPct <= targetPct {
 		return 0
 	}
 	// Total memory units currently used = memPct/100 * nodeCount.
@@ -289,7 +318,7 @@ func nodesNeeded(sig clusterSignals, targetPct float64) int {
 // without one is left out, so an unknown never counts as zero utilization.
 func groupComparison(cluster, groupName string, peers []string, signals map[string]clusterSignals) string {
 	sig := signals[cluster]
-	if !sig.hasMetrics {
+	if !sig.utilObs.seen() {
 		return ""
 	}
 	var peerMem []float64
@@ -298,7 +327,7 @@ func groupComparison(cluster, groupName string, peers []string, signals map[stri
 		if p == cluster {
 			continue
 		}
-		if s, ok := signals[p]; ok && s.hasMetrics {
+		if s, ok := signals[p]; ok && s.utilObs.seen() {
 			peerMem = append(peerMem, s.memPct)
 			peerCPU = append(peerCPU, s.cpuPct)
 		}
@@ -336,37 +365,56 @@ func groupComparison(cluster, groupName string, peers []string, signals map[stri
 	return parts
 }
 
-// extractAllSignals pulls capacity-relevant data from the report for all clusters.
+// extractAllSignals pulls capacity-relevant data from the report for all clusters. Every
+// cluster gets an entry. Utilization carries its observation, and a cluster without one names
+// the read that failed. Node and event counts are presence signals, so an unobserved count
+// stands as no evidence of pressure.
 func extractAllSignals(r *Report) map[string]clusterSignals {
 	out := make(map[string]clusterSignals, len(r.Clusters))
 	for _, cluster := range r.Clusters {
 		var sig clusterSignals
-		if sec := r.Sections["metrics"]; sec != nil {
-			_, sig.hasMetrics = sec.PerCluster[cluster]
+		var cpuObs, memObs observation
+		sig.cpuPct, cpuObs = observe(r, "metrics", cluster, "avg_cpu_percent")
+		sig.memPct, memObs = observe(r, "metrics", cluster, "avg_memory_percent")
+		sig.utilObs = weakest(cpuObs, memObs)
+		if !sig.utilObs.seen() {
+			sig.cpuPct, sig.memPct = 0, 0
+			sig.utilGap = utilizationGap(r, cluster)
 		}
-		sig.cpuPct = getMetricsFloat(r, cluster, "avg_cpu_percent")
-		sig.memPct = getMetricsFloat(r, cluster, "avg_memory_percent")
-		sig.maxMemPct = getMetricsFloat(r, cluster, "max_memory_percent")
-		sig.nodeCount = getIntField(r, "node-health", cluster, "node_count")
-		sig.healthyNodes = getIntField(r, "node-health", cluster, "healthy_nodes")
-		sig.memPressure = getIntField(r, "node-health", cluster, "memory_pressure_nodes")
-		sig.diskPressure = getIntField(r, "node-health", cluster, "disk_pressure_nodes")
-		sig.notReady = getIntField(r, "node-health", cluster, "not_ready_nodes")
-		sig.warnEvents = getIntField(r, "events", cluster, "warning_events")
-
-		// Check for OOM and scheduling events in the event data.
+		sig.nodeCount, _ = observeInt(r, "node-health", cluster, "node_count")
+		sig.healthyNodes, _ = observeInt(r, "node-health", cluster, "healthy_nodes")
+		sig.memPressure, _ = observeInt(r, "node-health", cluster, "memory_pressure_nodes")
+		sig.diskPressure, _ = observeInt(r, "node-health", cluster, "disk_pressure_nodes")
+		sig.notReady, _ = observeInt(r, "node-health", cluster, "not_ready_nodes")
 		sig.oomEvents = hasEventReason(r, cluster, "OOMKilling")
 		sig.schedFail = hasEventReason(r, cluster, "FailedScheduling")
-
 		out[cluster] = sig
 	}
 	return out
 }
 
-// hasEventReason checks if a cluster has warning events with a specific reason.
+// utilizationGap names the metrics read that left a cluster's utilization unobserved.
+func utilizationGap(r *Report, cluster string) string {
+	st, ok := runState(r, "metrics", cluster)
+	switch {
+	case !ok:
+		return "the metrics scanner did not run on this cluster, so headroom cannot be assessed."
+	case st == scanner.StateErrored:
+		return "the node metrics read failed, so headroom cannot be assessed. " +
+			"Check that the scanner can list nodes in metrics.k8s.io."
+	case st == scanner.StateUnavailable:
+		return "the cluster does not serve the metrics.k8s.io API. " +
+			"Install metrics-server to measure headroom."
+	}
+	return "no node's usage resolved to a percentage of its allocatable capacity, " +
+		"so headroom cannot be assessed. Check that the scanner can list nodes."
+}
+
+// hasEventReason reports whether a cluster's warning events include reason. An unobserved
+// events run is no evidence either way and reports false.
 func hasEventReason(r *Report, cluster, reason string) bool {
-	m := clusterData(r, "events", cluster)
-	if m == nil {
+	m, obs := clusterView(r, "events", cluster)
+	if !obs.seen() {
 		return false
 	}
 	reasons, ok := m["top_warning_reasons"].([]any)

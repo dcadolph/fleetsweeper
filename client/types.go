@@ -240,18 +240,18 @@ type CapacityAnalysis struct {
 	Cluster string `json:"cluster,omitempty"`
 	// Status summarizes capacity pressure.
 	Status string `json:"status,omitempty"`
-	// CPUUtilization is the current CPU utilization.
-	CPUUtilization float64 `json:"cpu_utilization,omitempty"`
-	// MemoryUtilization is the current memory utilization.
-	MemoryUtilization float64 `json:"memory_utilization,omitempty"`
+	// CPUUtilization is the current CPU utilization, nil when no scanner observed it.
+	CPUUtilization *float64 `json:"cpu_utilization,omitempty"`
+	// MemoryUtilization is the current memory utilization, nil when no scanner observed it.
+	MemoryUtilization *float64 `json:"memory_utilization,omitempty"`
 	// NodeCount is the number of nodes.
 	NodeCount int `json:"node_count,omitempty"`
 	// HealthyNodes is the number of ready nodes.
 	HealthyNodes int `json:"healthy_nodes,omitempty"`
-	// HeadroomCPU is the remaining CPU headroom.
-	HeadroomCPU float64 `json:"headroom_cpu,omitempty"`
-	// HeadroomMemory is the remaining memory headroom.
-	HeadroomMemory float64 `json:"headroom_memory,omitempty"`
+	// HeadroomCPU is the remaining CPU headroom, nil when utilization was not observed.
+	HeadroomCPU *float64 `json:"headroom_cpu,omitempty"`
+	// HeadroomMemory is the remaining memory headroom, nil when utilization was not observed.
+	HeadroomMemory *float64 `json:"headroom_memory,omitempty"`
 	// HasMemoryPressure reports memory pressure on the cluster.
 	HasMemoryPressure bool `json:"has_memory_pressure,omitempty"`
 	// HasDiskPressure reports disk pressure on the cluster.
