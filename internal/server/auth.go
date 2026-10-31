@@ -35,9 +35,9 @@ func (a *Actor) HasWildcardScope() bool {
 }
 
 // CanManageGroups reports whether the actor may create or delete groups. A group widens every
-// key scoped to it, so only an admin or an actor that already reaches every cluster may define one.
+// key scoped to it, so defining one is an admin act whatever the actor's cluster scope.
 func (a *Actor) CanManageGroups() bool {
-	return a.Role == store.RoleAdmin || a.HasWildcardScope()
+	return a.Role == store.RoleAdmin
 }
 
 // AllowsCluster reports whether the actor may act on the given cluster.

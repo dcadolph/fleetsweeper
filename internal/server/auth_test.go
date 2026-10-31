@@ -91,12 +91,12 @@ func TestAuthMiddlewareAPIKey(t *testing.T) {
 		t.Fatalf("save api key: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(`{"name":"x","clusters":[]}`))
+	req := httptest.NewRequest(http.MethodPut, "/api/locations/east", strings.NewReader(`{"lat":1,"lng":2}`))
 	req.Header.Set("Authorization", "Bearer "+raw)
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create group: want 201, got %d body %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("set location: want 200, got %d body %s", w.Code, w.Body.String())
 	}
 }
 
@@ -279,9 +279,9 @@ func saveTestKey(t *testing.T, st *store.SQLite, id, role string, scope ...strin
 	return raw
 }
 
-// TestGroupWritesRequireFleetScope verifies only an admin or a wildcard-scoped actor may create
-// or delete a group, and that a refused write leaves the group untouched.
-func TestGroupWritesRequireFleetScope(t *testing.T) {
+// TestGroupWritesRequireAdmin verifies only an admin may create or delete a group, whatever the
+// caller's cluster scope, and that a refused write leaves the group untouched.
+func TestGroupWritesRequireAdmin(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		Role             string
@@ -294,9 +294,9 @@ func TestGroupWritesRequireFleetScope(t *testing.T) {
 	}, { // Test 1: A cluster-scoped operator cannot define groups.
 		Role: store.RoleOperator, Scope: []string{"edge-a"},
 		WantCreateStatus: http.StatusForbidden, WantDeleteStatus: http.StatusForbidden,
-	}, { // Test 2: A wildcard operator may manage groups.
+	}, { // Test 2: A wildcard operator cannot define groups either.
 		Role: store.RoleOperator, Scope: []string{store.ScopeWildcard},
-		WantCreateStatus: http.StatusCreated, WantDeleteStatus: http.StatusNoContent,
+		WantCreateStatus: http.StatusForbidden, WantDeleteStatus: http.StatusForbidden,
 	}, { // Test 3: An admin may manage groups even with a narrow scope.
 		Role: store.RoleAdmin, Scope: []string{"group:edge"},
 		WantCreateStatus: http.StatusCreated, WantDeleteStatus: http.StatusNoContent,
@@ -351,7 +351,7 @@ func TestCanManageGroups(t *testing.T) {
 	}, { // Test 1: Admin with a narrow scope.
 		Actor: Actor{Role: store.RoleAdmin, ClusterScope: []string{"east"}}, WantResult: true,
 	}, { // Test 2: Operator with wildcard scope.
-		Actor: Actor{Role: store.RoleOperator, ClusterScope: []string{"east", store.ScopeWildcard}}, WantResult: true,
+		Actor: Actor{Role: store.RoleOperator, ClusterScope: []string{"east", store.ScopeWildcard}}, WantResult: false,
 	}, { // Test 3: Operator with a group scope.
 		Actor: Actor{Role: store.RoleOperator, ClusterScope: []string{"group:prod"}}, WantResult: false,
 	}, { // Test 4: Anonymous viewer with no scope.

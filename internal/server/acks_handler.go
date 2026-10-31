@@ -68,9 +68,10 @@ func (s *Server) handleCreateAck(w http.ResponseWriter, r *http.Request) {
 
 // handleAckAlert records an ack against an inbound alert. The alert
 // row is fetched by fingerprint so the cluster, title, and source tag
-// don't have to be re-supplied by the client. The same `finding_acks`
-// table is reused: alerts share the snooze and tombstone machinery with
-// scan findings so the dashboard surfaces them uniformly.
+// don't have to be re-supplied by the client, and the scope check reads
+// the alert's cluster the same way the ack delete reads it later. The same
+// `finding_acks` table is reused: alerts share the snooze and tombstone
+// machinery with scan findings so the dashboard surfaces them uniformly.
 func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	fp := r.PathValue("fingerprint")
 	if fp == "" {
@@ -82,11 +83,9 @@ func (s *Server) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err, "acks: get alert", "alert not found")
 		return
 	}
-	if alert.Cluster != "" {
-		if !actorFromContext(r.Context()).AllowsCluster(alert.Cluster, s.groupLookup(r.Context())) {
-			writeError(w, http.StatusForbidden, "alert cluster not in actor scope")
-			return
-		}
+	if !s.allowsAckCluster(r.Context(), alert.Cluster) {
+		writeError(w, http.StatusForbidden, "alert cluster not in actor scope")
+		return
 	}
 	s.saveAck(w, r, store.AckRecord{
 		Fingerprint: fp,
