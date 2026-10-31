@@ -94,6 +94,7 @@ table in step with the tree, so a new package needs a row here.
 | `internal/kube`                       | client-go connection helpers and concurrent fan-out across contexts.                            |
 | `internal/leader`                     | Lease-based leader election for the controller.                                                 |
 | `internal/logutil`                    | Threads a zap logger through a context.                                                         |
+| `internal/podsec`                     | Evaluates pod security fields with Kubernetes precedence for scanners and admission.            |
 | `internal/policyreport`               | Converts findings into wgpolicyk8s.io PolicyReport resources.                                   |
 | `internal/remediate`                  | Opens a pull request against a GitOps repo from a finding's YAML remediation.                   |
 | `internal/report`                     | Builds the report: comparisons, outliers, findings, cluster health, scores, trends.             |
