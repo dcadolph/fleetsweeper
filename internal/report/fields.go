@@ -78,6 +78,11 @@ var fieldSpecs = []fieldSpec{
 		Polarity: UpIsBad,
 		Trend:    true,
 	},
+	{FieldRef: ref("metrics", "node_count")},
+	{
+		FieldRef:      ref("metrics", "nodes_with_usage"),
+		RedundantWith: []FieldRef{ref("metrics", "node_count")},
+	},
 
 	{
 		FieldRef: ref("node-health", "unhealthy_nodes"),
