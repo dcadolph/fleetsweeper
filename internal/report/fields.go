@@ -78,6 +78,11 @@ var fieldSpecs = []fieldSpec{
 		Polarity: UpIsBad,
 		Trend:    true,
 	},
+	{FieldRef: ref("metrics", "node_count")},
+	{
+		FieldRef:      ref("metrics", "nodes_with_usage"),
+		RedundantWith: []FieldRef{ref("metrics", "node_count")},
+	},
 
 	{
 		FieldRef: ref("node-health", "unhealthy_nodes"),
@@ -196,9 +201,17 @@ var fieldSpecs = []fieldSpec{
 		Polarity:  UpIsBad,
 		CountedBy: "workload-security/run-as-root",
 	},
-	{FieldRef: ref("workload-security", "run_as_non_root_containers"), Polarity: DownIsBad},
+	{
+		FieldRef:      ref("workload-security", "run_as_non_root_containers"),
+		Polarity:      DownIsBad,
+		RedundantWith: []FieldRef{ref("workload-security", "baseline_containers")},
+	},
 	{FieldRef: ref("workload-security", "run_as_unknown_containers")},
-	{FieldRef: ref("workload-security", "baseline_containers")},
+	{FieldRef: ref("workload-security", "total_pods")},
+	{
+		FieldRef:      ref("workload-security", "baseline_containers"),
+		RedundantWith: []FieldRef{ref("workload-security", "total_pods")},
+	},
 	{
 		FieldRef:  ref("workload-security", "capability_additions"),
 		Severity:  SeverityWarning,

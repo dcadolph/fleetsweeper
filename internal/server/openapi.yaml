@@ -66,7 +66,16 @@ components:
       required: [score, grade, headline]
       properties:
         score: {type: integer, minimum: 0, maximum: 100}
-        grade: {type: string, enum: [A, B, C, D, F]}
+        grade: {type: string, enum: ["", A, B, C, D, F], description: Empty when the score is not graded.}
+        graded: {type: boolean, description: True when enough scanner runs observed the fleet to grade it.}
+        coverage:
+          type: object
+          properties:
+            expected_runs: {type: integer}
+            observed_runs: {type: integer}
+            blind_runs: {type: integer}
+            blind_clusters: {type: integer}
+            fraction: {type: number, minimum: 0, maximum: 1}
         headline: {type: string}
         drivers:
           type: array
@@ -176,7 +185,7 @@ components:
       required: [name, status]
       properties:
         name: {type: string}
-        status: {type: string, enum: [healthy, busy, degraded, critical]}
+        status: {type: string, enum: [healthy, busy, unknown, degraded, critical]}
         kubernetes_version: {type: string}
         node_count: {type: integer}
         healthy_nodes: {type: integer}
@@ -204,9 +213,11 @@ components:
 
     CapacityAnalysis:
       type: object
+      description: >-
+        Utilization and headroom are absent when no scanner observed the cluster's utilization.
       properties:
         cluster: {type: string}
-        status: {type: string}
+        status: {type: string, description: "critical, strained, busy, healthy, or unknown."}
         cpu_utilization: {type: number}
         memory_utilization: {type: number}
         node_count: {type: integer}

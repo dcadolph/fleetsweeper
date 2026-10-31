@@ -44,6 +44,10 @@ type FleetScore struct {
 	Score int `json:"score"`
 	// Grade is the letter grade A through F.
 	Grade string `json:"grade"`
+	// Graded is true when the scan observed enough of the fleet to grade it.
+	Graded bool `json:"graded"`
+	// Coverage counts the scanner runs behind the score.
+	Coverage FleetCoverage `json:"coverage"`
 	// Headline summarizes the fleet state.
 	Headline string `json:"headline"`
 	// Drivers lists the largest contributions to the score.
@@ -54,6 +58,20 @@ type FleetScore struct {
 	Dimensions int `json:"dimensions"`
 	// ExcludedClusters is how many clusters were excluded for insufficient data.
 	ExcludedClusters int `json:"excluded_clusters"`
+}
+
+// FleetCoverage counts the scanner runs behind a fleet score.
+type FleetCoverage struct {
+	// ExpectedRuns is the listed clusters times the scanners that ran.
+	ExpectedRuns int `json:"expected_runs"`
+	// ObservedRuns is how many expected runs observed their cluster.
+	ObservedRuns int `json:"observed_runs"`
+	// BlindRuns is how many expected runs errored or never ran.
+	BlindRuns int `json:"blind_runs"`
+	// BlindClusters is how many clusters have no observed run.
+	BlindClusters int `json:"blind_clusters"`
+	// Fraction is ObservedRuns over ExpectedRuns.
+	Fraction float64 `json:"fraction"`
 }
 
 // FleetScoreForecast projects a future fleet score from history.
@@ -179,6 +197,8 @@ type ClusterHealth struct {
 	// DegradedScanners is how many scanner runs did not return complete data for
 	// this cluster. Nonzero means the cluster's report rests on partial coverage.
 	DegradedScanners int `json:"degraded_scanners,omitempty"`
+	// BlindScanners is how many expected scanner runs errored or never ran on this cluster.
+	BlindScanners int `json:"blind_scanners,omitempty"`
 	// FindingCounts maps severity to the number of findings.
 	FindingCounts map[string]int `json:"finding_counts,omitempty"`
 }
@@ -240,18 +260,18 @@ type CapacityAnalysis struct {
 	Cluster string `json:"cluster,omitempty"`
 	// Status summarizes capacity pressure.
 	Status string `json:"status,omitempty"`
-	// CPUUtilization is the current CPU utilization.
-	CPUUtilization float64 `json:"cpu_utilization,omitempty"`
-	// MemoryUtilization is the current memory utilization.
-	MemoryUtilization float64 `json:"memory_utilization,omitempty"`
+	// CPUUtilization is the current CPU utilization, nil when no scanner observed it.
+	CPUUtilization *float64 `json:"cpu_utilization,omitempty"`
+	// MemoryUtilization is the current memory utilization, nil when no scanner observed it.
+	MemoryUtilization *float64 `json:"memory_utilization,omitempty"`
 	// NodeCount is the number of nodes.
 	NodeCount int `json:"node_count,omitempty"`
 	// HealthyNodes is the number of ready nodes.
 	HealthyNodes int `json:"healthy_nodes,omitempty"`
-	// HeadroomCPU is the remaining CPU headroom.
-	HeadroomCPU float64 `json:"headroom_cpu,omitempty"`
-	// HeadroomMemory is the remaining memory headroom.
-	HeadroomMemory float64 `json:"headroom_memory,omitempty"`
+	// HeadroomCPU is the remaining CPU headroom, nil when utilization was not observed.
+	HeadroomCPU *float64 `json:"headroom_cpu,omitempty"`
+	// HeadroomMemory is the remaining memory headroom, nil when utilization was not observed.
+	HeadroomMemory *float64 `json:"headroom_memory,omitempty"`
 	// HasMemoryPressure reports memory pressure on the cluster.
 	HasMemoryPressure bool `json:"has_memory_pressure,omitempty"`
 	// HasDiskPressure reports disk pressure on the cluster.

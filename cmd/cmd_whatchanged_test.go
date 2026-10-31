@@ -122,7 +122,7 @@ func TestWriteWhatChanged_HumanIncludesFleetDelta(t *testing.T) {
 	t.Parallel()
 	d := whatChangedDiff{
 		ScanA: "a", ScanB: "b",
-		FleetScoreA: 90, FleetScoreB: 80, FleetScoreDelta: -10,
+		FleetScoreA: 90, FleetScoreB: 80, FleetScoreDelta: -10, GradedA: true, GradedB: true,
 		NewFindings:     []report.Finding{{Title: "T", Cluster: "c1", Severity: "critical"}},
 		ClearedFindings: nil,
 		ClusterScoreChanges: []clusterScoreChange{
@@ -203,6 +203,41 @@ func TestSortFindings(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantOrder, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("order mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestWriteWhatChanged_Graded verifies the fleet score line follows the graded flags.
+func TestWriteWhatChanged_Graded(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		GradedA  bool
+		GradedB  bool
+		WantLine string
+	}{{ // Test 0: Both graded shows the delta.
+		GradedA: true, GradedB: true, WantLine: "Fleet score: 90 -> 80 (-10)",
+	}, { // Test 1: Ungraded older scan is named.
+		GradedB: true, WantLine: "Fleet score: not graded -> 80",
+	}, { // Test 2: Ungraded newer scan is named.
+		GradedA: true, WantLine: "Fleet score: 90 -> not graded",
+	}, { // Test 3: Neither graded says so.
+		WantLine: "Fleet score: not graded in either scan.",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			a := buildReportForDiffTest(90, nil, nil)
+			a.FleetScore.Graded = test.GradedA
+			b := buildReportForDiffTest(80, nil, nil)
+			b.FleetScore.Graded = test.GradedB
+			diff := computeWhatChanged(a, b, "a", "b", "")
+			buf := &bytes.Buffer{}
+			if err := writeWhatChanged(buf, diff, false); err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			if !strings.Contains(buf.String(), test.WantLine) {
+				t.Errorf("missing %q in:\n%s", test.WantLine, buf.String())
 			}
 		})
 	}

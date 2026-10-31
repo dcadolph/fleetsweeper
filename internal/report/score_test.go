@@ -1,13 +1,28 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 )
 
+// observedBy returns sections in which one OK scanner observed every named cluster, so a
+// hand-built report clears the coverage gate.
+func observedBy(clusters ...string) map[string]*SectionReport {
+	per := make(map[string]any, len(clusters))
+	for _, c := range clusters {
+		per[c] = map[string]any{"n": 1}
+	}
+	return map[string]*SectionReport{"s1": {PerCluster: per}}
+}
+
+// TestScoreWithAttribution verifies score, grade, and top driver on hand-built reports.
 func TestScoreWithAttribution(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -17,11 +32,10 @@ func TestScoreWithAttribution(t *testing.T) {
 		WantGrade string
 		WantTopDr string
 	}{
-		{ // Test 0: Nil report scores 100 with placeholder headline.
+		{ // Test 0: Nil report scores 100 ungraded with a placeholder headline.
 			Name:      "nil report",
 			In:        nil,
 			WantScore: 100,
-			WantGrade: "A",
 		},
 		{ // Test 1: Empty report scores 100 with no drivers.
 			Name:      "empty report",
@@ -33,6 +47,7 @@ func TestScoreWithAttribution(t *testing.T) {
 			Name: "one warning",
 			In: &Report{
 				Clusters: []string{"c1"},
+				Sections: observedBy("c1"),
 				Findings: []Finding{{Severity: SeverityWarning}},
 			},
 			WantScore: 99,
@@ -44,6 +59,7 @@ func TestScoreWithAttribution(t *testing.T) {
 			Name: "five criticals",
 			In: &Report{
 				Clusters: []string{"c1", "c2", "c3"},
+				Sections: observedBy("c1", "c2", "c3"),
 				Findings: []Finding{
 					{Severity: SeverityCritical},
 					{Severity: SeverityCritical},
@@ -60,6 +76,7 @@ func TestScoreWithAttribution(t *testing.T) {
 			Name: "single critical cluster",
 			In: &Report{
 				Clusters: []string{"c1"},
+				Sections: observedBy("c1"),
 				ClusterHealths: []ClusterHealth{
 					{Name: "c1", Status: "critical", NodeCount: 3, HealthyNodes: 3},
 				},
@@ -73,6 +90,7 @@ func TestScoreWithAttribution(t *testing.T) {
 			Name: "all caps applied",
 			In: &Report{
 				Clusters: []string{"c1", "c2"},
+				Sections: observedBy("c1", "c2"),
 				Findings: makeFindings(SeverityCritical, 200),
 				ClusterHealths: []ClusterHealth{
 					{Name: "c1", Status: "critical", NodeCount: 10, HealthyNodes: 0,
@@ -88,6 +106,7 @@ func TestScoreWithAttribution(t *testing.T) {
 			Name: "critical version skew",
 			In: &Report{
 				Clusters: []string{"c1", "c2", "c3"},
+				Sections: observedBy("c1", "c2", "c3"),
 				ClusterHealths: []ClusterHealth{
 					{Name: "c1", KubernetesVersion: "v1.31.2", NodeCount: 5, HealthyNodes: 5},
 					{Name: "c2", KubernetesVersion: "v1.30.6", NodeCount: 5, HealthyNodes: 5},
@@ -102,6 +121,7 @@ func TestScoreWithAttribution(t *testing.T) {
 			Name: "worst node cluster surfaced",
 			In: &Report{
 				Clusters: []string{"a", "b"},
+				Sections: observedBy("a", "b"),
 				ClusterHealths: []ClusterHealth{
 					{Name: "a", NodeCount: 10, HealthyNodes: 10},
 					{Name: "b", NodeCount: 10, HealthyNodes: 5},
@@ -245,7 +265,7 @@ func TestFleetScoreProvenance(t *testing.T) {
 			}
 			opts := []cmp.Option{
 				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(FleetScore{}, "Score", "Grade", "Headline", "Drivers"),
+				cmpopts.IgnoreFields(FleetScore{}, "Score", "Grade", "Headline", "Drivers", "Graded", "Coverage"),
 			}
 			if diff := cmp.Diff(want, got, opts...); diff != "" {
 				t.Errorf("provenance mismatch (-want +got):\n%s", diff)
@@ -382,10 +402,13 @@ func TestFleetScoreGolden(t *testing.T) { //nolint:funlen // Test function.
 		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
 			t.Parallel()
 			got, _ := scoreWithAttribution(test.In)
-			want := FleetScore{Score: test.WantScore, Grade: test.WantGrade, Drivers: test.WantDrivers}
+			want := FleetScore{
+				Score: test.WantScore, Grade: test.WantGrade, Graded: true, Drivers: test.WantDrivers,
+			}
 			opts := []cmp.Option{
 				cmpopts.EquateEmpty(),
-				cmpopts.IgnoreFields(FleetScore{}, "Headline", "SampleSize", "Dimensions", "ExcludedClusters"),
+				cmpopts.IgnoreFields(FleetScore{},
+					"Headline", "SampleSize", "Dimensions", "ExcludedClusters", "Coverage"),
 			}
 			if diff := cmp.Diff(want, got, opts...); diff != "" {
 				t.Errorf("score mismatch (-want +got):\n%s", diff)
@@ -415,10 +438,201 @@ func TestHeadlineThresholds(t *testing.T) {
 	for testNum, test := range tests {
 		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
 			t.Parallel()
-			r := &Report{Clusters: make([]string, test.Clusters)}
-			if diff := cmp.Diff(test.WantHeadline, headline(test.Score, r)); diff != "" {
+			fs := FleetScore{Score: test.Score, Graded: true}
+			if diff := cmp.Diff(test.WantHeadline, headline(fs, test.Clusters)); diff != "" {
 				t.Errorf("headline mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// coverageResults builds per-cluster results for scanners s1 to sN, all OK, then replaces the
+// runs named in override, where a missing scanner.Result removes the run.
+func coverageResults(
+	clusters []string, scanners int, override map[runKey]*scanner.Result,
+) map[string]map[string]scanner.Result {
+	out := make(map[string]map[string]scanner.Result, len(clusters))
+	for _, c := range clusters {
+		out[c] = make(map[string]scanner.Result, scanners)
+		for i := 1; i <= scanners; i++ {
+			name := fmt.Sprintf("s%d", i)
+			out[c][name] = okRun(name, map[string]any{"n": 1})
+		}
+	}
+	for k, res := range override {
+		if res == nil {
+			delete(out[k.cluster], k.scanner)
+			continue
+		}
+		out[k.cluster][k.scanner] = *res
+	}
+	return out
+}
+
+// runOf returns a pointer to res so coverage overrides read as one expression.
+func runOf(res scanner.Result) *scanner.Result {
+	return &res
+}
+
+// TestFleetCoverage verifies the coverage counts and the grading gate on built reports.
+func TestFleetCoverage(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+	two := []string{"c1", "c2"}
+	five := []string{"c1", "c2", "c3", "c4", "c5"}
+	allErrored := map[runKey]*scanner.Result{}
+	for _, c := range two {
+		for _, s := range []string{"s1", "s2", "s3"} {
+			allErrored[runKey{scanner: s, cluster: c}] = runOf(erroredRun(s))
+		}
+	}
+	tests := []struct {
+		Name             string
+		Clusters         []string
+		Scanners         int
+		Override         map[runKey]*scanner.Result
+		WantCoverage     FleetCoverage
+		WantGraded       bool
+		WantGrade        string
+		WantHeadlineHead string
+	}{{ // Test 0: Every run errored, so nothing is graded and the headline says so.
+		Name: "all errored", Clusters: two, Scanners: 3, Override: allErrored,
+		WantCoverage:     FleetCoverage{ExpectedRuns: 6, BlindRuns: 6, BlindClusters: 2},
+		WantHeadlineHead: "Not enough data: 6 of 6 scanner runs did not observe the fleet",
+	}, { // Test 1: Every run OK grades normally with full coverage.
+		Name: "all ok", Clusters: two, Scanners: 2,
+		WantCoverage:     FleetCoverage{ExpectedRuns: 4, ObservedRuns: 4, Fraction: 1},
+		WantGraded:       true,
+		WantGrade:        "A",
+		WantHeadlineHead: "2 clusters, no meaningful drift.",
+	}, { // Test 2: One errored run of ten stays above the floor and grades.
+		Name: "one errored of ten", Clusters: two, Scanners: 5,
+		Override: map[runKey]*scanner.Result{
+			{scanner: "s3", cluster: "c1"}: runOf(erroredRun("s3")),
+		},
+		WantCoverage: FleetCoverage{
+			ExpectedRuns: 10, ObservedRuns: 9, BlindRuns: 1, Fraction: 0.9,
+		},
+		WantGraded:       true,
+		WantGrade:        "A",
+		WantHeadlineHead: "2 clusters, nothing flagged in what was observed.",
+	}, { // Test 3: Three errored runs of ten fall under the floor.
+		Name: "three errored of ten", Clusters: two, Scanners: 5,
+		Override: map[runKey]*scanner.Result{
+			{scanner: "s1", cluster: "c1"}: runOf(erroredRun("s1")),
+			{scanner: "s2", cluster: "c2"}: runOf(erroredRun("s2")),
+			{scanner: "s3", cluster: "c1"}: runOf(erroredRun("s3")),
+		},
+		WantCoverage: FleetCoverage{
+			ExpectedRuns: 10, ObservedRuns: 7, BlindRuns: 3, Fraction: 0.7,
+		},
+		WantHeadlineHead: "Not enough data: 3 of 10 scanner runs did not observe the fleet.",
+	}, { // Test 4: A cluster no scanner observed blocks the grade even at the floor.
+		Name: "one cluster blind", Clusters: five, Scanners: 2,
+		Override: map[runKey]*scanner.Result{
+			{scanner: "s1", cluster: "c5"}: runOf(erroredRun("s1")),
+			{scanner: "s2", cluster: "c5"}: runOf(erroredRun("s2")),
+		},
+		WantCoverage: FleetCoverage{
+			ExpectedRuns: 10, ObservedRuns: 8, BlindRuns: 2, BlindClusters: 1, Fraction: 0.8,
+		},
+		WantHeadlineHead: "Not enough data: 2 of 10 scanner runs did not observe the fleet, " +
+			"and 1 of 5 clusters had no complete scanner run.",
+	}, { // Test 5: Unavailable counts as observed, degraded as neither observed nor blind.
+		Name: "unavailable and degraded", Clusters: two, Scanners: 5,
+		Override: map[runKey]*scanner.Result{
+			{scanner: "s1", cluster: "c1"}: {
+				Scanner: "s1", State: scanner.StateUnavailable, Data: map[string]any{"n": 0},
+			},
+			{scanner: "s2", cluster: "c2"}: runOf(degradedRun("s2", map[string]any{"n": 1})),
+		},
+		WantCoverage: FleetCoverage{ExpectedRuns: 10, ObservedRuns: 9, Fraction: 0.9},
+		WantGraded:   true,
+		WantGrade:    "A",
+		WantHeadlineHead: "2 clusters, nothing flagged in what was observed. " +
+			"1 of 10 scanner runs was partial.",
+	}, { // Test 6: A scanner that never ran on a cluster counts as a blind run.
+		Name: "absent run", Clusters: two, Scanners: 2,
+		Override: map[runKey]*scanner.Result{{scanner: "s2", cluster: "c2"}: nil},
+		WantCoverage: FleetCoverage{
+			ExpectedRuns: 4, ObservedRuns: 3, BlindRuns: 1, Fraction: 0.75,
+		},
+		WantHeadlineHead: "Not enough data: 1 of 4 scanner runs did not observe the fleet.",
+	}, { // Test 7: Exactly the floor with every cluster observed grades.
+		Name: "at the floor", Clusters: five, Scanners: 2,
+		Override: map[runKey]*scanner.Result{
+			{scanner: "s1", cluster: "c1"}: runOf(erroredRun("s1")),
+			{scanner: "s2", cluster: "c2"}: runOf(erroredRun("s2")),
+		},
+		WantCoverage: FleetCoverage{
+			ExpectedRuns: 10, ObservedRuns: 8, BlindRuns: 2, Fraction: 0.8,
+		},
+		WantGraded: true,
+		WantGrade:  "A",
+		WantHeadlineHead: "5 clusters, nothing flagged in what was observed. " +
+			"2 of 10 scanner runs did not observe the fleet.",
+	}, { // Test 8: Clusters with no scanner at all are blind and ungraded.
+		Name: "no scanners", Clusters: two, Scanners: 0,
+		WantCoverage:     FleetCoverage{BlindClusters: 2},
+		WantHeadlineHead: "Not enough data: No scanner ran on 2 listed clusters.",
+	}, { // Test 9: Blind and partial runs are both named.
+		Name: "blind and partial", Clusters: two, Scanners: 5,
+		Override: map[runKey]*scanner.Result{
+			{scanner: "s1", cluster: "c1"}: runOf(erroredRun("s1")),
+			{scanner: "s2", cluster: "c2"}: runOf(degradedRun("s2", map[string]any{"n": 1})),
+		},
+		WantCoverage: FleetCoverage{
+			ExpectedRuns: 10, ObservedRuns: 8, BlindRuns: 1, Fraction: 0.8,
+		},
+		WantGraded: true,
+		WantGrade:  "A",
+		WantHeadlineHead: "2 clusters, nothing flagged in what was observed. " +
+			"1 of 10 scanner runs did not observe the fleet and 1 was partial.",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			r := Build(test.Clusters, coverageResults(test.Clusters, test.Scanners, test.Override))
+			got := r.FleetScore
+			if diff := cmp.Diff(test.WantCoverage, got.Coverage); diff != "" {
+				t.Errorf("coverage mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantGraded, got.Graded); diff != "" {
+				t.Errorf("graded mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantGrade, got.Grade); diff != "" {
+				t.Errorf("grade mismatch (-want +got):\n%s", diff)
+			}
+			if !strings.HasPrefix(got.Headline, test.WantHeadlineHead) {
+				t.Errorf("headline %q, want prefix %q", got.Headline, test.WantHeadlineHead)
+			}
+			label := fmt.Sprintf(" Observed-only score %d.", got.Score)
+			if !got.Graded && !strings.HasSuffix(got.Headline, label) {
+				t.Errorf("ungraded headline %q does not label the observed-only score", got.Headline)
+			}
+			if got.Coverage.BlindRuns > 0 && strings.Contains(got.Headline, "no meaningful drift") {
+				t.Errorf("headline %q claims no drift with blind runs", got.Headline)
+			}
+		})
+	}
+}
+
+// TestFleetCoverageDecoded verifies a report decoded from JSON yields the coverage Build
+// computed, so a stored report rescored after a load grades the same way.
+func TestFleetCoverageDecoded(t *testing.T) {
+	t.Parallel()
+	clusters := []string{"c1", "c2"}
+	built := Build(clusters, coverageResults(clusters, 3, map[runKey]*scanner.Result{
+		{scanner: "s1", cluster: "c1"}: runOf(erroredRun("s1")),
+	}))
+	blob, err := json.Marshal(built)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded Report
+	if err := json.Unmarshal(blob, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if diff := cmp.Diff(built.FleetScore.Coverage, fleetCoverage(&decoded)); diff != "" {
+		t.Errorf("decoded coverage mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -11,13 +11,13 @@ import { on } from '../actions.js';
 const SHOWN = 10;
 
 // STATUS_RANK orders statuses worst first.
-const STATUS_RANK = { critical: 0, degraded: 1, busy: 2, healthy: 3 };
+const STATUS_RANK = { critical: 0, degraded: 1, busy: 2, unknown: 3, healthy: 4 };
 
 // COLUMNS lists the sortable columns: key, header, tooltip, whether larger
 // sorts first, and the numeric value of a row.
 const COLUMNS = [
   { key: 'cluster', label: 'Cluster', value: (r) => r.cluster },
-  { key: 'status', label: 'Status', tip: 'Correlated status from findings and utilization.', value: (r) => STATUS_RANK[r.status] ?? 4 },
+  { key: 'status', label: 'Status', tip: 'Correlated status from findings and utilization.', value: (r) => STATUS_RANK[r.status] ?? 5 },
   { key: 'cost', label: 'Score cost', tip: 'Fleet score points this cluster costs.', desc: true, value: (r) => r.cost },
   { key: 'mass', label: 'Deviation', tip: 'Deviation mass: the sum of capped |z| over every field, how far the cluster sits from the norm.', desc: true, value: (r) => r.mass },
   { key: 'critical', label: 'Critical', desc: true, value: (r) => r.critical },
@@ -31,7 +31,7 @@ const state = { rows: [], sort: null, all: false };
 
 // defaultOrder sorts worst first: status, then score cost, then deviation.
 function defaultOrder(a, b) {
-  return ((STATUS_RANK[a.status] ?? 4) - (STATUS_RANK[b.status] ?? 4)) || (b.cost - a.cost) || (b.mass - a.mass) || a.cluster.localeCompare(b.cluster);
+  return ((STATUS_RANK[a.status] ?? 5) - (STATUS_RANK[b.status] ?? 5)) || (b.cost - a.cost) || (b.mass - a.mass) || a.cluster.localeCompare(b.cluster);
 }
 
 // sortedRows returns the rows in the current order.

@@ -93,33 +93,34 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Name:     "psa critical",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
-			"unenforced_count": 6, "namespace_count": 10,
+			"unenforced_count": 5, "namespace_count": 6,
 			"namespaces": []any{
 				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
+				map[string]any{"namespace": "ci"}, map[string]any{"namespace": "sandbox"},
 				map[string]any{"namespace": "kube-system", "enforce": "privileged"},
 				map[string]any{"namespace": "prod", "enforce": "restricted"},
 			},
 		}}}),
 		WantResult: []Finding{{
-			Rule: "security/psa-unenforced", Title: "a has 6 namespace(s) without Pod Security enforcement",
-			Description: "6 of 10 namespaces (60%) have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Rule: "security/psa-unenforced", Title: "a has 4 namespace(s) without Pod Security enforcement",
+			Description: "4 of 6 namespaces (67%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges. 1 more namespace(s) enforce only privileged, so they are listed but not charged.",
 			Severity:    SeverityCritical, Cluster: "a", Scanner: "security",
-			Affected:    []string{"dev", "qa", "kube-system"},
-			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Affected:    []string{"dev", "qa", "ci", "sandbox", "kube-system"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa ci sandbox pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 3: Exactly half unenforced stays a warning.
 		Name:     "psa half",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
-			"unenforced_count": 5, "namespace_count": 10,
+			"unenforced_count": 2, "namespace_count": 4,
 			"namespaces": []any{
 				map[string]any{"namespace": "dev"}, map[string]any{"namespace": "qa"},
 				map[string]any{"namespace": "prod", "enforce": "restricted"},
 			},
 		}}}),
 		WantResult: []Finding{{
-			Rule: "security/psa-unenforced", Title: "a has 5 namespace(s) without Pod Security enforcement",
-			Description: "5 of 10 namespaces (50%) have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Rule: "security/psa-unenforced", Title: "a has 2 namespace(s) without Pod Security enforcement",
+			Description: "2 of 4 namespaces (50%) have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "security", Affected: []string{"dev", "qa"},
 			Remediation: &Remediation{Command: "kubectl --context a label namespace dev qa pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
@@ -127,13 +128,14 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Name:     "psa no total",
 		Generate: securityFindings,
 		Report: testReport(map[string]map[string]any{"security": {"a": map[string]any{
-			"unenforced_count": 4,
+			"unenforced_count": 4, "namespaces": unenforcedNamespaceList(4),
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 4 namespace(s) without Pod Security enforcement",
-			Description: "4 namespaces have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
+			Description: "4 namespaces have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges.",
 			Severity:    SeverityWarning, Cluster: "a", Scanner: "security",
-			Remediation: &Remediation{Command: "kubectl --context a label namespace <ns> pod-security.kubernetes.io/enforce=baseline --overwrite"},
+			Affected:    []string{"n00", "n01", "n02", "n03"},
+			Remediation: &Remediation{Command: "kubectl --context a label namespace n00 n01 n02 n03 pod-security.kubernetes.io/enforce=baseline --overwrite"},
 		}},
 	}, { // Test 5: Namespaces without policies get the default-deny manifest.
 		Name:     "network policies",
@@ -394,7 +396,8 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		Report: &Report{Capacity: []CapacityAnalysis{
 			{Cluster: "a", Status: "critical", Recommendation: "r1"},
 			{
-				Cluster: "b", Status: "busy", CPUUtilization: 72, MemoryUtilization: 68, Recommendation: "r2",
+				Cluster: "b", Status: "busy", CPUUtilization: new(72.0), MemoryUtilization: new(68.0),
+				Recommendation: "r2",
 				GroupDeviation: `Memory is 20% points higher than group "g" average (80% vs 60%). `,
 			},
 		}},
@@ -523,8 +526,7 @@ func TestFindingGenerators(t *testing.T) { //nolint:funlen // Test function.
 		}}}),
 		WantResult: []Finding{{
 			Rule: "security/psa-unenforced", Title: "a has 12 namespace(s) without Pod Security enforcement",
-			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label " +
-				"or enforce only privileged. " +
+			Description: "12 of 12 namespaces (100%) have no Pod Security Standards enforce label. " +
 				"Pods in these namespaces can run with any privileges.",
 			Severity: SeverityCritical, Cluster: "a", Scanner: "security",
 			Affected: []string{
@@ -640,7 +642,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	approx := cmpopts.EquateApprox(0, 1e-9)
 
 	r, tags := normFixture()
-	r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
+	r.Outliers, _ = detectOutliers(r, r.Clusters, 3.5, NormScopeFleet)
 	r.Cohorts, _ = buildCohorts(r, tags, 3.5)
 	fleet := outlierFindings(r)
 	byRule := map[string]Finding{}
@@ -716,7 +718,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Run("brief quotes the basis", func(t *testing.T) {
 		t.Parallel()
 		r, _ := normFixture()
-		r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
+		r.Outliers, _ = detectOutliers(r, r.Clusters, 3.5, NormScopeFleet)
 		r.Findings = generateFindings(r)
 		brief := generateBrief(r)
 		want := "Largest deviation: c09 unenforced_count is 80 vs a fleet median of 25 across 10 clusters."
@@ -1503,6 +1505,87 @@ func TestClusterHealthOwnFindings(t *testing.T) {
 			}
 			if diff := cmp.Diff(test.WantStatus, got); diff != "" {
 				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestClusterHealthUnknown verifies a cluster with a blind scanner run and nothing charging it
+// reads unknown, not healthy, and that findings still outrank the unknown. Other replaces the
+// second cluster's runs when set.
+func TestClusterHealthUnknown(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+	ns := okRun("namespaces", map[string]any{"count": 3})
+	quotas := func(n int) scanner.Result {
+		return okRun("resource-quotas", map[string]any{"namespaces_with_quotas": n})
+	}
+	tests := []struct {
+		Name       string
+		Runs       map[string]scanner.Result
+		Other      map[string]scanner.Result
+		WantStatus string
+		WantBlind  int
+	}{{ // Test 0: Every run errored and no finding charges the cluster.
+		Name: "all errored",
+		Runs: map[string]scanner.Result{
+			"namespaces":      erroredRun("namespaces"),
+			"resource-quotas": erroredRun("resource-quotas"),
+		},
+		WantStatus: "unknown", WantBlind: 2,
+	}, { // Test 1: One errored run is enough when nothing else charges the cluster.
+		Name: "one errored",
+		Runs: map[string]scanner.Result{
+			"namespaces": ns, "resource-quotas": erroredRun("resource-quotas"),
+		},
+		WantStatus: "unknown", WantBlind: 1,
+	}, { // Test 2: A warning finding outranks the errored run.
+		Name: "errored with a warning",
+		Runs: map[string]scanner.Result{
+			"namespaces": ns, "resource-quotas": quotas(0), "certs": erroredRun("certs"),
+		},
+		Other: map[string]scanner.Result{
+			"namespaces": ns, "resource-quotas": quotas(3),
+			"certs": okRun("certs", map[string]any{}),
+		},
+		WantStatus: "degraded", WantBlind: 1,
+	}, { // Test 3: A degraded run is partial, not blind, so the cluster stays healthy.
+		Name: "degraded only",
+		Runs: map[string]scanner.Result{
+			"namespaces": ns,
+			"resource-quotas": degradedRun("resource-quotas",
+				map[string]any{"namespaces_with_quotas": 3}),
+		},
+		WantStatus: "healthy",
+	}, { // Test 4: Every run OK and nothing charges the cluster.
+		Name:       "all ok",
+		Runs:       map[string]scanner.Result{"namespaces": ns, "resource-quotas": quotas(3)},
+		WantStatus: "healthy",
+	}, { // Test 5: A scanner that ran on another cluster but never on this one is blind here.
+		Name:       "absent run",
+		Runs:       map[string]scanner.Result{"resource-quotas": quotas(3)},
+		WantStatus: "unknown", WantBlind: 1,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d: %s", testNum, test.Name), func(t *testing.T) {
+			t.Parallel()
+			other := test.Other
+			if other == nil {
+				other = map[string]scanner.Result{"namespaces": ns, "resource-quotas": quotas(3)}
+			}
+			r := Build([]string{"c1", "c2"},
+				map[string]map[string]scanner.Result{"c1": test.Runs, "c2": other})
+			got := map[string]ClusterHealth{}
+			for _, h := range r.ClusterHealths {
+				got[h.Name] = h
+			}
+			if diff := cmp.Diff(test.WantStatus, got["c1"].Status); diff != "" {
+				t.Errorf("c1 status mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantBlind, got["c1"].BlindScanners); diff != "" {
+				t.Errorf("c1 blind scanners mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff("healthy", got["c2"].Status); diff != "" {
+				t.Errorf("c2 status mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

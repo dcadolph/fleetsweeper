@@ -38,7 +38,9 @@ const (
 
 // ComputeClusterScore evaluates one cluster in isolation. It does not consult
 // fleet-wide context (the fleet score covers that); a cluster's own
-// findings, status, and node/utilization metrics fully determine the score.
+// findings, status, and node/utilization metrics fully determine the score. An
+// unknown cluster pays the degraded status cost and its headline names the
+// scanner runs that did not observe it.
 func ComputeClusterScore(h ClusterHealth, findings []Finding) ClusterScore {
 	cost := 0.0
 
@@ -49,7 +51,7 @@ func ComputeClusterScore(h ClusterHealth, findings []Finding) ClusterScore {
 	switch h.Status {
 	case "critical":
 		cost += clusterScoreCritStatus
-	case "degraded", "strained":
+	case "degraded", "strained", "unknown":
 		cost += clusterScoreDegradedStatus
 	case "busy":
 		cost += clusterScoreBusyStatus
@@ -71,11 +73,16 @@ func ComputeClusterScore(h ClusterHealth, findings []Finding) ClusterScore {
 
 	raw := math.Max(0, 100-cost)
 	score := int(math.Round(raw))
+	headline := clusterHeadline(score, crit, warn)
+	if h.Status == "unknown" {
+		headline = fmt.Sprintf("Unknown. %d scanner run%s did not observe this cluster.",
+			h.BlindScanners, util.Plural(h.BlindScanners))
+	}
 	return ClusterScore{
 		Cluster:  h.Name,
 		Score:    score,
 		Grade:    grade(score),
-		Headline: clusterHeadline(score, crit, warn),
+		Headline: headline,
 	}
 }
 

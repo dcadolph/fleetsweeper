@@ -13,14 +13,14 @@ import (
 // one the outlier.
 const minMajoritySample = 3
 
-// detectMajorityOutliers runs the leave-one-out majority diff over clusters in every
+// detectMajorityOutliers runs the leave-one-out majority diff over clusters of r in every
 // non-uniform section. It is the outlier detector for populations of
 // minMajoritySample to minMADSample-1 clusters, where MAD over the whole
 // population is unstable. Every result is marked LimitedSample, its severity
 // is capped at warning, and its Scope is scope. It also returns the
 // distribution behind every numeric and string field it evaluated.
-func detectMajorityOutliers(clusters []string, sections map[string]*SectionReport,
-	threshold float64, scope string) ([]OutlierResult, []Distribution) {
+func detectMajorityOutliers(r *Report, clusters []string, threshold float64,
+	scope string) ([]OutlierResult, []Distribution) {
 	var outliers []OutlierResult
 	var dists []Distribution
 	visit := func(scannerName, field string, flat map[string]map[string]any) {
@@ -63,7 +63,7 @@ func detectMajorityOutliers(clusters []string, sections map[string]*SectionRepor
 		}
 		outliers = append(outliers, *o)
 	}
-	walkFields(clusters, sections, 0, visit)
+	walkFields(r, clusters, 0, visit)
 	sortOutliers(outliers)
 	sortDistributions(dists)
 	return outliers, dists

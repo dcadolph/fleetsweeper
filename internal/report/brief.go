@@ -19,28 +19,38 @@ type Brief struct {
 
 // generateBrief synthesizes an executive summary from a fully built report: the
 // score, the worst incident, cohort drift, degraded coverage, and the fixes
-// that matter most.
+// that matter most. An ungraded score leads with the coverage sentence and
+// labels the score observed-only on the next line.
 func generateBrief(r *Report) Brief {
 	crit := countFindingsBySeverity(r.Findings, SeverityCritical)
 	warn := countFindingsBySeverity(r.Findings, SeverityWarning)
+	fs := r.FleetScore
+	coverage := coverageSentence(fs.Coverage, len(r.Clusters))
 
-	b := Brief{
-		Headline: fmt.Sprintf(
+	var b Brief
+	if fs.Graded {
+		b.Headline = fmt.Sprintf(
 			"Fleet score %d (%s) from %d clusters across %d dimensions. "+
 				"%d critical and %d warning findings across %d incidents.",
-			r.FleetScore.Score, r.FleetScore.Grade, r.FleetScore.SampleSize,
-			r.FleetScore.Dimensions, crit, warn, len(r.Incidents),
-		),
+			fs.Score, fs.Grade, fs.SampleSize, fs.Dimensions, crit, warn, len(r.Incidents),
+		)
+	} else {
+		b.Headline = "Not enough data: " + coverage
+		b.Lines = append(b.Lines, fmt.Sprintf(
+			"Observed-only score %d from %d clusters across %d dimensions. "+
+				"%d critical and %d warning findings across %d incidents.",
+			fs.Score, fs.SampleSize, fs.Dimensions, crit, warn, len(r.Incidents),
+		))
 	}
 
 	if line := normLine(r.Findings); line != "" {
 		b.Lines = append(b.Lines, line)
 	}
 
-	if r.FleetScore.ExcludedClusters > 0 {
+	if fs.Graded && fs.ExcludedClusters > 0 {
 		b.Lines = append(b.Lines, fmt.Sprintf(
 			"%d cluster(s) excluded from the score for insufficient data.",
-			r.FleetScore.ExcludedClusters,
+			fs.ExcludedClusters,
 		))
 	}
 
@@ -58,7 +68,10 @@ func generateBrief(r *Report) Brief {
 		b.Lines = append(b.Lines, fmt.Sprintf("%d cluster metric(s) drifted from their cohort baseline.", cohortOutliers))
 	}
 
-	if len(r.Degraded) > 0 {
+	switch {
+	case fs.Graded && coverage != "":
+		b.Lines = append(b.Lines, coverage)
+	case fs.Graded && len(r.Degraded) > 0:
 		b.Lines = append(b.Lines, fmt.Sprintf(
 			"Coverage is partial: %d scanner run(s) degraded on %d cluster(s).",
 			len(r.Degraded), len(r.DegradedByCluster()),

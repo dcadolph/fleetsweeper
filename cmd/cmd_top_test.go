@@ -70,7 +70,7 @@ func TestColorCodeHelpers(t *testing.T) {
 	// Test 0: statusColor mapping.
 	statusCases := map[string]string{
 		"critical": "31", "degraded": "33", "strained": "33",
-		"busy": "34", "healthy": "32", "unknown": "32",
+		"busy": "34", "healthy": "32", "unknown": "90",
 	}
 	for status, want := range statusCases {
 		if got := statusColor(status); got != want {
@@ -214,15 +214,19 @@ func TestLessFn(t *testing.T) {
 		{Cluster: "beta", Status: "healthy", Score: 90},
 		{Cluster: "alpha", Status: "critical", Score: 40},
 		{Cluster: "gamma", Status: "busy", Score: 70},
+		{Cluster: "delta", Status: "unknown", Score: 95},
 	}
 
 	tests := []struct {
 		WantOrder []string
 		Mode      topSortMode
 	}{
-		{WantOrder: []string{"alpha", "gamma", "beta"}, Mode: sortByScore},  // Test 0: Worst score first.
-		{WantOrder: []string{"alpha", "beta", "gamma"}, Mode: sortByName},   // Test 1: Alphabetical.
-		{WantOrder: []string{"alpha", "gamma", "beta"}, Mode: sortByStatus}, // Test 2: critical<busy<healthy.
+		// Test 0: Worst score first.
+		{WantOrder: []string{"alpha", "gamma", "beta", "delta"}, Mode: sortByScore},
+		// Test 1: Alphabetical.
+		{WantOrder: []string{"alpha", "beta", "delta", "gamma"}, Mode: sortByName},
+		// Test 2: critical<busy<unknown<healthy.
+		{WantOrder: []string{"alpha", "gamma", "delta", "beta"}, Mode: sortByStatus},
 	}
 	for testNum, test := range tests {
 		t.Run(test.WantOrder[0], func(t *testing.T) {
@@ -272,7 +276,7 @@ func topTestReport(fleet int, grade, bStatus string, bFindings ...report.Finding
 	return report.Report{
 		Timestamp:  "2026-01-01T00:00:00Z",
 		Clusters:   []string{"a", "b"},
-		FleetScore: report.FleetScore{Score: fleet, Grade: grade},
+		FleetScore: report.FleetScore{Score: fleet, Grade: grade, Graded: true},
 		ClusterHealths: []report.ClusterHealth{
 			{Name: "a", Status: "healthy", AvgCPU: 12, AvgMemory: 30},
 			{Name: "b", Status: bStatus, AvgCPU: 88, AvgMemory: 91},
@@ -446,8 +450,8 @@ func TestPrintHeaderShowsDelta(t *testing.T) {
 	t.Parallel()
 	buf := &bytes.Buffer{}
 	s := &topState{out: buf, color: false, server: "http://x"}
-	cur := &topReport{Clusters: []string{"a"}, FleetScore: topFleetScore{Score: 80, Grade: "B"}}
-	prev := &topReport{FleetScore: topFleetScore{Score: 70}}
+	cur := &topReport{Clusters: []string{"a"}, FleetScore: topFleetScore{Score: 80, Grade: "B", Graded: true}}
+	prev := &topReport{FleetScore: topFleetScore{Score: 70, Graded: true}}
 	s.printHeader(cur, prev)
 	out := buf.String()
 	if !strings.Contains(out, "(+10 vs previous)") {
@@ -477,5 +481,31 @@ func TestTopPausedNote(t *testing.T) {
 	s.printHeader(&topReport{FleetScore: topFleetScore{Score: 50}}, nil)
 	if !strings.Contains(buf.String(), "[PAUSED]") {
 		t.Errorf("expected paused marker, got:\n%s", buf.String())
+	}
+}
+
+// TestPrintHeader_Graded verifies the header prints the grade only for a graded fleet.
+func TestPrintHeader_Graded(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Score    topFleetScore
+		WantLine string
+	}{{ // Test 0: A graded fleet prints score and grade.
+		Score:    topFleetScore{Score: 82, Grade: "B", Graded: true},
+		WantLine: "Fleet Score: 82 (B)",
+	}, { // Test 1: An ungraded fleet prints not graded.
+		Score:    topFleetScore{Score: 100},
+		WantLine: "Fleet Score: not graded",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			buf := &bytes.Buffer{}
+			s := &topState{out: buf}
+			s.printHeader(&topReport{FleetScore: test.Score}, nil)
+			if !strings.Contains(buf.String(), test.WantLine) {
+				t.Errorf("header missing %q:\n%s", test.WantLine, buf.String())
+			}
+		})
 	}
 }

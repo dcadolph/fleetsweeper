@@ -19,7 +19,7 @@ import (
 type geoPoint struct {
 	// Cluster is the kubeconfig context name.
 	Cluster string `json:"cluster"`
-	// Status is healthy, busy, degraded, or critical (drives globe color).
+	// Status is healthy, busy, unknown, degraded, or critical (drives globe color).
 	Status string `json:"status"`
 	// Provider is the cloud provider for auto-detected entries.
 	Provider string `json:"provider,omitempty"`

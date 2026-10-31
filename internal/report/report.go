@@ -104,6 +104,9 @@ type Report struct {
 	// Notes explain analysis the report could not run, such as outlier
 	// detection on a fleet too small to have a norm.
 	Notes []string `json:"notes,omitempty"`
+	// runs holds each scanner run's state by scanner and cluster. Build fills it, and a
+	// decoded report derives the same table from Degraded and Sections on demand.
+	runs map[runKey]scanner.State
 }
 
 // ScannerStatus records a scanner run that did not return complete,
@@ -225,15 +228,16 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 		r.Sections[name] = section
 	}
 	sortScannerStatuses(r.Degraded)
+	r.runs = indexRuns(r)
 
 	r.Categories = buildCategories(scannerNames)
 	r.Summary = buildSummary(clusters, r.Sections)
 
 	switch {
 	case len(clusters) >= minMADSample:
-		r.Outliers, r.Distributions = detectOutliers(r.Clusters, r.Sections, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectOutliers(r, r.Clusters, opt.OutlierThreshold, NormScopeFleet)
 	case len(clusters) >= minMajoritySample:
-		r.Outliers, r.Distributions = detectMajorityOutliers(r.Clusters, r.Sections, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectMajorityOutliers(r, r.Clusters, opt.OutlierThreshold, NormScopeFleet)
 	default:
 		r.Notes = append(r.Notes, fmt.Sprintf(
 			"Fleet-relative outlier detection needs at least %d clusters; this report has %d.",

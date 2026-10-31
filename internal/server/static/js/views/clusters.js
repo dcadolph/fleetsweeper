@@ -68,7 +68,7 @@ export async function renderClusters() {
       '<select id="cSort" data-change="cluster-table" aria-label="Sort"><option value="status">Sort: Status</option><option value="name">Sort: Name</option><option value="cpu">Sort: CPU</option><option value="mem">Sort: Memory</option><option value="headroom">Sort: Headroom</option><option value="findings">Sort: Findings</option></select>' +
       '<select id="cSize" data-change="cluster-page-size" aria-label="Page size"><option value="25">25 / page</option><option value="50">50 / page</option><option value="100">100 / page</option><option value="all">All</option></select></div>';
     h += '<div class="tw"><table><thead><tr><th scope="col">Cluster</th>' +
-      '<th scope="col" data-tip="Correlated status: healthy, busy, degraded, or critical. Based on utilization + pressure + events, not just percentages.">Status</th>' +
+      '<th scope="col" data-tip="Correlated status: healthy, busy, degraded, critical, or unknown when utilization was not observed. Based on utilization + pressure + events, not just percentages.">Status</th>' +
       `<th scope="col" data-tip="${esc(TIPS.git_version)}">Version</th>` +
       '<th scope="col" data-tip="Total node count. Different clusters may intentionally have different node counts.">Nodes</th>' +
       `<th scope="col" data-tip="${esc(TIPS.avg_cpu_percent)}">CPU</th><th scope="col" data-tip="${esc(TIPS.avg_memory_percent)}">Memory</th>` +
@@ -144,7 +144,7 @@ function renderTable() {
 
 // rowHTML renders one comparison row.
 function rowHTML(r) {
-  const hrTone = r.headroom < 15 ? 'crit' : r.headroom < 30 ? 'warn' : 'ok';
+  const hrTone = r.headroom == null ? 't3' : r.headroom < 15 ? 'crit' : r.headroom < 30 ? 'warn' : 'ok';
   return `<tr><td class="fw-500"><a href="${esc(clusterHref(r.name))}">${esc(r.name)}</a></td>` +
     `<td class="c-${statusTone(r.status) === 'muted' ? 't3' : statusTone(r.status)} fw-600" data-tip="${esc(r.rec)}">${esc(r.status)}</td>` +
     `<td class="mono">${esc(r.ver)}</td><td class="mono">${r.nodes}</td>` +

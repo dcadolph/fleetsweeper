@@ -9,7 +9,9 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// securityFindings reports Pod Security Standard enforcement gaps.
+// securityFindings reports namespaces with no Pod Security Standards enforce label. A namespace
+// labeled to enforce privileged enforces nothing but was set on purpose, so it is listed in the
+// finding without being charged, and the true unenforced count stays in the scanner payload.
 func securityFindings(r *Report) []Finding {
 	sec := r.Sections["security"]
 	if sec == nil {
@@ -17,39 +19,43 @@ func securityFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		unenforced := getIntField(r, "security", cluster, "unenforced_count")
-		total := getIntField(r, "security", cluster, "namespace_count")
-		if unenforced > 0 {
-			// A namespace total below the unenforced count means the total
-			// is missing, so the share is unknown rather than over 100%.
-			share := fmt.Sprintf("%d namespaces", unenforced)
-			sev := SeverityWarning
-			if total >= unenforced {
-				pct := float64(unenforced) / float64(total) * 100
-				share = fmt.Sprintf("%d of %d namespaces (%.0f%%)", unenforced, total, pct)
-				if pct > 50 {
-					sev = SeverityCritical
-				}
-			}
-			unlabeled, privileged := unenforcedNamespaces(r, cluster)
-			cmd := fmt.Sprintf("kubectl --context %s label namespace <ns> "+
-				"pod-security.kubernetes.io/enforce=baseline --overwrite", cluster)
-			if len(unlabeled) > 0 {
-				cmd = fmt.Sprintf("kubectl --context %s label namespace %s "+
-					"pod-security.kubernetes.io/enforce=baseline --overwrite",
-					cluster, strings.Join(unlabeled[:min(len(unlabeled), maxAffected)], " "))
-			}
-			findings = append(findings, Finding{
-				Rule:        "security/psa-unenforced",
-				Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, unenforced),
-				Description: share + " have no Pod Security Standards enforce label or enforce only privileged. Pods in these namespaces can run with any privileges.",
-				Severity:    sev,
-				Cluster:     cluster,
-				Scanner:     "security",
-				Affected:    capList(append(unlabeled, privileged...)),
-				Remediation: &Remediation{Command: cmd},
-			})
+		_, listObs := clusterView(r, "security", cluster)
+		unlabeled, privileged := unenforcedNamespaces(r, cluster)
+		total, totalObs := observeInt(r, "security", cluster, "namespace_count")
+		n := len(unlabeled)
+		// Every namespace unlabeled is an absence claim, so it needs a completed run.
+		allUnlabeled := totalObs.seen() && total > 0 && n == total
+		if !listObs.seen() || n == 0 || (allUnlabeled && weakest(listObs, totalObs) != observed) {
+			continue
 		}
+		// A namespace total below the unlabeled count means the total is missing, so the
+		// share is unknown rather than over 100%.
+		share := fmt.Sprintf("%d namespaces", n)
+		sev := SeverityWarning
+		if totalObs.seen() && total >= n {
+			pct := float64(n) / float64(total) * 100
+			share = fmt.Sprintf("%d of %d namespaces (%.0f%%)", n, total, pct)
+			if pct > 50 {
+				sev = SeverityCritical
+			}
+		}
+		desc := share + " have no Pod Security Standards enforce label. Pods in these namespaces can run with any privileges."
+		if len(privileged) > 0 {
+			desc += fmt.Sprintf(" %d more namespace(s) enforce only privileged, so they are listed but not charged.",
+				len(privileged))
+		}
+		findings = append(findings, Finding{
+			Rule:        "security/psa-unenforced",
+			Title:       fmt.Sprintf("%s has %d namespace(s) without Pod Security enforcement", cluster, n),
+			Description: desc + weakest(listObs, totalObs).note(),
+			Severity:    sev,
+			Cluster:     cluster,
+			Scanner:     "security",
+			Affected:    capList(append(unlabeled, privileged...)),
+			Remediation: &Remediation{Command: fmt.Sprintf("kubectl --context %s label namespace %s "+
+				"pod-security.kubernetes.io/enforce=baseline --overwrite",
+				cluster, strings.Join(unlabeled[:min(n, maxAffected)], " "))},
+		})
 	}
 	return findings
 }
@@ -57,8 +63,13 @@ func securityFindings(r *Report) []Finding {
 // unenforcedNamespaces returns the namespaces in a cluster's security payload that enforce
 // nothing, split into those with no enforce label and those that enforce privileged. The
 // remediation labels only the first, since a namespace set to privileged was set on purpose.
+// An unobserved payload returns nothing.
 func unenforcedNamespaces(r *Report, cluster string) (unlabeled, privileged []string) {
-	raw, _ := clusterData(r, "security", cluster)["namespaces"].([]any)
+	m, obs := clusterView(r, "security", cluster)
+	if !obs.seen() {
+		return nil, nil
+	}
+	raw, _ := m["namespaces"].([]any)
 	for _, item := range raw {
 		entry, ok := item.(map[string]any)
 		if !ok {
@@ -86,8 +97,8 @@ func networkFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		without := getIntField(r, "network-policies", cluster, "namespaces_without_policies")
-		if without > 0 {
+		without, withoutObs := observeInt(r, "network-policies", cluster, "namespaces_without_policies")
+		if withoutObs == observed && without > 0 {
 			findings = append(findings, Finding{
 				Rule:        "network-policies/no-policy",
 				Title:       fmt.Sprintf("%s has %d namespace(s) with no network policies", cluster, without),
@@ -130,19 +141,19 @@ func workloadSecFindings(r *Report) []Finding {
 	var findings []Finding
 	for _, cluster := range r.Clusters {
 		risks := highRiskPods(r, cluster)
-		privCount := getIntField(r, "workload-security", cluster, "privileged_containers")
-		hostNet := getIntField(r, "workload-security", cluster, "host_network_pods")
-		hostPID := getIntField(r, "workload-security", cluster, "host_pid_pods")
-		rootCount := getIntField(r, "workload-security", cluster, "run_as_root_containers")
-		capAdd := getIntField(r, "workload-security", cluster, "capability_additions")
-		total := getIntField(r, "workload-security", cluster, "total_pods")
+		privCount, privObs := observeInt(r, "workload-security", cluster, "privileged_containers")
+		hostNet, hostNetObs := observeInt(r, "workload-security", cluster, "host_network_pods")
+		hostPID, hostPIDObs := observeInt(r, "workload-security", cluster, "host_pid_pods")
+		rootCount, rootObs := observeInt(r, "workload-security", cluster, "run_as_root_containers")
+		capAdd, capObs := observeInt(r, "workload-security", cluster, "capability_additions")
+		total, totalObs := observeInt(r, "workload-security", cluster, "total_pods")
 
-		if privCount > 0 {
+		if privObs.seen() && privCount > 0 {
 			affected := filterRiskNames(risks, "privileged")
 			findings = append(findings, Finding{
 				Rule:        "workload-security/privileged",
 				Title:       fmt.Sprintf("%s has %d privileged container(s)", cluster, privCount),
-				Description: fmt.Sprintf("Privileged containers have full host access. Review whether these workloads genuinely require it. Total pods: %d.", total),
+				Description: fmt.Sprintf("Privileged containers have full host access. Review whether these workloads genuinely require it. Total pods: %d.", total) + privObs.note(),
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "workload-security",
@@ -152,19 +163,19 @@ func workloadSecFindings(r *Report) []Finding {
 				},
 			})
 		}
-		if hostNet > 0 || hostPID > 0 {
+		if hostNetObs.seen() && hostPIDObs.seen() && (hostNet > 0 || hostPID > 0) {
 			affected := append(filterRiskNames(risks, "host-network"), filterRiskNames(risks, "host-pid")...)
 			findings = append(findings, Finding{
 				Rule:        "workload-security/host-namespaces",
 				Title:       fmt.Sprintf("%s has pods using host namespaces (network: %d, PID: %d)", cluster, hostNet, hostPID),
-				Description: "Pods sharing the host network or PID namespace can see and interact with other processes and traffic on the node.",
+				Description: "Pods sharing the host network or PID namespace can see and interact with other processes and traffic on the node." + weakest(hostNetObs, hostPIDObs).note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "workload-security",
 				Affected:    dedup(affected),
 			})
 		}
-		if rootCount > 0 && total > 0 {
+		if rootObs.seen() && totalObs.seen() && rootCount > 0 && total > 0 {
 			pct := float64(rootCount) / float64(total) * 100
 			sev := SeverityInfo
 			if pct > 50 {
@@ -173,18 +184,18 @@ func workloadSecFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "workload-security/run-as-root",
 				Title:       fmt.Sprintf("%s has %d container(s) explicitly running as root (%.0f%%)", cluster, rootCount, pct),
-				Description: "These containers have an effective runAsUser of 0, set on the container or inherited from the pod. Container escape vulnerabilities have higher impact when the workload is root.",
+				Description: "These containers have an effective runAsUser of 0, set on the container or inherited from the pod. Container escape vulnerabilities have higher impact when the workload is root." + weakest(rootObs, totalObs).note(),
 				Severity:    sev,
 				Cluster:     cluster,
 				Scanner:     "workload-security",
 			})
 		}
-		if capAdd > 0 {
+		if capObs.seen() && capAdd > 0 {
 			affected := filterRiskNames(risks, "capabilities-add")
 			findings = append(findings, Finding{
 				Rule:        "workload-security/capability-add",
 				Title:       fmt.Sprintf("%s has %d container(s) with added Linux capabilities", cluster, capAdd),
-				Description: "Containers requesting capabilities such as NET_ADMIN or SYS_PTRACE have elevated kernel access beyond the default set.",
+				Description: "Containers requesting capabilities such as NET_ADMIN or SYS_PTRACE have elevated kernel access beyond the default set." + capObs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "workload-security",
@@ -208,8 +219,8 @@ type highRiskPod struct {
 // highRiskPods extracts the HighRiskPods slice from a cluster's workloadsec
 // data so finding messages can name specific offenders.
 func highRiskPods(r *Report, cluster string) []highRiskPod {
-	m := clusterData(r, "workload-security", cluster)
-	if m == nil {
+	m, obs := clusterView(r, "workload-security", cluster)
+	if !obs.seen() {
 		return nil
 	}
 	raw, _ := m["high_risk_pods"].([]any)
@@ -278,16 +289,16 @@ func rbacAuditFindings(r *Report) []Finding {
 	var findings []Finding
 	for _, cluster := range r.Clusters {
 		risk := riskBindings(r, cluster)
-		adminBindings := getIntField(r, "rbac-audit", cluster, "cluster_admin_bindings")
-		wildcardRules := getIntField(r, "rbac-audit", cluster, "wildcard_rules")
-		defaultSA := getIntField(r, "rbac-audit", cluster, "default_sa_bindings")
+		adminBindings, adminObs := observeInt(r, "rbac-audit", cluster, "cluster_admin_bindings")
+		wildcardRules, wildcardObs := observeInt(r, "rbac-audit", cluster, "wildcard_rules")
+		defaultSA, defaultObs := observeInt(r, "rbac-audit", cluster, "default_sa_bindings")
 
-		if adminBindings > 0 {
+		if adminObs.seen() && adminBindings > 0 {
 			affected := filterBindingsByRisk(risk, "cluster-admin-to-non-system")
 			findings = append(findings, Finding{
 				Rule:        "rbac-audit/cluster-admin-binding",
 				Title:       fmt.Sprintf("%s has %d non-system cluster-admin binding(s)", cluster, adminBindings),
-				Description: "ClusterRoleBindings granting cluster-admin to non-system principals give unrestricted access to every resource in the cluster.",
+				Description: "ClusterRoleBindings granting cluster-admin to non-system principals give unrestricted access to every resource in the cluster." + adminObs.note(),
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "rbac-audit",
@@ -297,22 +308,22 @@ func rbacAuditFindings(r *Report) []Finding {
 				},
 			})
 		}
-		if wildcardRules > 0 {
+		if wildcardObs.seen() && wildcardRules > 0 {
 			findings = append(findings, Finding{
 				Rule:        "rbac-audit/wildcard-rule",
 				Title:       fmt.Sprintf("%s has %d RBAC rule(s) with wildcard permissions", cluster, wildcardRules),
-				Description: "Rules using '*' for verbs, resources, or apiGroups grant broader access than most workloads need.",
+				Description: "Rules using '*' for verbs, resources, or apiGroups grant broader access than most workloads need." + wildcardObs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "rbac-audit",
 			})
 		}
-		if defaultSA > 0 {
+		if defaultObs.seen() && defaultSA > 0 {
 			affected := filterBindingsByRisk(risk, "grants-to-default-sa")
 			findings = append(findings, Finding{
 				Rule:        "rbac-audit/default-sa-binding",
 				Title:       fmt.Sprintf("%s has %d binding(s) granting permissions to a default service account", cluster, defaultSA),
-				Description: "The default service account is used by any pod that does not specify a different one. Granting it permissions means all unattributed workloads inherit them.",
+				Description: "The default service account is used by any pod that does not specify a different one. Granting it permissions means all unattributed workloads inherit them." + defaultObs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "rbac-audit",
@@ -337,8 +348,8 @@ type riskBinding struct {
 
 // riskBindings extracts the rbac-audit scanner's risk_bindings slice.
 func riskBindings(r *Report, cluster string) []riskBinding {
-	m := clusterData(r, "rbac-audit", cluster)
-	if m == nil {
+	m, obs := clusterView(r, "rbac-audit", cluster)
+	if !obs.seen() {
 		return nil
 	}
 	raw, _ := m["risk_bindings"].([]any)
@@ -385,8 +396,8 @@ func certFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		m := clusterData(r, "certs", cluster)
-		if m == nil {
+		m, obs := clusterView(r, "certs", cluster)
+		if !obs.seen() {
 			continue
 		}
 		raw, _ := m["certs"].([]any)
@@ -420,7 +431,7 @@ func certFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "certs/expiring-7d",
 				Title:       fmt.Sprintf("%s has %d certificate(s) expiring in fewer than 7 days", cluster, len(critical)),
-				Description: "These TLS certificates will expire imminently. Renew them before they break webhooks, ingress, or metrics endpoints.",
+				Description: "These TLS certificates will expire imminently. Renew them before they break webhooks, ingress, or metrics endpoints." + obs.note(),
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "certs",
@@ -434,7 +445,7 @@ func certFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "certs/expiring-30d",
 				Title:       fmt.Sprintf("%s has %d certificate(s) expiring within 30 days", cluster, len(warning)),
-				Description: "Schedule renewals now to avoid expiry-driven outages.",
+				Description: "Schedule renewals now to avoid expiry-driven outages." + obs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "certs",
@@ -506,8 +517,8 @@ func admissionFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		m := clusterData(r, "admission", cluster)
-		if m == nil {
+		m, obs := clusterView(r, "admission", cluster)
+		if !obs.seen() {
 			continue
 		}
 		raw, _ := m["webhooks"].([]any)
@@ -545,7 +556,7 @@ func admissionFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "admission/no-healthy-endpoints",
 				Title:       fmt.Sprintf("%s has %d admission webhook(s) with no healthy endpoints", cluster, len(unhealthy)),
-				Description: "When failurePolicy=Fail, every API request matching these webhooks will be rejected. Even with failurePolicy=Ignore, mutations and validations are silently skipped.",
+				Description: "When failurePolicy=Fail, every API request matching these webhooks will be rejected. Even with failurePolicy=Ignore, mutations and validations are silently skipped." + obs.note(),
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "admission",
@@ -557,7 +568,7 @@ func admissionFindings(r *Report) []Finding {
 			findings = append(findings, Finding{
 				Rule:        "admission/ca-expiring",
 				Title:       fmt.Sprintf("%s has %d admission webhook(s) with CA bundles expiring soon", cluster, len(expiring)),
-				Description: "When a webhook CA bundle expires, the apiserver refuses to talk to the webhook. Renew or rotate before the listed deadlines.",
+				Description: "When a webhook CA bundle expires, the apiserver refuses to talk to the webhook. Renew or rotate before the listed deadlines." + obs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "admission",

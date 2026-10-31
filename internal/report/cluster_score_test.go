@@ -186,3 +186,34 @@ func TestClusterStatusAgreesWithScore(t *testing.T) {
 		t.Errorf("statuses mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// TestComputeClusterScoreUnknown verifies an unknown cluster pays the degraded status cost and
+// its headline names the blind runs.
+func TestComputeClusterScoreUnknown(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Health       ClusterHealth
+		WantScore    int
+		WantHeadline string
+	}{{ // Test 0: One blind run costs the degraded status share.
+		Health:       ClusterHealth{Name: "c1", Status: "unknown", BlindScanners: 1},
+		WantScore:    90,
+		WantHeadline: "Unknown. 1 scanner run did not observe this cluster.",
+	}, { // Test 1: Several blind runs are counted in the headline.
+		Health:       ClusterHealth{Name: "c1", Status: "unknown", BlindScanners: 24},
+		WantScore:    90,
+		WantHeadline: "Unknown. 24 scanner runs did not observe this cluster.",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := ComputeClusterScore(test.Health, nil)
+			if diff := cmp.Diff(test.WantScore, got.Score); diff != "" {
+				t.Errorf("score mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(test.WantHeadline, got.Headline); diff != "" {
+				t.Errorf("headline mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

@@ -19,17 +19,17 @@ func nodeHealthFindings(r *Report) []Finding {
 	var findings []Finding
 	for _, cluster := range r.Clusters {
 		nodes := extractNodeNames(r, cluster, "node-health")
-		memPressure := getIntField(r, "node-health", cluster, "memory_pressure_nodes")
-		diskPressure := getIntField(r, "node-health", cluster, "disk_pressure_nodes")
-		notReady := getIntField(r, "node-health", cluster, "not_ready_nodes")
-		total := getIntField(r, "node-health", cluster, "node_count")
+		memPressure, memObs := observeInt(r, "node-health", cluster, "memory_pressure_nodes")
+		diskPressure, diskObs := observeInt(r, "node-health", cluster, "disk_pressure_nodes")
+		notReady, notReadyObs := observeInt(r, "node-health", cluster, "not_ready_nodes")
+		total, _ := observeInt(r, "node-health", cluster, "node_count")
 
-		if memPressure > 0 {
+		if memObs.seen() && memPressure > 0 {
 			affected := nodes.byCondition("MemoryPressure")
 			findings = append(findings, Finding{
 				Rule:        "node-health/memory-pressure",
 				Title:       fmt.Sprintf("%s has %d node(s) under memory pressure", cluster, memPressure),
-				Description: fmt.Sprintf("%d of %d nodes report MemoryPressure=True. Pods on these nodes risk OOM kills and the scheduler will avoid them.", memPressure, total),
+				Description: fmt.Sprintf("%d of %d nodes report MemoryPressure=True. Pods on these nodes risk OOM kills and the scheduler will avoid them.", memPressure, total) + memObs.note(),
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "node-health",
@@ -39,12 +39,12 @@ func nodeHealthFindings(r *Report) []Finding {
 				},
 			})
 		}
-		if diskPressure > 0 {
+		if diskObs.seen() && diskPressure > 0 {
 			affected := nodes.byCondition("DiskPressure")
 			findings = append(findings, Finding{
 				Rule:        "node-health/disk-pressure",
 				Title:       fmt.Sprintf("%s has %d node(s) under disk pressure", cluster, diskPressure),
-				Description: fmt.Sprintf("%d of %d nodes report DiskPressure=True. Pods may be evicted to free disk space.", diskPressure, total),
+				Description: fmt.Sprintf("%d of %d nodes report DiskPressure=True. Pods may be evicted to free disk space.", diskPressure, total) + diskObs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "node-health",
@@ -54,12 +54,12 @@ func nodeHealthFindings(r *Report) []Finding {
 				},
 			})
 		}
-		if notReady > 0 {
+		if notReadyObs.seen() && notReady > 0 {
 			affected := nodes.notReady()
 			findings = append(findings, Finding{
 				Rule:        "node-health/not-ready",
 				Title:       fmt.Sprintf("%s has %d node(s) not ready", cluster, notReady),
-				Description: fmt.Sprintf("%d of %d nodes are not reporting Ready=True. Workloads cannot be scheduled to these nodes.", notReady, total),
+				Description: fmt.Sprintf("%d of %d nodes are not reporting Ready=True. Workloads cannot be scheduled to these nodes.", notReady, total) + notReadyObs.note(),
 				Severity:    SeverityCritical,
 				Cluster:     cluster,
 				Scanner:     "node-health",
@@ -116,8 +116,8 @@ func (ns nodeSet) notReady() []string {
 // unmarshal generically so this function does not depend on the scanner
 // package's concrete types.
 func extractNodeNames(r *Report, cluster, scannerName string) nodeSet {
-	m := clusterData(r, scannerName, cluster)
-	if m == nil {
+	m, obs := clusterView(r, scannerName, cluster)
+	if !obs.seen() {
 		return nil
 	}
 	rawNodes, _ := m["nodes"].([]any)
@@ -175,9 +175,11 @@ func capacityFindings(r *Report) []Finding {
 				Scanner:     "metrics",
 			})
 		case capacityBusy:
+			title := fmt.Sprintf("%s is busy but healthy (CPU %s, memory %s)",
+				ca.Cluster, pctText(ca.CPUUtilization), pctText(ca.MemoryUtilization))
 			findings = append(findings, Finding{
 				Rule:        "metrics/capacity-busy",
-				Title:       fmt.Sprintf("%s is busy but healthy (CPU %.0f%%, memory %.0f%%)", ca.Cluster, ca.CPUUtilization, ca.MemoryUtilization),
+				Title:       title,
 				Description: ca.Recommendation,
 				Severity:    SeverityInfo,
 				Cluster:     ca.Cluster,
@@ -203,7 +205,9 @@ func capacityFindings(r *Report) []Finding {
 }
 
 // quotaFindings reports clusters with no ResourceQuotas defined and ships a
-// baseline manifest in the remediation block.
+// baseline manifest in the remediation block. Zero quotas is an absence claim, so it
+// needs a completed quota run. The namespace count only shows namespaces exist, so a
+// degraded namespace run is enough and marks the finding partial.
 func quotaFindings(r *Report) []Finding {
 	sec := r.Sections["resource-quotas"]
 	if sec == nil {
@@ -211,13 +215,13 @@ func quotaFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		quotas := getIntField(r, "resource-quotas", cluster, "namespaces_with_quotas")
-		nsCount := getIntField(r, "namespaces", cluster, "count")
-		if nsCount > 0 && quotas == 0 {
+		quotas, quotaObs := observeInt(r, "resource-quotas", cluster, "namespaces_with_quotas")
+		nsCount, nsObs := observeInt(r, "namespaces", cluster, "count")
+		if quotaObs == observed && nsObs.seen() && nsCount > 0 && quotas == 0 {
 			findings = append(findings, Finding{
 				Rule:        "resource-quotas/no-quota",
 				Title:       fmt.Sprintf("%s has no resource quotas defined", cluster),
-				Description: "No namespaces have ResourceQuota objects. There are no limits on resource consumption per namespace.",
+				Description: "No namespaces have ResourceQuota objects. There are no limits on resource consumption per namespace." + nsObs.note(),
 				Severity:    SeverityWarning,
 				Cluster:     cluster,
 				Scanner:     "resource-quotas",
@@ -248,7 +252,9 @@ spec:
 
 // eventFindings normalizes the warning-event count by cluster size so a
 // 200-node cluster is not falsely flagged for the same threshold a 5-node
-// cluster trips at. Top reasons are included when the scanner provided them.
+// cluster trips at. Top reasons are included when the scanner provided them. An
+// unobserved node count is not read as one node: the rate is left out and only the
+// absolute thresholds apply.
 func eventFindings(r *Report) []Finding {
 	sec := r.Sections["events"]
 	if sec == nil {
@@ -256,12 +262,15 @@ func eventFindings(r *Report) []Finding {
 	}
 	var findings []Finding
 	for _, cluster := range r.Clusters {
-		warningCount := getIntField(r, "events", cluster, "warning_events")
-		if warningCount == 0 {
+		warningCount, eventsObs := observeInt(r, "events", cluster, "warning_events")
+		if !eventsObs.seen() || warningCount == 0 {
 			continue
 		}
-		nodes := max(getIntField(r, "node-health", cluster, "node_count"), 1)
-		perNode := float64(warningCount) / float64(nodes)
+		nodes, nodesObs := observeInt(r, "node-health", cluster, "node_count")
+		perNode := 0.0
+		if nodesObs.seen() {
+			perNode = float64(warningCount) / float64(max(nodes, 1))
+		}
 		topReasons := topEventReasons(r, cluster, 3)
 
 		sev := ""
@@ -273,10 +282,16 @@ func eventFindings(r *Report) []Finding {
 		default:
 			sev = SeverityInfo
 		}
-		desc := fmt.Sprintf("%d warning events in the last hour across %d node(s) (%.1f per node).", warningCount, nodes, perNode)
+		desc := fmt.Sprintf("%d warning events in the last hour. The node count was not observed, so no per-node rate.",
+			warningCount)
+		if nodesObs.seen() {
+			desc = fmt.Sprintf("%d warning events in the last hour across %d node(s) (%.1f per node).",
+				warningCount, max(nodes, 1), perNode)
+		}
 		if len(topReasons) > 0 {
 			desc += " Top reasons: " + strings.Join(topReasons, ", ") + "."
 		}
+		desc += eventsObs.note()
 		findings = append(findings, Finding{
 			Rule:        "events/warning-volume",
 			Title:       fmt.Sprintf("%s has %d warning event(s) in the last hour", cluster, warningCount),
@@ -297,8 +312,8 @@ func eventFindings(r *Report) []Finding {
 // cluster, formatted as "Reason (N)". Returns nil if the scanner did not
 // emit a TopWarningReasons slice.
 func topEventReasons(r *Report, cluster string, n int) []string {
-	m := clusterData(r, "events", cluster)
-	if m == nil {
+	m, obs := clusterView(r, "events", cluster)
+	if !obs.seen() {
 		return nil
 	}
 	raw, _ := m["top_warning_reasons"].([]any)

@@ -76,7 +76,8 @@ type ClusterMark struct {
 type ClusterHealth struct {
 	// Name is the cluster context name.
 	Name string `json:"name"`
-	// Status is "healthy", "degraded", or "critical".
+	// Status is "healthy", "unknown", "degraded", or "critical". Unknown means a scanner run
+	// did not observe the cluster and no finding made it degraded or critical.
 	Status string `json:"status"`
 	// FindingCounts maps severity to count for this cluster.
 	FindingCounts map[string]int `json:"finding_counts"`
@@ -98,6 +99,9 @@ type ClusterHealth struct {
 	// trustworthy data for this cluster (errored, degraded, or unavailable).
 	// Nonzero means this cluster's report rests on partial coverage.
 	DegradedScanners int `json:"degraded_scanners,omitempty"`
+	// BlindScanners is how many expected scanner runs did not observe this cluster: they
+	// errored or never ran on it.
+	BlindScanners int `json:"blind_scanners,omitempty"`
 }
 
 // pairwiseFleetLimit is the largest fleet that keeps the fleet-wide version,
@@ -258,8 +262,8 @@ func dropRedundant(findings []Finding, members map[string][]string) []Finding {
 		drop[i] = true
 		if findings[j].Norm == nil {
 			findings[j].Norm = f.Norm
-			findings[j].Description = strings.TrimSpace(
-				findings[j].Description + " " + normSentence(f.Cluster, f.Norm))
+			findings[j].Description = appendSentence(findings[j].Description,
+				normSentence(f.Cluster, f.Norm), strings.HasSuffix(f.Description, partialScanNote))
 		}
 	}
 	for i, f := range findings {
@@ -331,7 +335,8 @@ func outlierFindings(r *Report) []Finding {
 			Rule:  outlierRule(o.Scanner, o.Field, false),
 			Title: outlierTitle(o, "the fleet norm", "fleet norm"),
 			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).%s",
-				o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner], favorableNote(o)),
+				o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner], favorableNote(o),
+			) + runNote(r, o.Scanner, o.Cluster),
 			Severity:    o.Severity,
 			Cluster:     o.Cluster,
 			Scanner:     o.Scanner,
@@ -368,7 +373,7 @@ func cohortOutlierFindings(r *Report) []Finding {
 					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).%s",
 					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner],
 					favorableNote(o),
-				),
+				) + runNote(r, o.Scanner, o.Cluster),
 				Severity:    o.Severity,
 				Cluster:     o.Cluster,
 				Scanner:     o.Scanner,
@@ -412,10 +417,13 @@ func outlierKey(cluster, field, scanner string) string {
 // generateClusterHealth builds per-cluster health summaries. A cluster's
 // status and counts come from its own findings and from fleet-scoped findings
 // that mark it: a fleet finding such as version skew is the fleet's, scored
-// once through its own term, and sets status only on the clusters it names.
+// once through its own term, and sets status only on the clusters it names. A
+// cluster that no finding made degraded or critical reads unknown rather than
+// healthy when any expected scanner run did not observe it.
 func generateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 	healths := make([]ClusterHealth, 0, len(r.Clusters))
 	degradedByCluster := r.DegradedByCluster()
+	scanners := expectedScanners(r)
 	for _, cluster := range r.Clusters {
 		h := ClusterHealth{
 			Name:          cluster,
@@ -428,14 +436,18 @@ func generateClusterHealth(r *Report, findings []Finding) []ClusterHealth {
 			h.Status = "degraded"
 		}
 
-		h.KubernetesVersion = getStringField(r, "version", cluster, "git_version")
-		h.NodeCount = getIntField(r, "node-health", cluster, "node_count")
-		h.HealthyNodes = getIntField(r, "node-health", cluster, "healthy_nodes")
-		h.AvgCPU = getMetricsFloat(r, cluster, "avg_cpu_percent")
-		h.AvgMemory = getMetricsFloat(r, cluster, "avg_memory_percent")
-		h.WarningEvents = getIntField(r, "events", cluster, "warning_events")
-		h.NamespaceCount = getIntField(r, "namespaces", cluster, "count")
+		h.KubernetesVersion, _ = observeString(r, "version", cluster, "git_version")
+		h.NodeCount, _ = observeInt(r, "node-health", cluster, "node_count")
+		h.HealthyNodes, _ = observeInt(r, "node-health", cluster, "healthy_nodes")
+		h.AvgCPU, _ = observe(r, "metrics", cluster, "avg_cpu_percent")
+		h.AvgMemory, _ = observe(r, "metrics", cluster, "avg_memory_percent")
+		h.WarningEvents, _ = observeInt(r, "events", cluster, "warning_events")
+		h.NamespaceCount, _ = observeInt(r, "namespaces", cluster, "count")
 		h.DegradedScanners = degradedByCluster[cluster]
+		_, h.BlindScanners = clusterRunCounts(r, cluster, scanners)
+		if h.Status == "healthy" && h.BlindScanners > 0 {
+			h.Status = "unknown"
+		}
 
 		healths = append(healths, h)
 	}
@@ -452,38 +464,4 @@ func capList(items []string) []string {
 	out = append(out, items[:maxAffected]...)
 	out = append(out, fmt.Sprintf("...and %d more", len(items)-maxAffected))
 	return out
-}
-
-// clusterData returns a cluster's scanner payload as a generic map, or nil when the section,
-// cluster, or a valid conversion is absent. The map may be the report's own, so callers must not
-// modify it.
-func clusterData(r *Report, scannerName, cluster string) map[string]any {
-	sec := r.Sections[scannerName]
-	if sec == nil {
-		return nil
-	}
-	data, ok := sec.PerCluster[cluster]
-	if !ok {
-		return nil
-	}
-	m, _ := genericMap(data)
-	return m
-}
-
-// getStringField extracts a string field from a cluster's scanner data.
-func getStringField(r *Report, scannerName, cluster, field string) string {
-	s, _ := clusterData(r, scannerName, cluster)[field].(string)
-	return s
-}
-
-// getIntField extracts an integer field from a cluster's scanner data.
-func getIntField(r *Report, scannerName, cluster, field string) int {
-	n, _ := util.Float64(clusterData(r, scannerName, cluster)[field])
-	return int(n)
-}
-
-// getMetricsFloat extracts a float field from a cluster's metrics scanner data.
-func getMetricsFloat(r *Report, cluster, field string) float64 {
-	n, _ := util.Float64(clusterData(r, "metrics", cluster)[field])
-	return n
 }

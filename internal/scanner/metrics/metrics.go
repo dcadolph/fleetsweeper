@@ -47,14 +47,17 @@ type Data struct {
 	Available bool `json:"available"`
 	// NodeCount is the number of nodes with metrics.
 	NodeCount int `json:"node_count"`
-	// AvgCPUPercent is the average CPU utilization across all nodes.
-	AvgCPUPercent float64 `json:"avg_cpu_percent"`
-	// AvgMemoryPercent is the average memory utilization across all nodes.
-	AvgMemoryPercent float64 `json:"avg_memory_percent"`
-	// MaxCPUPercent is the highest CPU utilization on any single node.
-	MaxCPUPercent float64 `json:"max_cpu_percent"`
-	// MaxMemoryPercent is the highest memory utilization on any single node.
-	MaxMemoryPercent float64 `json:"max_memory_percent"`
+	// NodesWithUsage is the number of nodes whose CPU and memory usage both resolved to a
+	// percentage of allocatable. The averages and maxima cover only these nodes.
+	NodesWithUsage int `json:"nodes_with_usage"`
+	// AvgCPUPercent is the average CPU utilization across NodesWithUsage, nil when none.
+	AvgCPUPercent *float64 `json:"avg_cpu_percent,omitempty"`
+	// AvgMemoryPercent is the average memory utilization across NodesWithUsage, nil when none.
+	AvgMemoryPercent *float64 `json:"avg_memory_percent,omitempty"`
+	// MaxCPUPercent is the highest CPU utilization on any resolved node, nil when none.
+	MaxCPUPercent *float64 `json:"max_cpu_percent,omitempty"`
+	// MaxMemoryPercent is the highest memory utilization on any resolved node, nil when none.
+	MaxMemoryPercent *float64 `json:"max_memory_percent,omitempty"`
 	// MaxCPUNode is the name of the node with the highest CPU usage.
 	MaxCPUNode string `json:"max_cpu_node,omitempty"`
 	// MaxMemoryNode is the name of the node with the highest memory usage.
@@ -66,7 +69,8 @@ type Data struct {
 // NewScanner returns a scanner that collects node resource utilization from the metrics API.
 // A metrics API the cluster does not serve yields StateUnavailable. A denied or failed metrics
 // read errors, so it is never mistaken for a healthy, zero-utilization cluster. A failed node
-// read leaves usage without percentages and marks the result StateDegraded.
+// read leaves usage without percentages and marks the result StateDegraded. A cluster with no
+// node resolved to a percentage omits its averages and maxima, so unknown never reads as zero.
 func NewScanner() scanner.Scanner {
 	return scanner.Func(func(ctx context.Context, client *kube.Client) (scanner.Result, error) {
 		dyn := client.Dynamic()
@@ -100,33 +104,10 @@ func NewScanner() scanner.Scanner {
 			Available: true,
 			NodeCount: len(metricsItems),
 		}
-
-		var totalCPUPct, totalMemPct float64
-
 		for _, item := range metricsItems {
-			nm := extractNodeMetrics(item.Object, allocatable)
-			data.Nodes = append(data.Nodes, nm)
-
-			if nm.CPUPercent >= 0 {
-				totalCPUPct += nm.CPUPercent
-			}
-			if nm.MemoryPercent >= 0 {
-				totalMemPct += nm.MemoryPercent
-			}
-			if nm.CPUPercent > data.MaxCPUPercent {
-				data.MaxCPUPercent = nm.CPUPercent
-				data.MaxCPUNode = nm.Name
-			}
-			if nm.MemoryPercent > data.MaxMemoryPercent {
-				data.MaxMemoryPercent = nm.MemoryPercent
-				data.MaxMemoryNode = nm.Name
-			}
+			data.Nodes = append(data.Nodes, extractNodeMetrics(item.Object, allocatable))
 		}
-
-		if data.NodeCount > 0 {
-			data.AvgCPUPercent = totalCPUPct / float64(data.NodeCount)
-			data.AvgMemoryPercent = totalMemPct / float64(data.NodeCount)
-		}
+		data.aggregate()
 
 		sort.Slice(data.Nodes, func(i, j int) bool {
 			return data.Nodes[i].Name < data.Nodes[j].Name
@@ -134,6 +115,35 @@ func NewScanner() scanner.Scanner {
 
 		return cov.Finish(Name, data)
 	})
+}
+
+// aggregate fills the usage count, averages, and maxima from the nodes whose CPU and memory
+// both resolved to a percentage. With none resolved they stay nil.
+func (d *Data) aggregate() {
+	var totalCPU, totalMem, maxCPU, maxMem float64
+	for _, nm := range d.Nodes {
+		if nm.CPUPercent < 0 || nm.MemoryPercent < 0 {
+			continue
+		}
+		d.NodesWithUsage++
+		totalCPU += nm.CPUPercent
+		totalMem += nm.MemoryPercent
+		first := d.NodesWithUsage == 1
+		if first || nm.CPUPercent > maxCPU {
+			maxCPU, d.MaxCPUNode = nm.CPUPercent, nm.Name
+		}
+		if first || nm.MemoryPercent > maxMem {
+			maxMem, d.MaxMemoryNode = nm.MemoryPercent, nm.Name
+		}
+	}
+	if d.NodesWithUsage == 0 {
+		return
+	}
+	n := float64(d.NodesWithUsage)
+	d.AvgCPUPercent = new(totalCPU / n)
+	d.AvgMemoryPercent = new(totalMem / n)
+	d.MaxCPUPercent = new(maxCPU)
+	d.MaxMemoryPercent = new(maxMem)
 }
 
 // allocInfo captures the allocatable CPU (millicores) and memory (bytes) for

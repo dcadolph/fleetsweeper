@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -181,18 +182,24 @@ func TestExtractNodeMetrics(t *testing.T) {
 // TestScan drives the full metrics scanner over the dynamic and typed fakes,
 // covering the missing dynamic client, a missing metrics API (NoMatch and
 // NotFound), a 403, a generic list error, the resolved-percentage
-// aggregation, a denied node read, and metrics without matching nodes.
+// aggregation, a denied node read, metrics without matching nodes, and a mix
+// of resolved and unresolved nodes. A run with no resolved percentage must omit
+// its averages and maxima from the JSON rather than report zero utilization.
 func TestScan(t *testing.T) {
 	t.Parallel()
 
 	errDenied := errors.New("rbac denied")
+	unresolvedKeys := []string{
+		"avg_cpu_percent", "avg_memory_percent", "max_cpu_percent", "max_memory_percent",
+	}
 	errBoom := errors.New("boom")
 
 	tests := []struct {
-		Client    *kube.Client
-		Want      error
-		WantState scanner.State
-		WantData  Data
+		Client      *kube.Client
+		Want        error
+		WantState   scanner.State
+		WantData    Data
+		WantOmitted []string
 	}{{ // Test 0: No dynamic client is a blind read, never a clean zero.
 		Client: nilDynamicClient(), Want: scanner.ErrScan, WantState: scanner.StateErrored,
 	}, { // Test 1: A NoMatch error means the metrics API is absent, not a failure.
@@ -224,10 +231,10 @@ func TestScan(t *testing.T) {
 			),
 		),
 		WantData: Data{
-			Available: true, NodeCount: 2,
-			AvgCPUPercent: 37.5, AvgMemoryPercent: 37.5,
-			MaxCPUPercent: 50, MaxCPUNode: "node2",
-			MaxMemoryPercent: 50, MaxMemoryNode: "node1",
+			Available: true, NodeCount: 2, NodesWithUsage: 2,
+			AvgCPUPercent: new(37.5), AvgMemoryPercent: new(37.5),
+			MaxCPUPercent: new(50.0), MaxCPUNode: "node2",
+			MaxMemoryPercent: new(50.0), MaxMemoryNode: "node1",
 			Nodes: []NodeMetrics{
 				{Name: "node1", CPUUsage: "250m", MemoryUsage: "1000Mi", CPUPercent: 25, MemoryPercent: 50},
 				{Name: "node2", CPUUsage: "1000m", MemoryUsage: "1000Mi", CPUPercent: 50, MemoryPercent: 25},
@@ -243,6 +250,7 @@ func TestScan(t *testing.T) {
 				{Name: "node1", CPUUsage: "250m", MemoryUsage: "1000Mi", CPUPercent: -1, MemoryPercent: -1},
 			},
 		},
+		WantOmitted: unresolvedKeys,
 	}, { // Test 7: Metrics without matching nodes stay unresolved but available.
 		Client: kube.NewTestClientWithDynamic("test",
 			fakeclientset.NewSimpleClientset(),
@@ -251,6 +259,25 @@ func TestScan(t *testing.T) {
 		WantData: Data{
 			Available: true, NodeCount: 1,
 			Nodes: []NodeMetrics{
+				{Name: "orphan", CPUUsage: "250m", MemoryUsage: "100Mi", CPUPercent: -1, MemoryPercent: -1},
+			},
+		},
+		WantOmitted: unresolvedKeys,
+	}, { // Test 8: Averages cover only the nodes that resolved, not every node listed.
+		Client: kube.NewTestClientWithDynamic("test",
+			fakeclientset.NewSimpleClientset(allocNode("node1", "1", "2000Mi")),
+			newMetricsDynamic(
+				nodeMetric("node1", "250m", "1000Mi"),
+				nodeMetric("orphan", "250m", "100Mi"),
+			),
+		),
+		WantData: Data{
+			Available: true, NodeCount: 2, NodesWithUsage: 1,
+			AvgCPUPercent: new(25.0), AvgMemoryPercent: new(50.0),
+			MaxCPUPercent: new(25.0), MaxCPUNode: "node1",
+			MaxMemoryPercent: new(50.0), MaxMemoryNode: "node1",
+			Nodes: []NodeMetrics{
+				{Name: "node1", CPUUsage: "250m", MemoryUsage: "1000Mi", CPUPercent: 25, MemoryPercent: 50},
 				{Name: "orphan", CPUUsage: "250m", MemoryUsage: "100Mi", CPUPercent: -1, MemoryPercent: -1},
 			},
 		},
@@ -279,6 +306,19 @@ func TestScan(t *testing.T) {
 			opts := cmp.Options{cmpopts.EquateApprox(0, 1e-9), cmpopts.EquateEmpty()}
 			if diff := cmp.Diff(test.WantData, data, opts); diff != "" {
 				t.Errorf("data mismatch (-want +got):\n%s", diff)
+			}
+			b, err := json.Marshal(data)
+			if err != nil {
+				t.Fatalf("marshal data: %v", err)
+			}
+			var keys map[string]any
+			if err := json.Unmarshal(b, &keys); err != nil {
+				t.Fatalf("unmarshal data: %v", err)
+			}
+			for _, k := range test.WantOmitted {
+				if v, ok := keys[k]; ok {
+					t.Errorf("json key %q present as %v, want omitted", k, v)
+				}
 			}
 		})
 	}

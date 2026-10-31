@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func TestWriteProm_AllSectionsRendered(t *testing.T) {
 			WarningCount:  5,
 		},
 		FleetScore: report.FleetScore{
-			Score: 82, SampleSize: 2, Dimensions: 7, ExcludedClusters: 1,
+			Score: 82, Graded: true, SampleSize: 2, Dimensions: 7, ExcludedClusters: 1,
 		},
 		ClusterHealths: []report.ClusterHealth{
 			{Name: "a", Status: "healthy"},
@@ -91,5 +92,41 @@ func TestEscapeLabel(t *testing.T) {
 		if got := escapeLabel(tc.In); got != tc.Want {
 			t.Errorf("test %d: got %q, want %q", i, got, tc.Want)
 		}
+	}
+}
+
+// TestWriteProm_Graded verifies the score series follows the Graded flag and the graded and
+// coverage series are always written.
+func TestWriteProm_Graded(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Graded     bool
+		WantScore  bool
+		WantGraded string
+	}{{ // Test 0: Graded emits the score.
+		Graded: true, WantScore: true, WantGraded: `fleetsweeper_fleet_score_graded{scan_id="s"} 1`,
+	}, { // Test 1: Ungraded skips the score.
+		WantGraded: `fleetsweeper_fleet_score_graded{scan_id="s"} 0`,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			rpt := &report.Report{FleetScore: report.FleetScore{
+				Score: 82, Graded: test.Graded, Coverage: report.FleetCoverage{Fraction: 0.5},
+			}}
+			buf := &bytes.Buffer{}
+			if err := writeProm(buf, rpt, "s", time.Unix(0, 0).UTC()); err != nil {
+				t.Fatalf("writeProm: %v", err)
+			}
+			out := buf.String()
+			if got := strings.Contains(out, "fleetsweeper_fleet_score{"); got != test.WantScore {
+				t.Errorf("fleet_score present = %t, want %t", got, test.WantScore)
+			}
+			for _, want := range []string{test.WantGraded, `fleetsweeper_coverage_ratio{scan_id="s"} 0.5`} {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q in:\n%s", want, out)
+				}
+			}
+		})
 	}
 }

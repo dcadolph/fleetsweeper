@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"path"
 	"slices"
 	"strings"
@@ -120,7 +121,12 @@ func metadata(rpt *report.Report, scanID string, opts BundleOptions) []byte {
 	fmt.Fprintf(&b, "Scan ID:       %s\n", scanID)
 	fmt.Fprintf(&b, "Scan time:     %s\n", rpt.Timestamp)
 	fmt.Fprintf(&b, "Cluster count: %d\n", len(rpt.Clusters))
-	fmt.Fprintf(&b, "Fleet score:   %d (%s)\n", rpt.FleetScore.Score, rpt.FleetScore.Grade)
+	if rpt.FleetScore.Graded {
+		fmt.Fprintf(&b, "Fleet score:   %d (%s)\n", rpt.FleetScore.Score, rpt.FleetScore.Grade)
+	} else {
+		fmt.Fprintf(&b, "Fleet score:   not graded (coverage %d%%)\n",
+			int(math.Round(rpt.FleetScore.Coverage.Fraction*100)))
+	}
 	fmt.Fprintf(&b, "Scored from:   %d cluster(s) across %d dimension(s), %d excluded for insufficient data\n",
 		rpt.FleetScore.SampleSize, rpt.FleetScore.Dimensions, rpt.FleetScore.ExcludedClusters)
 	fmt.Fprintf(&b, "Findings:      %d total (%d critical, %d warning)\n",

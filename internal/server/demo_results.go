@@ -326,7 +326,11 @@ func demoResources(p demoProfile) resources.Data {
 func demoMetrics(p demoProfile) metrics.Data {
 	cpu, mem := p.utilization()
 	names := p.nodeNames()
-	d := metrics.Data{Available: true, NodeCount: len(names), AvgCPUPercent: cpu, AvgMemoryPercent: mem}
+	d := metrics.Data{
+		Available: true, NodeCount: len(names), NodesWithUsage: len(names),
+		AvgCPUPercent: new(cpu), AvgMemoryPercent: new(mem),
+	}
+	var maxCPU, maxMem float64
 	for i, name := range names {
 		offset := 1.5 * (float64(i) - float64(len(names)-1)/2)
 		nc := min(cpu+offset, 99)
@@ -338,13 +342,14 @@ func demoMetrics(p demoProfile) metrics.Data {
 			Name: name, CPUPercent: nc, MemoryPercent: nm,
 			CPUUsage: fmt.Sprintf("%dm", int(nc*80)), MemoryUsage: fmt.Sprintf("%dMi", int(nm*320)),
 		})
-		if nc > d.MaxCPUPercent {
-			d.MaxCPUPercent, d.MaxCPUNode = nc, name
+		if nc > maxCPU {
+			maxCPU, d.MaxCPUNode = nc, name
 		}
-		if nm > d.MaxMemoryPercent {
-			d.MaxMemoryPercent, d.MaxMemoryNode = nm, name
+		if nm > maxMem {
+			maxMem, d.MaxMemoryNode = nm, name
 		}
 	}
+	d.MaxCPUPercent, d.MaxMemoryPercent = new(maxCPU), new(maxMem)
 	return d
 }
 
@@ -396,9 +401,9 @@ func demoNamespaces(p demoProfile) namespace.Data {
 	return namespace.Data{Count: len(names), Names: names, Labels: labels}
 }
 
-// demoSecurity returns the Pod Security scanner's data: every namespace enforced, the system
-// namespaces as privileged, except one namespace on dev-canadacentral left unlabeled for eight
-// scans until someone labeled it.
+// demoSecurity returns the Pod Security scanner's data: application namespaces enforced, the
+// system namespaces as privileged, which enforces nothing and so counts as unenforced, and one
+// namespace on dev-canadacentral left unlabeled for eight scans until someone labeled it.
 func demoSecurity(p demoProfile) security.Data {
 	d := security.Data{LevelDistribution: map[string]int{}}
 	for _, ns := range p.namespaces() {
@@ -416,7 +421,11 @@ func demoSecurity(p demoProfile) security.Data {
 			continue
 		}
 		d.Namespaces = append(d.Namespaces, security.NamespaceSecurity{Namespace: ns, Enforce: level, EnforceVersion: "latest"})
-		d.EnforcedCount++
+		if security.Enforced(level) {
+			d.EnforcedCount++
+		} else {
+			d.UnenforcedCount++
+		}
 		d.LevelDistribution[level]++
 	}
 	d.NamespaceCount = len(d.Namespaces)
@@ -538,6 +547,8 @@ func (p demoProfile) pods() int {
 // privileged relay container on edge-nyc-42 for eight scans in the middle of the series.
 func demoWorkloadSecurity(p demoProfile) workloadsec.Data {
 	d := workloadsec.Data{TotalPods: p.pods(), HighRiskPods: []workloadsec.PodRisk{}}
+	d.BaselineContainers = p.pods()
+	d.RunAsNonRootContainers = d.BaselineContainers
 	if p.C.Name == "edge-nyc-42" && p.between(16, 8) {
 		d.PrivilegedContainers = 1
 		d.AllowPrivilegeEscalation = 1

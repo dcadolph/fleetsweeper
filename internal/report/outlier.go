@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
@@ -166,17 +167,23 @@ func (o OutlierResult) Basis() *NormBasis {
 	}
 }
 
-// walkFields flattens every non-uniform section that holds at least minPerCluster clusters over
-// clusters, applies the set projections and availability gate, and calls visit once per field
-// the detectors compare, with the flattened values for that section.
-func walkFields(clusters []string, sections map[string]*SectionReport, minPerCluster int,
+// walkFields flattens every non-uniform section of r that holds at least minPerCluster clusters
+// over clusters, applies the set projections, availability gate, and degraded-run bound, and
+// calls visit once per field the detectors compare, with the flattened values for that section.
+// It builds every fleet and cohort population, so each detector judges the same values.
+func walkFields(r *Report, clusters []string, minPerCluster int,
 	visit func(scannerName, field string, flat map[string]map[string]any)) {
-	for scannerName, sec := range sections {
+	runs := r.runs
+	if runs == nil {
+		runs = indexRuns(r)
+	}
+	for scannerName, sec := range r.Sections {
 		if sec.Uniform || len(sec.PerCluster) < minPerCluster {
 			continue
 		}
 		flat := flattenSection(clusters, sec)
 		prepareFlat(scannerName, flat)
+		boundDegraded(scannerName, flat, runs)
 		for _, field := range collectFields(flat) {
 			if _, skip := skipFields[field]; skip {
 				continue
@@ -186,11 +193,11 @@ func walkFields(clusters []string, sections map[string]*SectionReport, minPerClu
 	}
 }
 
-// detectOutliers runs the MAD, set, and mode detectors over clusters, returning the
+// detectOutliers runs the MAD, set, and mode detectors over clusters of r, returning the
 // distribution behind every field it evaluated as well, and stamps every result and
 // distribution with the scope its norm was computed over.
-func detectOutliers(clusters []string, sections map[string]*SectionReport,
-	threshold float64, scope string) ([]OutlierResult, []Distribution) {
+func detectOutliers(r *Report, clusters []string, threshold float64,
+	scope string) ([]OutlierResult, []Distribution) {
 	var outliers []OutlierResult
 	var dists []Distribution
 	visit := func(scannerName, field string, flat map[string]map[string]any) {
@@ -211,7 +218,7 @@ func detectOutliers(clusters []string, sections map[string]*SectionReport,
 			dists = append(dists, *dist)
 		}
 	}
-	walkFields(clusters, sections, minMADSample, visit)
+	walkFields(r, clusters, minMADSample, visit)
 
 	for i := range outliers {
 		outliers[i].Scope = scope
@@ -621,6 +628,35 @@ func prepareFlat(scannerName string, flat map[string]map[string]any) {
 			}
 		}
 	}
+}
+
+// boundDegraded removes from flat every field a degraded run cannot vouch for. A degraded run
+// counts only what its successful reads saw, so a numeric field stays only as a lower bound: its
+// declared polarity is UpIsBad and its value is above zero, where the true value is at least as
+// bad. Every other field of a degraded run, numeric, set, or string, is removed, so the
+// detectors skip it exactly as they skip an absent field.
+func boundDegraded(scannerName string, flat map[string]map[string]any, runs map[runKey]scanner.State) {
+	for cluster, m := range flat {
+		if runs[runKey{scanner: scannerName, cluster: cluster}] != scanner.StateDegraded {
+			continue
+		}
+		for field, v := range m {
+			if !lowerBound(scannerName, field, v) {
+				delete(m, field)
+			}
+		}
+	}
+}
+
+// lowerBound reports whether v, read by a degraded run of scannerName, bounds field from below:
+// the field is declared UpIsBad and v is a number above zero.
+func lowerBound(scannerName, field string, v any) bool {
+	n, ok := v.(float64)
+	if !ok || n <= 0 {
+		return false
+	}
+	spec, _ := lookupField(scannerName, field)
+	return spec.Polarity == UpIsBad
 }
 
 // flattenSection converts per-cluster data to maps of JSON fields.
