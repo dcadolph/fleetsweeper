@@ -60,9 +60,9 @@ func buildCohorts(r *Report, tags map[string]string, threshold float64) ([]Cohor
 		var found []Distribution
 		switch {
 		case len(g.Clusters) >= minMADSample:
-			summary.Outliers, found = detectOutliers(g.Clusters, r.Sections, threshold, g.Name)
+			summary.Outliers, found = detectOutliers(r, g.Clusters, threshold, g.Name)
 		case len(g.Clusters) >= minMajoritySample:
-			summary.Outliers, found = detectMajorityOutliers(g.Clusters, r.Sections, threshold, g.Name)
+			summary.Outliers, found = detectMajorityOutliers(r, g.Clusters, threshold, g.Name)
 		}
 		dists = append(dists, found...)
 		out = append(out, summary)

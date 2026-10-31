@@ -1,6 +1,8 @@
 package report
 
 import (
+	"strings"
+
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/util"
 )
@@ -134,6 +136,26 @@ func (obs observation) note() string {
 		return partialScanNote
 	}
 	return ""
+}
+
+// runNote returns the description suffix for a finding resting on scannerName's run on
+// cluster: the partial-scan note when the run was degraded, and "" otherwise.
+func runNote(r *Report, scannerName, cluster string) string {
+	if st, _ := runState(r, scannerName, cluster); st == scanner.StateDegraded {
+		return partialScanNote
+	}
+	return ""
+}
+
+// appendSentence appends sentence to desc and keeps the partial-scan note last. The note ends
+// the result when desc already ended with it or partial is set.
+func appendSentence(desc, sentence string, partial bool) string {
+	base, noted := strings.CutSuffix(desc, partialScanNote)
+	out := strings.TrimSpace(base + " " + sentence)
+	if noted || partial {
+		out += partialScanNote
+	}
+	return out
 }
 
 // weakest returns the least trustworthy of obs, so a finding resting on several fields

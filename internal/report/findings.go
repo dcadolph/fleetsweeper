@@ -262,8 +262,8 @@ func dropRedundant(findings []Finding, members map[string][]string) []Finding {
 		drop[i] = true
 		if findings[j].Norm == nil {
 			findings[j].Norm = f.Norm
-			findings[j].Description = strings.TrimSpace(
-				findings[j].Description + " " + normSentence(f.Cluster, f.Norm))
+			findings[j].Description = appendSentence(findings[j].Description,
+				normSentence(f.Cluster, f.Norm), strings.HasSuffix(f.Description, partialScanNote))
 		}
 	}
 	for i, f := range findings {
@@ -335,7 +335,8 @@ func outlierFindings(r *Report) []Finding {
 			Rule:  outlierRule(o.Scanner, o.Field, false),
 			Title: outlierTitle(o, "the fleet norm", "fleet norm"),
 			Description: fmt.Sprintf("%s reports %s=%s while the fleet norm is %s (scanner: %s).%s",
-				o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner], favorableNote(o)),
+				o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner], favorableNote(o),
+			) + runNote(r, o.Scanner, o.Cluster),
 			Severity:    o.Severity,
 			Cluster:     o.Cluster,
 			Scanner:     o.Scanner,
@@ -372,7 +373,7 @@ func cohortOutlierFindings(r *Report) []Finding {
 					"Within cohort %q, %s reports %s=%s while the cohort norm is %s (scanner: %s).%s",
 					c.Name, o.Cluster, o.Field, o.Value, o.FleetNorm, scannerLabels[o.Scanner],
 					favorableNote(o),
-				),
+				) + runNote(r, o.Scanner, o.Cluster),
 				Severity:    o.Severity,
 				Cluster:     o.Cluster,
 				Scanner:     o.Scanner,

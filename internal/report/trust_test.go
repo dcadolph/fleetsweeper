@@ -520,3 +520,216 @@ func TestTrustNoHeadroomWithoutMetrics(t *testing.T) {
 		t.Fatal("vacuous: no variant left a cluster's metrics unobserved")
 	}
 }
+
+// trustOutlierOn reports whether outliers hold one for cluster on scannerName/field.
+func trustOutlierOn(outliers []OutlierResult, cluster, scannerName, field string) bool {
+	for _, o := range outliers {
+		if o.Cluster == cluster && o.Scanner == scannerName && o.Field == field {
+			return true
+		}
+	}
+	return false
+}
+
+// trustInPopulation reports whether any distribution of scannerName/field in dists counts
+// cluster in its population.
+func trustInPopulation(dists []Distribution, cluster, scannerName, field string) bool {
+	for _, d := range dists {
+		if d.Scanner != scannerName || d.Field != field {
+			continue
+		}
+		for _, v := range d.Values {
+			if v.Cluster == cluster {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestTrustDegradedRunLowerBound pins A9: a degraded run's numeric field enters an outlier
+// population only as a lower bound, an UpIsBad field above zero. Every other field of the run
+// is skipped like an absent one, so it is neither in the population nor judged, while the same
+// payload from a completed run raises an outlier on it. Every finding the degraded run raises
+// ends with exactly one partial-scan note, after any merged norm sentence.
+func TestTrustDegradedRunLowerBound(t *testing.T) { //nolint:funlen // Test function.
+	t.Parallel()
+	tests := []struct {
+		Data        map[string]any
+		Scanner     string
+		WantSkipped []string
+		WantPartial []string
+		WantMerged  string
+	}{{ // Test 0: A degraded quota run reading zero namespaces with quotas.
+		Scanner:     "resource-quotas",
+		Data:        map[string]any{"namespaces_with_quotas": 0},
+		WantSkipped: []string{"namespaces_with_quotas"},
+	}, { // Test 1: A degraded network-policy run keeps only its uncovered namespace count.
+		Scanner: "network-policies",
+		Data: map[string]any{
+			"count": 0, "namespaces_with_policies": 0, "namespaces_without_policies": 8,
+		},
+		WantSkipped: []string{"count", "namespaces_with_policies"},
+		WantPartial: []string{outlierRule("network-policies", "namespaces_without_policies", false)},
+	}, { // Test 2: A degraded security run keeps only its unenforced namespace count.
+		Scanner:     "security",
+		Data:        map[string]any{"namespace_count": 8, "enforced_count": 0, "unenforced_count": 8},
+		WantSkipped: []string{"enforced_count"},
+		WantPartial: []string{outlierRule("security", "unenforced_count", false)},
+	}, { // Test 3: A degraded no-digest count merges its norm before the partial note.
+		Scanner:     "image-audit",
+		Data:        map[string]any{"total_containers": 50, "latest_tag": 0, "no_digest": 50},
+		WantPartial: []string{"image-audit/no-digest"},
+		WantMerged:  "no_digest is 50 on c03",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			clean := trustFleet("ten-clean", trustTenClusters(), nil)
+			ok := clean.with("ok", func(res trustResults) {
+				res["c03"][test.Scanner] = okRun(test.Scanner, test.Data)
+			}).build()
+			degraded := clean.with("degraded", func(res trustResults) {
+				res["c03"][test.Scanner] = degradedRun(test.Scanner, test.Data)
+			}).build()
+			for _, field := range test.WantSkipped {
+				if !trustOutlierOn(ok.Outliers, "c03", test.Scanner, field) {
+					t.Errorf("vacuous: a completed run raises no outlier on %s", field)
+				}
+				if trustOutlierOn(degraded.Outliers, "c03", test.Scanner, field) {
+					t.Errorf("degraded run judged on %s", field)
+				}
+				if trustInPopulation(degraded.Distributions, "c03", test.Scanner, field) {
+					t.Errorf("degraded run entered the %s population", field)
+				}
+			}
+			for _, rule := range test.WantPartial {
+				if diff := cmp.Diff(1, len(findingsWithRule(degraded.Findings, rule))); diff != "" {
+					t.Errorf("%s finding count mismatch (-want +got):\n%s", rule, diff)
+				}
+			}
+			for _, f := range degraded.Findings {
+				if f.Cluster != "c03" || f.Scanner != test.Scanner {
+					continue
+				}
+				if !strings.HasSuffix(f.Description, partialScanNote) ||
+					strings.Count(f.Description, partialScanNote) != 1 {
+					t.Errorf("%s: partial note is not last exactly once: %q", f.Rule, f.Description)
+				}
+				if test.WantMerged != "" && !strings.Contains(f.Description, test.WantMerged) {
+					t.Errorf("%s: description %q lacks %q", f.Rule, f.Description, test.WantMerged)
+				}
+			}
+		})
+	}
+}
+
+// TestTrustDegradedRunCohortPopulation pins A9 on the cohort path: a degraded run's field that
+// is no lower bound is left out of every cohort population and raises no cohort outlier, while
+// an UpIsBad count above zero still enters it.
+func TestTrustDegradedRunCohortPopulation(t *testing.T) {
+	t.Parallel()
+	clusters := trustTenClusters()
+	tags := make(map[string]string, len(clusters))
+	for i, c := range clusters {
+		tags[c] = fmt.Sprintf("group-%d", i/5)
+	}
+	fx := trustFleet("ten-clean", clusters, nil).with("degraded", func(res trustResults) {
+		res["c03"]["resource-quotas"] = degradedRun("resource-quotas",
+			map[string]any{"namespaces_with_quotas": 0})
+		res["c03"]["security"] = degradedRun("security",
+			map[string]any{"namespace_count": 8, "enforced_count": 0, "unenforced_count": 8})
+	})
+	r := Build(fx.Clusters, fx.Results, BuildOptions{ClusterTags: tags})
+	var cohortOutliers []OutlierResult
+	var cohortDists []Distribution
+	for _, c := range r.Cohorts {
+		cohortOutliers = append(cohortOutliers, c.Outliers...)
+	}
+	for _, d := range r.Distributions {
+		if d.Scope != NormScopeFleet {
+			cohortDists = append(cohortDists, d)
+		}
+	}
+	tests := []struct {
+		Scanner     string
+		Field       string
+		WantJudged  bool
+		WantInCount bool
+	}{{ // Test 0: A degraded zero on a DownIsBad field is skipped.
+		Scanner: "resource-quotas", Field: "namespaces_with_quotas",
+	}, { // Test 1: A degraded zero on another DownIsBad field is skipped.
+		Scanner: "security", Field: "enforced_count",
+	}, { // Test 2: A degraded field with no polarity is skipped.
+		Scanner: "security", Field: "namespace_count",
+	}, { // Test 3: A degraded UpIsBad count above zero enters as a lower bound.
+		Scanner: "security", Field: "unenforced_count", WantJudged: true, WantInCount: true,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := trustOutlierOn(cohortOutliers, "c03", test.Scanner, test.Field)
+			if diff := cmp.Diff(test.WantJudged, got); diff != "" {
+				t.Errorf("cohort outlier on %s mismatch (-want +got):\n%s", test.Field, diff)
+			}
+			got = trustInPopulation(cohortDists, "c03", test.Scanner, test.Field)
+			if diff := cmp.Diff(test.WantInCount, got); diff != "" {
+				t.Errorf("cohort population of %s mismatch (-want +got):\n%s", test.Field, diff)
+			}
+		})
+	}
+}
+
+// TestTrustCohortOutlierPartialNote pins A9 on cohort findings: a cohort outlier resting on a
+// degraded run ends with the partial-scan note, and one resting on a completed run has none.
+func TestTrustCohortOutlierPartialNote(t *testing.T) {
+	t.Parallel()
+	outlier := func(cluster string) OutlierResult {
+		return OutlierResult{
+			Cluster: cluster, Field: "unenforced_count", Value: "8", FleetNorm: "0",
+			Scanner: "security", Severity: SeverityCritical, Scope: "group-0",
+			Kind: NormKindNumeric, SampleSize: 4, LimitedSample: true,
+		}
+	}
+	r := &Report{
+		Clusters: []string{"c00", "c01", "c02", "c03"},
+		Sections: map[string]*SectionReport{"security": {PerCluster: map[string]any{
+			"c00": map[string]any{}, "c01": map[string]any{},
+			"c02": map[string]any{}, "c03": map[string]any{},
+		}}},
+		Degraded: []ScannerStatus{{
+			Cluster: "c03", Scanner: "security", State: string(scanner.StateDegraded),
+		}},
+		Cohorts: []CohortSummary{{
+			Name: "group-0", Clusters: []string{"c00", "c01", "c02", "c03"},
+			Outliers: []OutlierResult{outlier("c02"), outlier("c03")},
+		}},
+	}
+	tests := []struct {
+		Cluster     string
+		WantPartial bool
+	}{{ // Test 0: A cohort outlier on a completed run carries no note.
+		Cluster: "c02",
+	}, { // Test 1: A cohort outlier on a degraded run ends with the note.
+		Cluster: "c03", WantPartial: true,
+	}}
+	findings := cohortOutlierFindings(r)
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			var desc string
+			for _, f := range findings {
+				if f.Cluster == test.Cluster {
+					desc = f.Description
+				}
+			}
+			if desc == "" {
+				t.Fatalf("no cohort finding on %s", test.Cluster)
+			}
+			got := strings.HasSuffix(desc, partialScanNote)
+			if diff := cmp.Diff(test.WantPartial, got); diff != "" {
+				t.Errorf("partial note on %q mismatch (-want +got):\n%s", desc, diff)
+			}
+		})
+	}
+}

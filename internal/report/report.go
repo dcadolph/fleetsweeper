@@ -235,9 +235,9 @@ func Build(clusters []string, results map[string]map[string]scanner.Result, opts
 
 	switch {
 	case len(clusters) >= minMADSample:
-		r.Outliers, r.Distributions = detectOutliers(r.Clusters, r.Sections, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectOutliers(r, r.Clusters, opt.OutlierThreshold, NormScopeFleet)
 	case len(clusters) >= minMajoritySample:
-		r.Outliers, r.Distributions = detectMajorityOutliers(r.Clusters, r.Sections, opt.OutlierThreshold, NormScopeFleet)
+		r.Outliers, r.Distributions = detectMajorityOutliers(r, r.Clusters, opt.OutlierThreshold, NormScopeFleet)
 	default:
 		r.Notes = append(r.Notes, fmt.Sprintf(
 			"Fleet-relative outlier detection needs at least %d clusters; this report has %d.",

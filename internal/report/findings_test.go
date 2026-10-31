@@ -641,7 +641,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	approx := cmpopts.EquateApprox(0, 1e-9)
 
 	r, tags := normFixture()
-	r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
+	r.Outliers, _ = detectOutliers(r, r.Clusters, 3.5, NormScopeFleet)
 	r.Cohorts, _ = buildCohorts(r, tags, 3.5)
 	fleet := outlierFindings(r)
 	byRule := map[string]Finding{}
@@ -717,7 +717,7 @@ func TestNormProvenance(t *testing.T) { //nolint:funlen // Test function.
 	t.Run("brief quotes the basis", func(t *testing.T) {
 		t.Parallel()
 		r, _ := normFixture()
-		r.Outliers, _ = detectOutliers(r.Clusters, r.Sections, 3.5, NormScopeFleet)
+		r.Outliers, _ = detectOutliers(r, r.Clusters, 3.5, NormScopeFleet)
 		r.Findings = generateFindings(r)
 		brief := generateBrief(r)
 		want := "Largest deviation: c09 unenforced_count is 80 vs a fleet median of 25 across 10 clusters."
