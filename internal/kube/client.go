@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -181,6 +182,23 @@ func AvailableContexts(kubeconfigPath string) ([]string, error) {
 	}
 
 	return contextsOrInCluster(contextNames(cfg), kubeconfigPath, InCluster()), nil
+}
+
+// ResolveContexts returns the contexts to scan: names when any are given, else every context
+// in the kubeconfig. Scanning the whole fleet needs no selection, so an empty selection is
+// never an error unless the kubeconfig itself holds no contexts.
+func ResolveContexts(kubeconfigPath string, names []string) ([]string, error) {
+	if len(names) > 0 {
+		return slices.Clone(names), nil
+	}
+	all, err := AvailableContexts(kubeconfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrNoContexts, kubeconfigPath)
+	}
+	return all, nil
 }
 
 // contextsOrInCluster returns names, or InClusterContext alone when names is empty, no

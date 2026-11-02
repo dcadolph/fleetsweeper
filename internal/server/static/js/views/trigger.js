@@ -14,7 +14,7 @@ export function triggerScan() {
       label: 'Start scan',
       tone: 'primary',
       run: async () => {
-        if (!await send('POST', '/scans', { all_contexts: true }, 'Scan')) return false;
+        if (!await send('POST', '/scans', {}, 'Scan')) return false;
         toast(isLive() ? 'Scan started. This page updates when it finishes.' : 'Scan started. Turn on Live or reload when it finishes.', 'ok');
         return true;
       },

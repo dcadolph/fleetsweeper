@@ -18,7 +18,7 @@ helm install fleetsweeper deploy/helm/fleetsweeper \
 | `auth.insecure` | `false` | Disables auth entirely. Private networks only. |
 | `cors.origins` | `[]` | CORS allowlist. Empty refuses cross-origin requests. |
 | `scheduler.interval` | `""` | Auto-scan interval (e.g. `30m`). Empty disables. |
-| `scheduler.allContexts` | `true` | Use every kubeconfig context for scheduled scans. |
+| `scheduler.contexts` | `[]` | Contexts for scheduled scans. Empty scans every kubeconfig context. |
 | `kubeconfig.existingSecret` | `""` | Secret holding the kubeconfig to scan with. Empty scans the host cluster only. |
 | `kubeconfig.key` | `config` | Key in that Secret whose value is the kubeconfig file. |
 | `persistence.enabled` | `true` | PVC for `/data/fleet.db`. |

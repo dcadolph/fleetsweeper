@@ -100,7 +100,6 @@ cors:
 
 scheduler:
   interval: 30m
-  allContexts: true
 
 persistence:
   enabled: true
@@ -156,7 +155,6 @@ admin-addr: "127.0.0.1:8081"
 db: "/data/fleet.db"
 controller: true
 scan-interval: "30m"
-all-contexts: true
 audit-retention: "720h"
 `
 

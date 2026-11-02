@@ -76,7 +76,7 @@ and does not take `--db`.
 | `0` | The command succeeded. |
 | `1` | Any error not listed below. |
 | `2` | No cluster in the scan could be reached. |
-| `3` | No kubeconfig contexts were given or found. |
+| `3` | The kubeconfig holds no contexts. |
 | `4` | The command needs `--db` and none was given. |
 
 Errors print to stderr as `error: <message>`. Commands with their own

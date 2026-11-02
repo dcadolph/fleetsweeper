@@ -272,6 +272,7 @@ func TestContract(t *testing.T) {
 		okOrAPIError(t, "contexts", func() error { _, err := c.Contexts(ctx); return err }())
 	})
 
+	// An empty request scans every kubeconfig context, and this server's kubeconfig holds none.
 	t.Run("trigger scan empty", func(t *testing.T) {
 		_, err := c.TriggerScan(ctx, client.TriggerScanRequest{})
 		var apiErr *client.APIError
@@ -281,8 +282,8 @@ func TestContract(t *testing.T) {
 		if apiErr.StatusCode != http.StatusBadRequest {
 			t.Errorf("status = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
 		}
-		if apiErr.Message != "no contexts specified" {
-			t.Errorf("message = %q, want %q", apiErr.Message, "no contexts specified")
+		if apiErr.Message != "no contexts in kubeconfig" {
+			t.Errorf("message = %q, want %q", apiErr.Message, "no contexts in kubeconfig")
 		}
 	})
 

@@ -557,10 +557,8 @@ type TimelineResponse struct {
 
 // TriggerScanRequest is the body for POST /api/scans.
 type TriggerScanRequest struct {
-	// Contexts names the kubeconfig contexts to scan.
+	// Contexts names the kubeconfig contexts to scan. Empty with no Group scans every context.
 	Contexts []string `json:"contexts,omitempty"`
-	// AllContexts scans every kubeconfig context when true.
-	AllContexts bool `json:"all_contexts,omitempty"`
 	// Group scans the clusters in a named group.
 	Group string `json:"group,omitempty"`
 }

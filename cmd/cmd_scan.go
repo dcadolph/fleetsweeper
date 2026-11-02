@@ -48,15 +48,15 @@ import (
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Scan clusters and compare configurations.",
-	Example: "  fleetsweeper scan --all-contexts\n" +
+	Example: "  fleetsweeper scan\n" +
 		"  fleetsweeper scan --contexts prod-east,prod-west --db fleet.db -o html --html-file report.html",
-	Long: "Connect to multiple Kubernetes clusters and produce a comparison report highlighting fleet divergence.",
+	Long: "Connect to every context in the kubeconfig, or the ones --contexts or --group name, and produce " +
+		"a comparison report highlighting fleet divergence.",
 	RunE: runScan,
 }
 
 func init() {
-	scanCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan.")
-	scanCmd.Flags().Bool("all-contexts", false, "Scan all contexts in the kubeconfig.")
+	scanCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan (default: every context).")
 	scanCmd.Flags().Int("workers", 5, "Maximum concurrent operations.")
 	scanCmd.Flags().Duration("scanner-timeout", scanner.DefaultScanTimeout, "Maximum time a single scanner may run against one cluster. 0 disables.")
 	scanCmd.Flags().StringSlice("scanners", nil, "Scanner names to run (default: all).")
@@ -109,7 +109,6 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	pretty, _ := cmd.Flags().GetBool("pretty")
 	workers, _ := cmd.Flags().GetInt("workers")
 	scannerTimeout, _ := cmd.Flags().GetDuration("scanner-timeout")
-	allContexts, _ := cmd.Flags().GetBool("all-contexts")
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
 	groupName, _ := cmd.Flags().GetString("group")
@@ -139,7 +138,7 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		contextNames = g.Clusters
 	}
 
-	contexts, err := resolveContexts(kubeconfigPath, contextNames, allContexts)
+	contexts, err := kube.ResolveContexts(kubeconfigPath, contextNames)
 	if err != nil {
 		return err
 	}
@@ -268,17 +267,6 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	}
 
 	return nil
-}
-
-// resolveContexts determines which kubeconfig contexts to scan.
-func resolveContexts(kubeconfigPath string, explicit []string, all bool) ([]string, error) {
-	if all {
-		return kube.AvailableContexts(kubeconfigPath)
-	}
-	if len(explicit) > 0 {
-		return explicit, nil
-	}
-	return nil, ErrNoContexts
 }
 
 // selectScanners filters the registry to the requested scanner names. When names is empty all

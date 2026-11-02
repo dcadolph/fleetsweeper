@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
@@ -55,14 +56,14 @@ func (s *Server) handleWebhookScanTrigger(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// An empty request scans every available context.
-	if len(req.Contexts) == 0 && req.Group == "" {
-		req.AllContexts = true
-	}
 	contexts, err := s.resolveContexts(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusBadRequest, safeMessage(err, "group not found"))
+			return
+		}
+		if errors.Is(err, kube.ErrNoContexts) {
+			writeError(w, http.StatusBadRequest, "no contexts in kubeconfig")
 			return
 		}
 		s.log.Error("inbound webhook: resolve contexts", zap.Error(err))

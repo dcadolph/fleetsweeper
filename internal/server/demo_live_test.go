@@ -73,7 +73,7 @@ func TestDemoTriggerScanLive(t *testing.T) {
 
 	trigger := func() string {
 		t.Helper()
-		body, _ := json.Marshal(triggerScanRequest{AllContexts: true})
+		body, _ := json.Marshal(triggerScanRequest{})
 		w := httptest.NewRecorder()
 		srv.mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/scans", bytes.NewReader(body)))
 		if w.Code != http.StatusAccepted {

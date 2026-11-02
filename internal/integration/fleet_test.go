@@ -194,7 +194,7 @@ func mustCLI(t *testing.T, f *fleet, args ...string) cliResult {
 func scanFleet(t *testing.T, f *fleet, db string) *report.Report {
 	t.Helper()
 	start := time.Now()
-	res := mustCLI(t, f, "scan", "--all-contexts", "--db", db)
+	res := mustCLI(t, f, "scan", "--db", db)
 	var rpt report.Report
 	if err := json.Unmarshal([]byte(res.Stdout), &rpt); err != nil {
 		t.Fatalf("decode scan report: %v", err)

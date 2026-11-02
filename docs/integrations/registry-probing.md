@@ -9,7 +9,7 @@ work out of the box.
 ## Enable
 
 ```shell
-fleetsweeper scan --all-contexts --probe-registries
+fleetsweeper scan --probe-registries
 # or, on a running server:
 fleetsweeper serve --probe-registries
 ```

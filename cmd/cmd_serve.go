@@ -24,7 +24,7 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the web UI and API server.",
 	Example: "  fleetsweeper serve --demo\n" +
-		"  fleetsweeper serve --db fleet.db --all-contexts --scan-interval 1h --auth-token \"$TOKEN\"",
+		"  fleetsweeper serve --db fleet.db --scan-interval 1h --auth-token \"$TOKEN\"",
 	Long: "Launch a web server with an API and dashboard for browsing scan results, groups, trends, and outliers.",
 	RunE: runServe,
 }
@@ -33,8 +33,7 @@ func init() {
 	serveCmd.Flags().String("addr", ":8080", "Listen address for the public API and UI.")
 	serveCmd.Flags().String("admin-addr", "", "Optional listen address for pprof and metrics (empty disables).")
 	serveCmd.Flags().Duration("scan-interval", 0, "Auto-scan interval (for example 30m, 1h). 0 disables.")
-	serveCmd.Flags().StringSlice("contexts", nil, "Kubeconfig contexts for scheduled scans.")
-	serveCmd.Flags().Bool("all-contexts", false, "Use all kubeconfig contexts for scheduled scans.")
+	serveCmd.Flags().StringSlice("contexts", nil, "Kubeconfig contexts for scheduled scans (default: every context).")
 	serveCmd.Flags().Int("workers", 5, "Maximum concurrent operations for scans.")
 	serveCmd.Flags().String("auth-token", "", "Bearer token required for mutating endpoints (POST, DELETE).")
 	serveCmd.Flags().Bool("insecure", false, "Disable authentication entirely. Required if --auth-token is empty and you accept the risk.")
@@ -78,7 +77,6 @@ func init() {
 	serveCmd.Flags().Int("rate-limit-write-rpm", 0, "Per-client budget of mutating requests per minute (60 is a sensible start). 0 disables write limiting.")
 	serveCmd.Flags().Bool("probe-registries", false, "Resolve image manifests against their registries to report image age. Contacts every registry the fleet pulls from.")
 	serveCmd.Flags().String("trusted-proxy-header", "", "Header a trusted reverse proxy sets to the client address (for example X-Forwarded-For). The rate limiter keys on its last entry. Leave empty unless every request passes through that proxy.")
-	serveCmd.MarkFlagsMutuallyExclusive("all-contexts", "contexts")
 }
 
 // runServe starts the HTTP server and blocks until the parent context is canceled.
@@ -112,7 +110,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	adminAddr, _ := cmd.Flags().GetString("admin-addr")
 	scanInterval, _ := cmd.Flags().GetDuration("scan-interval")
 	workers, _ := cmd.Flags().GetInt("workers")
-	allContexts, _ := cmd.Flags().GetBool("all-contexts")
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	authToken, _ := cmd.Flags().GetString("auth-token")
 	insecure, _ := cmd.Flags().GetBool("insecure")
@@ -207,7 +204,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	startSideEffects := func(leaderCtx context.Context) {
 		if scanInterval > 0 {
-			contexts, err := resolveScheduleContexts(kubeconfigPath, contextNames, allContexts)
+			contexts, err := kube.ResolveContexts(kubeconfigPath, contextNames)
 			if err != nil {
 				log.Warn("scheduler: resolve contexts failed", zap.Error(err))
 			} else {
@@ -381,14 +378,6 @@ func newAdmissionProvider(pinPath string, stableScans int, s store.Store, log *z
 	p.Log = log
 	p.Depth = stableScans
 	return p, nil
-}
-
-// resolveScheduleContexts determines which contexts to use for scheduled scans.
-func resolveScheduleContexts(kubeconfigPath string, explicit []string, all bool) ([]string, error) {
-	if all {
-		return kube.AvailableContexts(kubeconfigPath)
-	}
-	return explicit, nil
 }
 
 // controllerKubeconfig returns the kubeconfig path the controller reaches its home cluster with. A

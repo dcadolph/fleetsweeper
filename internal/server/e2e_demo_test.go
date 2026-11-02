@@ -181,7 +181,7 @@ type mutationCase struct {
 // and a tag write.
 var demoMutations = []mutationCase{ //nolint:gochecknoglobals // Not modified, simplifies testing.
 	{Name: "trigger", Method: http.MethodPost, Path: "/api/scans",
-		Body: `{"all_contexts":true}`, WantDemo: http.StatusAccepted},
+		Body: `{}`, WantDemo: http.StatusAccepted},
 	{Name: "ack", Method: http.MethodPost, Path: "/api/findings/" +
 		report.FindingFingerprint(report.Finding{
 			Cluster: "prod-eu-central-1", Scanner: "deprecated-apis", Rule: "deprecated-apis/in-use",

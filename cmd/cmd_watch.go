@@ -25,7 +25,7 @@ import (
 var watchCmd = &cobra.Command{
 	Use:     "watch",
 	Short:   "Repeatedly scan and print a diff between consecutive runs.",
-	Example: "  fleetsweeper watch --all-contexts --interval 10m --on-change-only",
+	Example: "  fleetsweeper watch --interval 10m --on-change-only",
 	Long: "Run a scan on the given interval and print the diff to the " +
 		"previous run. By default no results are persisted; pass --db to " +
 		"also save each scan into the store.",
@@ -33,8 +33,7 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
-	watchCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan.")
-	watchCmd.Flags().Bool("all-contexts", false, "Scan all contexts in the kubeconfig.")
+	watchCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan (default: every context).")
 	watchCmd.Flags().Int("workers", 5, "Maximum concurrent operations.")
 	watchCmd.Flags().StringSlice("scanners", nil, "Scanner names to run (default: all).")
 	watchCmd.Flags().Duration("interval", 5*time.Minute, "Pause between scans.")
@@ -51,7 +50,6 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	log := logutil.UnwrapLogger(ctx)
 
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
-	allContexts, _ := cmd.Flags().GetBool("all-contexts")
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
 	workers, _ := cmd.Flags().GetInt("workers")
@@ -62,7 +60,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	noColor, _ := cmd.Flags().GetBool("no-color")
 	color := !noColor && term.IsTerminal(int(os.Stdout.Fd()))
 
-	contexts, err := resolveContexts(kubeconfigPath, contextNames, allContexts)
+	contexts, err := kube.ResolveContexts(kubeconfigPath, contextNames)
 	if err != nil {
 		return err
 	}

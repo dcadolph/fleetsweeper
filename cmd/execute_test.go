@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/dcadolph/fleetsweeper/internal/kube"
 )
 
 // TestExitCode verifies the error-to-exit-code mapping, including wrapped
@@ -14,7 +16,7 @@ func TestExitCode(t *testing.T) {
 		In       error
 		WantCode int
 	}{
-		{In: ErrNoContexts, WantCode: CodeNoContexts},                   // Test 0: No contexts sentinel.
+		{In: kube.ErrNoContexts, WantCode: CodeNoContexts},              // Test 0: No contexts sentinel.
 		{In: ErrNoClients, WantCode: CodeConnectionError},               // Test 1: Connection sentinel.
 		{In: ErrNoDatabase, WantCode: CodeNoDB},                         // Test 2: Missing database sentinel.
 		{In: fmt.Errorf("wrap: %w", ErrNoDatabase), WantCode: CodeNoDB}, // Test 3: Wrapped sentinel still maps.

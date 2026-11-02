@@ -24,7 +24,7 @@ Swap the synthetic fleet for your own: run a scan into a database, then serve
 that database. `--insecure` disables auth for local viewing.
 
 ```shell
-fleetsweeper scan --all-contexts --db /tmp/fleet.db
+fleetsweeper scan --db /tmp/fleet.db
 fleetsweeper serve --db /tmp/fleet.db --insecure
 ```
 
@@ -53,7 +53,7 @@ Open <http://localhost:8080>.
 ## Run a real scan
 
 ```shell
-fleetsweeper scan --db /tmp/fleet.db --all-contexts
+fleetsweeper scan --db /tmp/fleet.db
 ```
 
 Then refresh the dashboard. The Fleet Score updates with the new scan.
@@ -96,7 +96,7 @@ each resource after every scan.
 Generate an HTML report:
 
 ```shell
-fleetsweeper scan --all-contexts -o html --html-file report.html
+fleetsweeper scan -o html --html-file report.html
 ```
 
 ## Persist scan results
@@ -105,7 +105,7 @@ Pass `--db` to store results in a SQLite database. This enables scan
 history, trend analysis, and cluster grouping.
 
 ```shell
-fleetsweeper scan --all-contexts --db fleet.db
+fleetsweeper scan --db fleet.db
 ```
 
 ## Cluster groups
@@ -152,7 +152,7 @@ MAD-zero gates suppress findings on near-uniform integer data. Lower the
 threshold to flag more outliers.
 
 ```shell
-fleetsweeper scan --all-contexts --db fleet.db --outlier-threshold 2.5
+fleetsweeper scan --db fleet.db --outlier-threshold 2.5
 ```
 
 See [outliers](concepts/outliers.md) for the full statistical treatment.
