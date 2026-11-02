@@ -106,8 +106,11 @@ func TestWriteScanSummaryFixOrder(t *testing.T) {
 	if n := strings.Count(out, "Fix "); n != 3 {
 		t.Errorf("want 3 fixes, got %d:\n%s", n, out)
 	}
-	first := out[strings.Index(out, "Fix 1:"):]
-	first = first[:strings.Index(first, "\n")]
+	_, rest, found := strings.Cut(out, "Fix 1:")
+	if !found {
+		t.Fatalf("no first fix in:\n%s", out)
+	}
+	first, _, _ := strings.Cut(rest, "\n")
 	if !strings.Contains(first, report.RuleTitle("workload-security/privileged")) || !strings.Contains(first, "2 clusters") {
 		t.Errorf("first fix should be privileged on 2 clusters, got %q", first)
 	}
