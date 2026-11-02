@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  # packages lets the job push the release images to ghcr.io with GITHUB_TOKEN.
+  packages: write
   # id-token lets cosign mint a short-lived Fulcio certificate from the
   # workflow's OIDC identity for keyless signing; attestations lets the build
   # publish SLSA provenance for the released artifacts.
@@ -22,15 +24,24 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      # QEMU and buildx build the arm64 image on the amd64 runner.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: anchore/sbom-action/download-syft@v0
       - uses: sigstore/cosign-installer@v3
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          # Container images are deferred (ghcr publishing not set up yet), so
-          # docker is skipped; the checksums are cosign-signed keyless via the
-          # workflow OIDC identity.
-          args: release --clean --skip=docker
+          # Builds and pushes the amd64 and arm64 images and their manifest to
+          # ghcr.io. The checksums and the image manifests are cosign-signed
+          # keyless via the workflow OIDC identity.
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Attest build provenance

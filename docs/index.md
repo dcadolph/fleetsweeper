@@ -36,14 +36,18 @@ Run both together.
 ## Three-line install
 
 ```shell
-kubectl apply -f https://raw.githubusercontent.com/dcadolph/fleetsweeper/main/deploy/crds/clusterscan.yaml
-helm install fleetsweeper deploy/helm/fleetsweeper \
+kubectl --namespace fleetsweeper create secret generic fleet-kubeconfig --from-file=config=$HOME/.kube/config
+helm install fleetsweeper deploy/helm/fleetsweeper --namespace fleetsweeper \
   --set auth.token="$(openssl rand -hex 32)" \
+  --set kubeconfig.existingSecret=fleet-kubeconfig \
   --set controller.enabled=true
 kubectl apply -f deploy/examples/clusterscan-prod.yaml
 ```
 
-Then visit the dashboard at port 8080 of the fleetsweeper service.
+Create the `fleetsweeper` namespace first. The chart installs the CRDs and
+pulls the signed `ghcr.io/dcadolph/fleetsweeper` image. Without the
+kubeconfig Secret it scans only the cluster it runs in. Then visit the
+dashboard at port 8080 of the fleetsweeper service and paste the token.
 
 ## Where to go next
 
