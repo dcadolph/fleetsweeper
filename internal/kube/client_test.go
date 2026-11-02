@@ -193,3 +193,33 @@ func TestLoadConfigSelectsContext(t *testing.T) {
 		})
 	}
 }
+
+// TestContextsOrInCluster verifies a pod with no kubeconfig scans its own cluster and that any
+// kubeconfig, given or holding contexts, wins over that fallback.
+func TestContextsOrInCluster(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Names      []string
+		Path       string
+		InCluster  bool
+		WantResult []string
+	}{{ // Test 0: Pod with no kubeconfig scans its own cluster.
+		InCluster: true, WantResult: []string{InClusterContext},
+	}, { // Test 1: Laptop with no kubeconfig finds nothing.
+		WantResult: nil,
+	}, { // Test 2: Pod with a mounted kubeconfig uses its contexts.
+		Names: []string{"east", "west"}, Path: "/var/run/fleetsweeper/kubeconfig", InCluster: true,
+		WantResult: []string{"east", "west"},
+	}, { // Test 3: Pod with an empty mounted kubeconfig does not fall back.
+		Path: "/var/run/fleetsweeper/kubeconfig", InCluster: true, WantResult: nil,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := contextsOrInCluster(test.Names, test.Path, test.InCluster)
+			if diff := cmp.Diff(test.WantResult, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

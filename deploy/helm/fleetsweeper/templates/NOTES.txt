@@ -5,6 +5,18 @@ Fleetsweeper {{ .Chart.AppVersion }} is installed.
    kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }} 8080:{{ .Values.service.port }}
 
    Then open http://localhost:8080.
+{{- if .Values.kubeconfig.existingSecret }}
+
+   Scans read every context in the kubeconfig stored in Secret
+   {{ .Values.kubeconfig.existingSecret }}, key {{ .Values.kubeconfig.key }}.
+{{- else }}
+
+   Scans see only this cluster, through the release's ServiceAccount. To scan
+   a fleet, store a kubeconfig in a Secret and set kubeconfig.existingSecret:
+
+   kubectl --namespace {{ .Release.Namespace }} create secret generic fleet-kubeconfig --from-file=config=$HOME/.kube/config
+   helm upgrade {{ .Release.Name }} <chart> --reuse-values --set kubeconfig.existingSecret=fleet-kubeconfig
+{{- end }}
 
 {{- if .Values.auth.token }}
 

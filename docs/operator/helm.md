@@ -19,6 +19,8 @@ helm install fleetsweeper deploy/helm/fleetsweeper \
 | `cors.origins` | `[]` | CORS allowlist. Empty refuses cross-origin requests. |
 | `scheduler.interval` | `""` | Auto-scan interval (e.g. `30m`). Empty disables. |
 | `scheduler.allContexts` | `true` | Use every kubeconfig context for scheduled scans. |
+| `kubeconfig.existingSecret` | `""` | Secret holding the kubeconfig to scan with. Empty scans the host cluster only. |
+| `kubeconfig.key` | `config` | Key in that Secret whose value is the kubeconfig file. |
 | `persistence.enabled` | `true` | PVC for `/data/fleet.db`. |
 | `persistence.size` | `5Gi` | Disk size. |
 | `rbac.create` | `true` | Install least-privilege ClusterRole + binding. |
@@ -26,6 +28,29 @@ helm install fleetsweeper deploy/helm/fleetsweeper \
 | `controller.enabled` | `false` | Run the ClusterScan reconciler. |
 | `controller.namespace` | `""` | Restrict the controller to one namespace. |
 | `controller.pollInterval` | `15s` | How often the reconciler re-evaluates. |
+
+## Scanning a fleet
+
+Without a kubeconfig the server sees one cluster: the one it runs in, reached
+through the release's ServiceAccount and named `in-cluster` in reports. To
+scan a fleet, store a kubeconfig in a Secret and point the chart at it:
+
+```shell
+kubectl --namespace fleetsweeper create secret generic fleet-kubeconfig \
+  --from-file=config=$HOME/.kube/config
+helm upgrade fleetsweeper deploy/helm/fleetsweeper --namespace fleetsweeper \
+  --reuse-values --set kubeconfig.existingSecret=fleet-kubeconfig
+```
+
+The Secret is mounted read-only at `/var/run/fleetsweeper/kubeconfig` and
+passed as `--kubeconfig`. Scheduled and triggered scans then read every context
+in it. Each context needs read access on its own cluster, the same access the
+chart's ClusterRole grants on the host. A kubeconfig whose users run an exec
+plugin (`aws`, `gcloud`, `kubelogin`) needs that binary in the image, which the
+distroless image does not carry, so use static tokens or client certificates
+for in-cluster scans. The ClusterScan controller keeps using the
+ServiceAccount for its own cluster unless `--controller-context` names a
+context.
 
 ## CRD lifecycle
 

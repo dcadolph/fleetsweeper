@@ -42,6 +42,9 @@ spec:
             {{- if .Values.scheduler.allContexts }}
             - --all-contexts
             {{- end }}
+            {{- if .Values.kubeconfig.existingSecret }}
+            - --kubeconfig=/var/run/fleetsweeper/kubeconfig
+            {{- end }}
             {{- range .Values.cors.origins }}
             - --cors-origin={{ . }}
             {{- end }}
@@ -163,6 +166,11 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.kubeconfig.existingSecret }}
+            - name: kubeconfig
+              mountPath: /var/run/fleetsweeper
+              readOnly: true
+            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -173,3 +181,11 @@ spec:
           {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- if .Values.kubeconfig.existingSecret }}
+        - name: kubeconfig
+          secret:
+            secretName: {{ .Values.kubeconfig.existingSecret }}
+            items:
+              - key: {{ .Values.kubeconfig.key }}
+                path: kubeconfig
+        {{- end }}
