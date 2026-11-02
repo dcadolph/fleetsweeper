@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -66,14 +65,6 @@ func TestGroupLifecycle(t *testing.T) {
 	defer s.Close()
 	if _, err := s.GetGroup(ctx, "prod"); err == nil {
 		t.Error("expected error fetching deleted group")
-	}
-}
-
-// TestGroupRequiresDB verifies the missing-db sentinel from a group run.
-func TestGroupRequiresDB(t *testing.T) {
-	t.Parallel()
-	if err := runGroupList(newGroupCmd(""), nil); !errors.Is(err, ErrNoDatabase) {
-		t.Errorf("want ErrNoDatabase, got %v", err)
 	}
 }
 

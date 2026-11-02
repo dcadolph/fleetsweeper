@@ -101,8 +101,10 @@ fleetsweeper scan -o html --html-file report.html
 
 ## Persist scan results
 
-Pass `--db` to store results in a SQLite database. This enables scan
-history, trend analysis, and cluster grouping.
+Every scan is stored. With no `--db`, scans go to a SQLite file at
+`$XDG_STATE_HOME/fleetsweeper/fleet.db`, else `~/.local/state/fleetsweeper/fleet.db`, and the
+first scan prints the path. Scan history, trends, and cluster grouping work from the second scan
+with nothing configured. Pass `--db` to use another SQLite path or a Postgres URL.
 
 ```shell
 fleetsweeper scan --db fleet.db

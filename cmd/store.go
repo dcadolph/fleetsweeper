@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -10,21 +14,71 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 	"github.com/dcadolph/fleetsweeper/internal/store"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
-// openAnyStore opens whichever backend the --db / --db-driver flag pair points
-// at. Returns the broader Store interface so callers can use either backend
-// transparently.
+// openAnyStore opens whichever backend the --db / --db-driver flag pair points at, or the default
+// state store when --db is empty. Returns the broader Store interface so callers can use either
+// backend transparently.
 func openAnyStore(cmd *cobra.Command) (store.Store, error) {
-	dbPath, _ := cmd.Flags().GetString("db")
-	if dbPath == "" {
-		return nil, ErrNoDatabase
+	dbPath, err := resolveDBPath(cmd)
+	if err != nil {
+		return nil, err
 	}
+	return openStorePath(cmd, dbPath)
+}
+
+// openStorePath opens the store at dbPath with the driver --db-driver names, or the one its
+// prefix implies.
+func openStorePath(cmd *cobra.Command, dbPath string) (store.Store, error) {
 	driver, _ := cmd.Flags().GetString("db-driver")
 	if driver == "" {
 		driver = string(store.DetectDriver(dbPath))
 	}
 	return store.Open(driver, dbPath)
+}
+
+// resolveDBPath returns --db, or the default state store when --db is empty. The default store's
+// directory is created 0700 and its file 0600, and the first use prints the path to stderr once so
+// the user learns where history lives without having chosen it.
+func resolveDBPath(cmd *cobra.Command) (string, error) {
+	if dbPath, _ := cmd.Flags().GetString("db"); dbPath != "" {
+		return dbPath, nil
+	}
+	path, err := util.DefaultStatePath()
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrNoDatabase, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", fmt.Errorf("create state dir: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	switch {
+	case err == nil:
+		if err := f.Close(); err != nil {
+			return "", fmt.Errorf("create store %s: %w", path, err)
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "Storing scans in %s. Pass --db to use another store.\n", path)
+	case !errors.Is(err, fs.ErrExist):
+		return "", fmt.Errorf("create store %s: %w", path, err)
+	}
+	return path, nil
+}
+
+// existingDBPath returns --db, or the default state store when --db is empty and that store
+// already exists. It creates nothing, so a read-only check never leaves a store behind.
+func existingDBPath(cmd *cobra.Command) (string, bool) {
+	if dbPath, _ := cmd.Flags().GetString("db"); dbPath != "" {
+		return dbPath, true
+	}
+	path, err := util.DefaultStatePath()
+	if err != nil {
+		return "", false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return path, false
+	}
+	return path, true
 }
 
 // resolveScanRef maps a scan reference to a stored scan ID. It accepts latest, previous or

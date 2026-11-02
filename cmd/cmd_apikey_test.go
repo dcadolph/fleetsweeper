@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -138,12 +137,5 @@ func TestAPIKeyCreateValidation(t *testing.T) {
 	}
 	if _, err := runAPIKey(t, dbPath, "create", "--name=x", "--role=wizard"); err == nil {
 		t.Error("expected error for invalid role")
-	}
-}
-
-// TestAPIKeyRequiresDB verifies list without --db returns the sentinel.
-func TestAPIKeyRequiresDB(t *testing.T) {
-	if _, err := runAPIKey(t, "", "list"); !errors.Is(err, ErrNoDatabase) {
-		t.Errorf("want ErrNoDatabase, got %v", err)
 	}
 }

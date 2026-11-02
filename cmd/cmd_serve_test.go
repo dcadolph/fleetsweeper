@@ -35,11 +35,6 @@ func TestOpenServeStore(t *testing.T) {
 		t.Errorf("demo with --db: want ErrDemoDatabase, got %v", err)
 	}
 
-	// Non-demo with no --db is an error.
-	if _, err := openServeStore(newStoreCmd(""), false); !errors.Is(err, ErrNoDatabase) {
-		t.Errorf("no-db non-demo: want ErrNoDatabase, got %v", err)
-	}
-
 	// A real path opens successfully.
 	dbPath := filepath.Join(t.TempDir(), "serve.db")
 	if s, err := store.NewSQLite(dbPath); err != nil {

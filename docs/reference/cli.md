@@ -61,7 +61,7 @@ each command's own help line; `fleetsweeper <command> --help` lists its flags.
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--kubeconfig` | `$KUBECONFIG` or `~/.kube/config` | Path to the kubeconfig used by scanners. |
-| `--db` | `""` | Database DSN: a SQLite file path, or a `postgres://` URL. Required for stateful commands. |
+| `--db` | `""` | Database DSN: a SQLite file path, or a `postgres://` URL. Empty uses `$XDG_STATE_HOME/fleetsweeper/fleet.db`, else `~/.local/state/fleetsweeper/fleet.db`. |
 | `--db-driver` | `""` | `sqlite` or `postgres`. Empty picks from the DSN: a `postgres://` or `postgresql://` prefix means Postgres, anything else SQLite. |
 | `--pretty` | `false` | Indent JSON output. |
 | `--log-level` | `warn` | One of `debug`, `info`, `warn`, `error`. Logs go to stderr. |
@@ -77,7 +77,7 @@ and does not take `--db`.
 | `1` | Any error not listed below. |
 | `2` | No cluster in the scan could be reached. |
 | `3` | The kubeconfig holds no contexts. |
-| `4` | The command needs `--db` and none was given. |
+| `4` | No `--db` was given and no default store path exists (no `HOME` or `XDG_STATE_HOME`). |
 
 Errors print to stderr as `error: <message>`. Commands with their own
 pass and fail semantics, such as `doctor` and `drift --fail-on-drift`, exit

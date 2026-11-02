@@ -37,10 +37,3 @@ func TestCompareFormats(t *testing.T) {
 		}
 	}
 }
-
-// TestCompareRequiresDB verifies the missing-db path surfaces an error.
-func TestCompareRequiresDB(t *testing.T) {
-	if _, err := execCompare(t, "", "a", "b", "--format=text"); err == nil {
-		t.Error("expected error without --db")
-	}
-}

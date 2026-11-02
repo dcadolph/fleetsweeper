@@ -65,7 +65,7 @@ func init() {
 	scanCmd.Flags().StringSlice("scanners", nil, "Scanner names to run (default: all).")
 	scanCmd.Flags().StringP("output", "o", "json", "Output format: json or html.")
 	scanCmd.Flags().String("html-file", "", "Write HTML report to this file path (implies --output html).")
-	scanCmd.Flags().String("group", "", "Scan only clusters in this group (requires --db).")
+	scanCmd.Flags().String("group", "", "Scan only clusters in this group.")
 	scanCmd.Flags().Float64("outlier-threshold", 3.5, "Outlier detection sensitivity (lower=more sensitive).")
 	scanCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs to (one file per cluster). Empty disables.")
 	scanCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs (one file per cluster). Empty disables.")
@@ -128,14 +128,20 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Resolve contexts from group if specified.
+	// Every scan persists, to --db or the default state store, so history and trends work on
+	// the second scan with nothing configured.
+	dbPath, err := resolveDBPath(cmd)
+	if err != nil {
+		return err
+	}
+	st, err := openStorePath(cmd, dbPath)
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer st.Close()
+
 	if groupName != "" {
-		s, err := openAnyStore(cmd)
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-		g, err := s.GetGroup(ctx, groupName)
+		g, err := st.GetGroup(ctx, groupName)
 		if err != nil {
 			return fmt.Errorf("get group %q: %w", groupName, err)
 		}
@@ -163,24 +169,12 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		clusterNames[i] = c.Context
 	}
 
-	// Persist results to database when --db is set.
-	var st store.Store
-	dbPath, _ := cmd.Flags().GetString("db")
-	if dbPath != "" {
-		s, err := openAnyStore(cmd)
-		if err != nil {
-			return fmt.Errorf("open store: %w", err)
-		}
-		defer s.Close()
-		st = s
-
-		scanID, err := s.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: clusterNames}, results)
-		if err != nil {
-			return fmt.Errorf("save scan: %w", err)
-		}
-		log.Info("scan persisted", zap.String("scan_id", scanID))
-		fmt.Fprintf(stderr, "scan %s saved to %s\n", scanID, dbPath)
+	scanID, err := st.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: clusterNames}, results)
+	if err != nil {
+		return fmt.Errorf("save scan: %w", err)
 	}
+	log.Info("scan persisted", zap.String("scan_id", scanID))
+	fmt.Fprintf(stderr, "Saved scan %s to %s.\n", scanID, dbPath)
 
 	outlierThreshold, _ := cmd.Flags().GetFloat64("outlier-threshold")
 	rpt, err := buildScanReport(ctx, st, clusterNames, results, report.BuildOptions{

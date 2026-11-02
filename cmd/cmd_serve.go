@@ -390,10 +390,9 @@ func controllerKubeconfig(kubeconfigPath, controllerContext string, inCluster bo
 	return kubeconfigPath
 }
 
-// openServeStore opens whichever backend --db / --db-driver point at. --demo
-// runs on an in-memory SQLite database the server seeds with the demo fleet,
-// so it refuses a --db rather than write the demo into a real database.
-// Outside demo mode a missing --db is still an error.
+// openServeStore opens whichever backend --db / --db-driver point at, or the default state store
+// the scan command writes to. --demo runs on an in-memory SQLite database the server seeds with
+// the demo fleet, so it refuses a --db rather than write the demo into a real database.
 func openServeStore(cmd *cobra.Command, demo bool) (store.Store, error) {
 	dbPath, _ := cmd.Flags().GetString("db")
 	if demo {
