@@ -14,6 +14,19 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.15.0
+
+No schema migration.
+
+- **Reads need a credential.** A server that holds any credential (a bootstrap
+  `--auth-token`, single sign-on, or at least one API key) now answers 401 to
+  an `/api` read that carries neither a bearer token nor a session cookie.
+  Before, such a read was served as an anonymous viewer. Give every API client
+  and scraper of `/api` a viewer key. `/healthz`, `/readyz`, `/openapi.yaml`,
+  `/oidc/*`, signed `/api/webhooks/*` calls, and the dashboard's static files
+  stay open. The dashboard asks for a token on first load. `--insecure`,
+  `--demo`, and a server with no credential at all keep anonymous reads.
+
 ## v0.14.0
 
 No schema migration. Reports, scores, and a few API shapes change on the

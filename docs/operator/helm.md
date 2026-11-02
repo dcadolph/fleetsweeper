@@ -30,7 +30,7 @@ helm install fleetsweeper deploy/helm/fleetsweeper \
 ## CRD lifecycle
 
 `crds.install` defaults to `true` so an out-of-the-box `helm install` is
-self-contained. In multi-tenant or GitOps environments where CRDs are
+self-contained. In shared or GitOps clusters where CRDs are
 managed separately, set it to `false` and apply the CRDs from
 `deploy/crds/` independently.
 

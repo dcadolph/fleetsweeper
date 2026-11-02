@@ -296,8 +296,8 @@ func TestWhatIfAuth(t *testing.T) {
 	if code := serve(t, h, http.MethodPost, "/api/whatif", outside, viewer, nil); code != http.StatusForbidden {
 		t.Errorf("viewer outside scope: want 403, got %d", code)
 	}
-	if code := serve(t, h, http.MethodPost, "/api/whatif", body, "", nil); code != http.StatusForbidden {
-		t.Errorf("anonymous: want 403, got %d", code)
+	if code := serve(t, h, http.MethodPost, "/api/whatif", body, "", nil); code != http.StatusUnauthorized {
+		t.Errorf("anonymous: want 401, got %d", code)
 	}
 	entries, err := st.ListAuditEntries(context.Background(), store.AuditListOptions{Limit: 100})
 	if err != nil {

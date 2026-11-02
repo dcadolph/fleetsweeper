@@ -116,8 +116,16 @@ export async function render() {
       if (result.post) await result.post();
     }
   } catch (e) {
-    el.innerHTML = '<div class="empty">Error: ' + esc(e.message) + '</div>';
+    el.innerHTML = e.status === 401 ? signInPanel(e.message) : '<div class="empty">Error: ' + esc(e.message) + '</div>';
   }
+}
+
+// signInPanel explains that the server needs a credential to read and offers
+// the token drawer, plus single sign-on when the server's message names it.
+function signInPanel(message) {
+  const sso = message.includes('/oidc/login') ? ' <a class="btn" href="/oidc/login">Sign in</a>' : '';
+  return '<div class="empty" id="sign-in"><p>This server needs a credential before it shows anything.</p>' +
+    '<p><button class="btn" data-action="token">Paste a token</button>' + sso + '</p></div>';
 }
 
 // refresh re-renders the current page in place: the view fetches its data

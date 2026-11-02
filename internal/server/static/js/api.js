@@ -52,15 +52,17 @@ export function apiSend(method, path, body) {
 let catalog = null;
 
 // loadScannerCatalog fetches the scanner list once, keyed by id. A failure
-// leaves the catalog empty so labels fall back to ids.
+// returns an empty catalog so labels fall back to ids, and is not kept, so the
+// next call tries again.
 export async function loadScannerCatalog() {
   if (catalog) return catalog;
-  catalog = {};
+  const next = {};
   try {
-    (await api('/scanners')).forEach((s) => { catalog[s.id] = s; });
+    (await api('/scanners')).forEach((s) => { next[s.id] = s; });
   } catch (_) {
-    catalog = {};
+    return {};
   }
+  catalog = next;
   return catalog;
 }
 

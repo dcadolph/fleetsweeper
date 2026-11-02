@@ -46,7 +46,7 @@ By default, mutating endpoints (`POST /api/scans`, `POST /api/groups`,
 `DELETE /api/groups/...`) return 403 because `serve` will scan whatever
 kubeconfig the process holds. Two ways to allow mutations:
 
-1. **Recommended**: set `--auth-token` to a long random string. Clients must send `Authorization: Bearer <token>` on mutating requests. Comparison is constant-time.
+1. **Recommended**: set `--auth-token` to a long random string. Clients must then send `Authorization: Bearer <token>` on every API request, reads included. Comparison is constant-time. The dashboard asks for the token on first load.
 2. **Explicit opt-out**: pass `--insecure` to disable authentication entirely. A loud warning is logged at startup.
 
 `--demo` turns authentication off on its own. The demo serves a synthetic fleet from an
