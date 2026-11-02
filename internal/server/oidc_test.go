@@ -123,7 +123,7 @@ func TestActorFromSessionCookie(t *testing.T) {
 }
 
 // TestSessionCookieRejectedWhenInvalid verifies a junk cookie does not
-// promote the caller; the response falls back to viewer (403 on admin GET).
+// authenticate the caller: a server with single sign-on answers 401.
 func TestSessionCookieRejectedWhenInvalid(t *testing.T) {
 	t.Parallel()
 	srv := newOIDCTestServer(t)
@@ -132,8 +132,8 @@ func TestSessionCookieRejectedWhenInvalid(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "garbage.signature"})
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Errorf("junk cookie: want 403, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("junk cookie: want 401, got %d", w.Code)
 	}
 }
 

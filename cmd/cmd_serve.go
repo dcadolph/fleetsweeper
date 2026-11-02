@@ -50,7 +50,7 @@ func init() {
 	serveCmd.Flags().String("seal-key", "", "HMAC-SHA256 key used to sign saved scan reports. Empty disables sealing.")
 	serveCmd.Flags().Bool("controller", false, "Enable the ClusterScan controller: watch ClusterScan CRs in the home cluster and reconcile them by triggering scans on their declared interval.")
 	serveCmd.Flags().String("controller-namespace", "", "Namespace the controller watches. Empty watches all namespaces (requires cluster-wide RBAC).")
-	serveCmd.Flags().String("controller-context", "", "Kubeconfig context the controller uses to reach the home cluster. Empty uses the default context or in-cluster config.")
+	serveCmd.Flags().String("controller-context", "", "Kubeconfig context the controller uses to reach the home cluster. Empty uses the in-cluster config inside a pod, else the kubeconfig's current context.")
 	serveCmd.Flags().Duration("controller-poll", 15*time.Second, "How often the controller re-evaluates ClusterScan resources.")
 	serveCmd.Flags().Bool("leader-election", true, "Enable leader election for the scheduler and controller. Honored only when running inside Kubernetes. Multiple replicas without leader election will double-fire scheduled work.")
 	serveCmd.Flags().String("leader-namespace", "", "Namespace for the leader-election Lease object. Defaults to $POD_NAMESPACE.")
@@ -218,7 +218,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			ctrlNS, _ := cmd.Flags().GetString("controller-namespace")
 			ctrlContext, _ := cmd.Flags().GetString("controller-context")
 			ctrlPoll, _ := cmd.Flags().GetDuration("controller-poll")
-			dyn, events, err := controller.Clients(kubeconfigPath, ctrlContext)
+			dyn, events, err := controller.Clients(controllerKubeconfig(kubeconfigPath, ctrlContext, kube.InCluster()), ctrlContext)
 			if err != nil {
 				log.Warn("controller: client setup failed", zap.Error(err))
 				return
@@ -389,6 +389,16 @@ func resolveScheduleContexts(kubeconfigPath string, explicit []string, all bool)
 		return kube.AvailableContexts(kubeconfigPath)
 	}
 	return explicit, nil
+}
+
+// controllerKubeconfig returns the kubeconfig path the controller reaches its home cluster with. A
+// pod with no --controller-context uses its ServiceAccount, so a mounted fleet kubeconfig never
+// moves the controller off the cluster that holds its ClusterScan objects.
+func controllerKubeconfig(kubeconfigPath, controllerContext string, inCluster bool) string {
+	if controllerContext == "" && inCluster {
+		return ""
+	}
+	return kubeconfigPath
 }
 
 // openServeStore opens whichever backend --db / --db-driver point at. --demo

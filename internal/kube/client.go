@@ -167,7 +167,12 @@ func ConnectAll(ctx context.Context, kubeconfigPath string, contexts []string, w
 	return clients
 }
 
-// AvailableContexts returns all context names defined in the kubeconfig file.
+// InClusterContext is the context name of the cluster a pod runs in, reached through its
+// ServiceAccount when no kubeconfig is given. LoadConfig resolves it to the in-cluster config.
+const InClusterContext = "in-cluster"
+
+// AvailableContexts returns all context names defined in the kubeconfig file. A pod given no
+// kubeconfig gets InClusterContext alone, so it scans the cluster it runs in.
 func AvailableContexts(kubeconfigPath string) ([]string, error) {
 	loader := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath}
 	cfg, err := loader.Load()
@@ -175,7 +180,16 @@ func AvailableContexts(kubeconfigPath string) ([]string, error) {
 		return nil, fmt.Errorf("%w: %w", ErrLoadConfig, err)
 	}
 
-	return contextNames(cfg), nil
+	return contextsOrInCluster(contextNames(cfg), kubeconfigPath, InCluster()), nil
+}
+
+// contextsOrInCluster returns names, or InClusterContext alone when names is empty, no
+// kubeconfig path was given, and the process runs in a pod.
+func contextsOrInCluster(names []string, kubeconfigPath string, inCluster bool) []string {
+	if len(names) == 0 && kubeconfigPath == "" && inCluster {
+		return []string{InClusterContext}
+	}
+	return names
 }
 
 // contextNames extracts sorted context names from a kubeconfig.

@@ -78,7 +78,7 @@ export function renderBar(extra) {
     '<span class="sp"></span>' +
     '<button id="live-toggle" class="live-toggle" data-action="live-toggle"><span class="live-dot" aria-hidden="true"></span><span>Live · paused</span></button>' +
     '<button class="tour-launcher" data-action="tour-start">Take a tour</button>' +
-    `<button class="btn" data-action="token" id="token-btn" data-tip="API token for acknowledging findings and starting scans">${hasToken() ? 'Token set' : 'Token'}</button>` +
+    `<button class="btn" data-action="token" id="token-btn" data-tip="API token for reading and writing on this server">${hasToken() ? 'Token set' : 'Token'}</button>` +
     `<button class="btn" data-action="theme" id="theme-toggle">${esc(themeLabel())}</button>` +
     '<button class="btn" data-action="shortcuts" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>';
   morph(document.getElementById('bar'), h);

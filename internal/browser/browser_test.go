@@ -751,3 +751,55 @@ func TestDashboardUngraded(t *testing.T) {
 		t.Errorf("console errors:\n%s", strings.Join(errs, "\n"))
 	}
 }
+
+// TestDashboardSignIn serves real stored data behind a bootstrap token and checks the
+// dashboard shows a sign-in panel instead of data, that a token pasted into the drawer loads
+// the dashboard, and that the live stream connects with that token.
+func TestDashboardSignIn(t *testing.T) {
+	st, err := store.NewSQLite(filepath.Join(t.TempDir(), "signin.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := server.SeedDemo(t.Context(), st, time.Now().UTC().Truncate(time.Minute)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	srv := server.New(server.Config{
+		Store: st, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Workers: 2, AuthToken: "sign-in-token",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.Close()
+		srv.Close()
+		st.Close()
+	})
+	ctx := newBrowser(t)
+	log := &consoleLog{route: "boot"}
+	log.listen(ctx)
+	err = run(ctx, 30*time.Second,
+		chromedp.Navigate(ts.URL+"/"),
+		chromedp.Evaluate(`localStorage.setItem('fleetsweeper-welcome-dismissed', '1')`, nil),
+		chromedp.Reload(),
+		chromedp.WaitVisible(`#sign-in`, chromedp.ByQuery),
+	)
+	if err != nil {
+		var html string
+		_ = run(ctx, 5*time.Second, chromedp.Evaluate(`document.getElementById('ct') ? document.getElementById('ct').innerHTML.slice(0, 600) : 'no ct'`, &html))
+		t.Fatalf("sign-in panel never showed: %v\n%s\n%s", err, html, strings.Join(log.take(), "\n"))
+	}
+	err = run(ctx, 30*time.Second,
+		clickWhenPresent(`#sign-in [data-action="token"]`),
+		chromedp.WaitVisible(`#tokenInput`, chromedp.ByQuery),
+		chromedp.SendKeys(`#tokenInput`, "sign-in-token", chromedp.ByQuery),
+		clickWhenPresent(`.drawer-actions button.btn-ac`),
+		chromedp.Poll(`!document.getElementById('sign-in') && `+settledJS, nil, chromedp.WithPollingTimeout(settleTimeout)),
+	)
+	if err != nil {
+		t.Fatalf("dashboard did not load after the token: %v", err)
+	}
+	var live bool
+	err = run(ctx, 15*time.Second, chromedp.Poll(`document.querySelector('#live-toggle.on') !== null`, &live,
+		chromedp.WithPollingTimeout(10*time.Second)))
+	if err != nil || !live {
+		t.Fatalf("live stream did not connect with the token: %v", err)
+	}
+}

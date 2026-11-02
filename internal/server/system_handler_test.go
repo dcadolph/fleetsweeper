@@ -39,14 +39,14 @@ func TestAdminSystemReturnsFeatures(t *testing.T) {
 	}
 }
 
-// TestAdminSystemGuardedByAdmin verifies non-admin actors are rejected.
+// TestAdminSystemGuardedByAdmin verifies a caller with no credential is rejected.
 func TestAdminSystemGuardedByAdmin(t *testing.T) {
 	t.Parallel()
 	srv, _ := newAuthTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/system", nil) // no auth header
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Errorf("want 403 without admin token, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("want 401 without a token, got %d", w.Code)
 	}
 }

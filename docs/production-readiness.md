@@ -6,7 +6,7 @@ What Fleetsweeper ships ready for the box.
 | ---------------------- | -------------- |
 | HA backend             | SQLite default, PostgreSQL via `--db-driver=postgres` |
 | Multi-replica safe     | Kubernetes Lease-based leader election (`coordination.k8s.io/v1`) |
-| Multi-tenant RBAC      | Scoped API keys (`admin`, `operator`, `viewer`) with cluster scope (`*`, names, or `group:<n>`) on writes. Reads are not scoped |
+| Access control         | Every API read and write needs a credential. Role and cluster-scoped API keys (`admin`, `operator`, `viewer`; `*`, names, or `group:<n>`) for writes. Reads are not scoped by cluster |
 | Audit log              | Every mutating request captured. Queryable at `GET /api/admin/audit`. Retention via `--audit-retention` |
 | Declarative ops        | `ClusterScan` CRD with an in-process reconciler |
 | GitOps integrations    | `FleetDriftReport` CR plus `PolicyReport` (wgpolicyk8s.io) |
@@ -27,4 +27,4 @@ What Fleetsweeper ships ready for the box.
 - [Backends](operator/backends.md). SQLite vs Postgres trade-offs.
 - [Leader election](operator/leader-election.md). Multi-replica safety details.
 - [Audit log](operator/audit.md). What is captured and how to query it.
-- [RBAC and API keys](operator/rbac.md). Scoped multi-tenant access.
+- [RBAC and API keys](operator/rbac.md). Role and cluster-scoped API keys for writes.

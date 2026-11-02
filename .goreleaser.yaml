@@ -57,6 +57,8 @@ dockers:
     goarch: arm64
     build_flag_templates:
       - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/dcadolph/fleetsweeper"
+      - "--label=org.opencontainers.image.licenses=MIT"
 
 docker_manifests:
   - name_template: "ghcr.io/dcadolph/fleetsweeper:{{ .Version }}"

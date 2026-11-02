@@ -499,3 +499,117 @@ func TestActorFromContext_Fallback(t *testing.T) {
 		t.Errorf("expected deny-all default, got %+v", a)
 	}
 }
+
+// newCredentialTestServer builds a server over a fresh store with the given bootstrap token, which
+// may be empty.
+func newCredentialTestServer(t *testing.T, token string) (*Server, *store.SQLite) {
+	t.Helper()
+	s, err := store.NewSQLite(filepath.Join(t.TempDir(), "cred.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	srv := New(Config{Store: s, Registry: scanner.NewRegistry(), Log: zap.NewNop(), Workers: 2, AuthToken: token})
+	t.Cleanup(func() {
+		srv.Close()
+		s.Close()
+	})
+	return srv, s
+}
+
+// TestAnonymousReadsOnlyWithoutCredentials verifies a request with no credential reads only from
+// a server that holds none: a bootstrap token, an OIDC login, or one API key row each close the
+// API to anonymous callers, while health, the spec, and the dashboard's static files stay open.
+func TestAnonymousReadsOnlyWithoutCredentials(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Name        string
+		Token       string
+		WithKey     bool
+		WithOIDC    bool
+		Path        string
+		Bearer      string
+		WantCode    int
+		WantMessage string
+	}{{
+		Name: "Test 0: Token server refuses an anonymous report read.", Token: "boot",
+		Path: "/api/scans/latest/report", WantCode: http.StatusUnauthorized,
+		WantMessage: "credential required: send a bearer token",
+	}, {
+		Name: "Test 1: Token server refuses an anonymous scan list.", Token: "boot",
+		Path: "/api/scans", WantCode: http.StatusUnauthorized,
+		WantMessage: "credential required: send a bearer token",
+	}, {
+		Name: "Test 2: Token server serves the bootstrap token.", Token: "boot", Bearer: "boot",
+		Path: "/api/scans", WantCode: http.StatusOK,
+	}, {
+		Name: "Test 3: Token server keeps health open.", Token: "boot", Path: "/healthz", WantCode: http.StatusOK,
+	}, {
+		Name: "Test 4: Token server keeps the dashboard index open.", Token: "boot", Path: "/", WantCode: http.StatusOK,
+	}, {
+		Name: "Test 5: Token server keeps the spec open.", Token: "boot", Path: "/openapi.yaml", WantCode: http.StatusOK,
+	}, {
+		Name: "Test 6: Server with no credential keeps anonymous reads.", Path: "/api/scans", WantCode: http.StatusOK,
+	}, {
+		Name: "Test 7: One API key row closes anonymous reads.", WithKey: true,
+		Path: "/api/scans", WantCode: http.StatusUnauthorized,
+		WantMessage: "credential required: send a bearer token",
+	}, {
+		Name: "Test 8: OIDC closes anonymous reads and names the login path.", WithOIDC: true,
+		Path: "/api/scans", WantCode: http.StatusUnauthorized,
+		WantMessage: "credential required: send a bearer token or sign in at /oidc/login",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			srv, st := newCredentialTestServer(t, test.Token)
+			if test.WithKey {
+				saveTestKey(t, st, "key_cred", store.RoleViewer, store.ScopeWildcard)
+			}
+			if test.WithOIDC {
+				srv.oidc = &oidcRuntime{}
+			}
+			req := httptest.NewRequest(http.MethodGet, test.Path, nil)
+			if test.Bearer != "" {
+				req.Header.Set("Authorization", "Bearer "+test.Bearer)
+			}
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+			if w.Code != test.WantCode {
+				t.Fatalf("%s: want %d, got %d body %s", test.Name, test.WantCode, w.Code, w.Body.String())
+			}
+			if test.WantCode != http.StatusUnauthorized {
+				return
+			}
+			var body errorResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("%s: decode: %v", test.Name, err)
+			}
+			if diff := cmp.Diff(test.WantMessage, body.Error); diff != "" {
+				t.Errorf("%s: message mismatch (-want +got):\n%s", test.Name, diff)
+			}
+			if got := w.Header().Get("WWW-Authenticate"); got != `Bearer realm="fleetsweeper"` {
+				t.Errorf("%s: WWW-Authenticate = %q", test.Name, got)
+			}
+		})
+	}
+}
+
+// TestHoldsCredentialSeesLateKey verifies a server that started with no API keys stops serving
+// anonymous reads once a key appears in its store and the recheck interval has passed.
+func TestHoldsCredentialSeesLateKey(t *testing.T) {
+	t.Parallel()
+	srv, st := newCredentialTestServer(t, "")
+	if srv.holdsCredential(t.Context()) {
+		t.Fatal("empty store: want no credential")
+	}
+	saveTestKey(t, st, "key_late", store.RoleViewer, store.ScopeWildcard)
+	if srv.holdsCredential(t.Context()) {
+		t.Fatal("inside the recheck interval: want the cached answer")
+	}
+	srv.keyCheckMu.Lock()
+	srv.keyCheckedAt = time.Now().Add(-keyRecheckInterval)
+	srv.keyCheckMu.Unlock()
+	if !srv.holdsCredential(t.Context()) {
+		t.Fatal("after the recheck interval: want the late key seen")
+	}
+}

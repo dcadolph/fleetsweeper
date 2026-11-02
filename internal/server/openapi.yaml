@@ -24,14 +24,16 @@ servers:
 
 security:
   - bearerAuth: []
-  - {}
 
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Token configured via --auth-token. Required for POST/DELETE.
+      description: >-
+        The bootstrap --auth-token or a stored API key. Every /api path needs it once the
+        server holds a credential (a bootstrap token, single sign-on, or any API key). A
+        server that holds none serves reads anonymously and refuses writes.
 
   parameters:
     Scan:

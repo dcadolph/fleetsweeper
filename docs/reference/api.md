@@ -7,21 +7,27 @@ disagree.
 
 ## Authentication
 
-All mutating endpoints require one of:
+Every `/api` request needs `Authorization: Bearer <token>`, where `<token>` is
+the bootstrap `--auth-token` value or a stored API key, or a single sign-on
+session cookie. A request without one gets 401. Two modes need no credential:
 
-- `--insecure` (development only),
-- `--demo`, whose synthetic in-memory world runs open as anonymous admin, or
-- `Authorization: Bearer <token>` where `<token>` is either the bootstrap
-  `--auth-token` value or a stored API key.
+- `--insecure` (development only), which runs as anonymous admin, and
+- `--demo`, whose synthetic in-memory world runs open as anonymous admin.
+
+A server started with no token, no single sign-on, and no API keys serves
+reads anonymously and refuses writes. The first key created against its store
+closes anonymous reads within ten seconds, without a restart.
 
 GET endpoints are open to viewers, operators, and admins. `POST /api/whatif`
 is a read too: it projects a fix without writing anything, so viewers may call
-it within their cluster scope.
+it within their cluster scope. `/healthz`, `/readyz`, `/openapi.yaml`, the
+`/oidc/*` login paths, inbound `/api/webhooks/*` calls (which carry their own
+signature), and the dashboard's static files need no credential.
 
 ## Common headers
 
 - `Content-Type: application/json; charset=utf-8` on responses.
-- `Authorization: Bearer <token>` on requests (omit only when `--insecure` or `--demo`).
+- `Authorization: Bearer <token>` on requests (omit only when `--insecure` or `--demo`, or on a server that holds no credential).
 - `X-Fleetsweeper-Signature: sha256=<hex>` on inbound webhook calls.
 
 ## Endpoints

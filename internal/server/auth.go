@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -107,7 +108,8 @@ func roleAllowsWrite(role string) bool {
 //  1. --insecure mode → anonymous admin
 //  2. Bearer matches bootstrap --auth-token → built-in admin
 //  3. Bearer matches an api_keys row → that key
-//  4. Otherwise: 401 on mutating requests, anonymous viewer on reads
+//  4. No credential, and the server holds one (token, OIDC, or any API key) → 401
+//  5. No credential, and the server holds none → viewer on reads, 401 on writes
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// /webhooks/* endpoints carry their own request authentication
@@ -121,6 +123,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		actor, err := s.resolveActor(r)
 		if err != nil {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="fleetsweeper"`)
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
@@ -153,9 +156,9 @@ func pathIsWebhook(path string) bool {
 	return strings.HasPrefix(path, "/webhooks/")
 }
 
-// resolveActor inspects the request and the server config to produce an Actor.
-// A nil Actor with a nil error means an anonymous viewer (used for read-only
-// requests in non-insecure mode without a token).
+// resolveActor inspects the request and the server config to produce an Actor. A request with
+// no credential gets an anonymous viewer only when the server holds no credential of its own;
+// otherwise it gets ErrMissingCredential.
 func (s *Server) resolveActor(r *http.Request) (*Actor, error) {
 	if s.insecure {
 		return &Actor{
@@ -170,6 +173,9 @@ func (s *Server) resolveActor(r *http.Request) (*Actor, error) {
 	if raw == "" {
 		if actor := s.actorFromSessionCookie(r); actor != nil {
 			return actor, nil
+		}
+		if s.holdsCredential(r.Context()) {
+			return nil, s.missingCredential()
 		}
 		return &Actor{Role: store.RoleViewer}, nil
 	}
@@ -206,6 +212,47 @@ func (s *Server) resolveActor(r *http.Request) (*Actor, error) {
 		Role:         rec.Role,
 		ClusterScope: rec.ClusterScope,
 	}, nil
+}
+
+// keyRecheckInterval is how long a server that found no API keys waits before it looks again, so
+// a key created with the CLI against the same store ends anonymous reads without a restart.
+const keyRecheckInterval = 10 * time.Second
+
+// holdsCredential reports whether the server has a credential a caller could present: the
+// bootstrap token, an OIDC login, or at least one API key row. A failed key lookup counts as
+// holding one, so the server refuses the anonymous read rather than serve it.
+func (s *Server) holdsCredential(ctx context.Context) bool {
+	if s.authToken != "" || s.oidc != nil || s.keysSeen.Load() {
+		return true
+	}
+	s.keyCheckMu.Lock()
+	defer s.keyCheckMu.Unlock()
+	if s.keysSeen.Load() {
+		return true
+	}
+	if !s.keyCheckedAt.IsZero() && time.Since(s.keyCheckedAt) < keyRecheckInterval {
+		return false
+	}
+	keys, err := s.store.ListAPIKeys(ctx)
+	if err != nil {
+		s.log.Warn("auth: api key lookup failed: refusing anonymous read", zap.Error(err))
+		return true
+	}
+	if len(keys) > 0 {
+		s.keysSeen.Store(true)
+		return true
+	}
+	s.keyCheckedAt = time.Now()
+	return false
+}
+
+// missingCredential returns the error for a request that carries no credential, naming the
+// single sign-on path when the server has one.
+func (s *Server) missingCredential() error {
+	if s.oidc != nil {
+		return fmt.Errorf("%w: send a bearer token or sign in at /oidc/login", ErrMissingCredential)
+	}
+	return fmt.Errorf("%w: send a bearer token", ErrMissingCredential)
 }
 
 // keyTouchInterval is the minimum time between last-used writes for one API key.

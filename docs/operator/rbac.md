@@ -17,8 +17,11 @@ Fleetsweeper has two authentication paths, designed to coexist:
 | `operator` | Trigger scans, acknowledge findings, and manage tags and locations within scope. Cannot manage groups or keys. |
 | `viewer` | Read-only. Cannot reach `/admin/*`. |
 
-Read-only endpoints (GET) are open to viewers and above (or to anyone when
-`--insecure` is set). Mutating endpoints require `operator` or `admin`.
+Read-only endpoints (GET) need a viewer key or above, the bootstrap token, or
+a single sign-on session. A request with no credential gets 401. Only
+`--insecure`, `--demo`, or a server with no token, no single sign-on, and no
+keys at all serves reads to anyone. Mutating endpoints require `operator` or
+`admin`.
 
 ## Cluster scope
 

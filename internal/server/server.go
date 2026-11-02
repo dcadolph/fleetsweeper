@@ -143,6 +143,13 @@ type Server struct {
 	// keyTouches records when each API key's last-used time was last written, so a busy key
 	// writes at most once per keyTouchInterval.
 	keyTouches map[string]time.Time
+	// keysSeen is true once the store has held at least one API key row. It never goes back to
+	// false, so a server that ever had a key never serves an anonymous read again.
+	keysSeen atomic.Bool
+	// keyCheckMu guards keyCheckedAt and serializes the API key lookup.
+	keyCheckMu sync.Mutex
+	// keyCheckedAt is when the store was last found to hold no API keys.
+	keyCheckedAt time.Time
 }
 
 // Config holds server configuration.

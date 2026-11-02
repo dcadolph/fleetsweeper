@@ -245,3 +245,32 @@ func TestLeaderElectionPlan(t *testing.T) {
 		})
 	}
 }
+
+// TestControllerKubeconfig verifies the controller stays on the pod's own cluster when a fleet
+// kubeconfig is mounted, and follows the kubeconfig when a context is named or it runs outside a
+// pod.
+func TestControllerKubeconfig(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		Path       string
+		Context    string
+		InCluster  bool
+		WantResult string
+	}{{ // Test 0: Pod with a fleet kubeconfig and no context uses its ServiceAccount.
+		Path: "/var/run/fleetsweeper/kubeconfig", InCluster: true, WantResult: "",
+	}, { // Test 1: Pod with a named context reads the kubeconfig.
+		Path: "/var/run/fleetsweeper/kubeconfig", Context: "home", InCluster: true,
+		WantResult: "/var/run/fleetsweeper/kubeconfig",
+	}, { // Test 2: Outside a pod the kubeconfig is used.
+		Path: "/home/u/.kube/config", WantResult: "/home/u/.kube/config",
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got := controllerKubeconfig(test.Path, test.Context, test.InCluster)
+			if diff := cmp.Diff(test.WantResult, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

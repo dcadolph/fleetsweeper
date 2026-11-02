@@ -14,6 +14,30 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.15.0
+
+No schema migration.
+
+- **Reads need a credential.** A server that holds any credential (a bootstrap
+  `--auth-token`, single sign-on, or at least one API key) now answers 401 to
+  an `/api` read that carries neither a bearer token nor a session cookie.
+  Before, such a read was served as an anonymous viewer. Give every API client
+  and scraper of `/api` a viewer key. `/healthz`, `/readyz`, `/openapi.yaml`,
+  `/oidc/*`, signed `/api/webhooks/*` calls, and the dashboard's static files
+  stay open. The dashboard asks for a token on first load. `--insecure`,
+  `--demo`, and a server with no credential at all keep anonymous reads.
+
+- **The container image is published.** Each release pushes
+  `ghcr.io/dcadolph/fleetsweeper:<version>` and `:latest` for amd64 and
+  arm64, signed keyless with cosign. The chart's default image now pulls.
+
+- **The chart can scan a fleet.** Set `kubeconfig.existingSecret` to a Secret
+  holding a kubeconfig and the server scans every context in it. Without one,
+  scheduled scans see the host cluster through the ServiceAccount, reported as
+  the context `in-cluster`. Before, a pod with no kubeconfig found no contexts
+  and scheduled scans did nothing. The ClusterScan controller stays on the
+  host cluster unless `--controller-context` names a context.
+
 ## v0.14.0
 
 No schema migration. Reports, scores, and a few API shapes change on the

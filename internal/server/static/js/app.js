@@ -2,11 +2,11 @@
 // theme, and the global actions, then starts the router.
 
 import { installActions, on } from './actions.js';
-import { startRouter } from './router.js';
+import { startRouter, render } from './router.js';
 import { applyTheme, cycleTheme, themeLabel } from './theme.js';
 import { loadScannerCatalog } from './api.js';
 import { copyText, byId } from './dom.js';
-import { toggleLive, startLive } from './live.js';
+import { toggleLive, startLive, reconnectLive } from './live.js';
 import { openTokenDrawer, onTokenChange } from './auth.js';
 import { paintToken } from './shell.js';
 import { startTour } from './tour.js';
@@ -61,6 +61,11 @@ on('skip', () => byId('ct').focus());
 on('live-toggle', () => toggleLive());
 on('token', () => openTokenDrawer());
 onTokenChange(paintToken);
+onTokenChange(async () => {
+  await loadScannerCatalog();
+  render();
+  reconnectLive();
+});
 on('tour-start', () => startTour());
 on('shortcuts', () => toggleShortcuts());
 on('help-menu', () => openHelpMenu());

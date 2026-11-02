@@ -25,6 +25,15 @@ scheduler:
   allContexts: true
   contexts: []
 
+# Kubeconfig the server scans with. Without one the server sees only the cluster it runs in,
+# through its ServiceAccount. To scan a fleet, store a kubeconfig in a Secret and name it here:
+#   kubectl create secret generic fleet-kubeconfig --from-file=config=$HOME/.kube/config
+kubeconfig:
+  # Name of an existing Secret holding the kubeconfig. Empty scans the host cluster only.
+  existingSecret: ""
+  # Key in that Secret whose value is the kubeconfig file.
+  key: config
+
 persistence:
   enabled: true
   size: 5Gi

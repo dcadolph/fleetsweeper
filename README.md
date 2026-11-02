@@ -149,14 +149,20 @@ part. The outlier detection under it is the real part.
 ## Install for real
 
 ```
-helm install fleetsweeper deploy/helm/fleetsweeper \
+kubectl create namespace fleetsweeper
+kubectl --namespace fleetsweeper create secret generic fleet-kubeconfig \
+  --from-file=config=$HOME/.kube/config
+helm install fleetsweeper deploy/helm/fleetsweeper --namespace fleetsweeper \
   --set auth.token=$(openssl rand -hex 32) \
+  --set kubeconfig.existingSecret=fleet-kubeconfig \
   --set controller.enabled=true
 kubectl apply -f deploy/examples/clusterscan-prod.yaml
 ```
 
-The controller reconciles `ClusterScan` resources and writes outcomes back
-to `.status`. Full installation paths in
+The chart pulls the signed `ghcr.io/dcadolph/fleetsweeper` image and scans
+every context in the kubeconfig Secret. Without the Secret it scans only the
+cluster it runs in. The controller reconciles `ClusterScan` resources and
+writes outcomes back to `.status`. Full installation paths in
 [`docs/operator/helm.md`](docs/operator/helm.md). Scoped API keys for
 pipelines in [`docs/operator/rbac.md`](docs/operator/rbac.md).
 

@@ -44,8 +44,8 @@ export function openTokenDrawer() {
   const set = hasToken();
   openDrawer({
     title: 'API token',
-    body: '<p class="note mb-8">Acknowledging findings and starting scans need a token when the server runs with ' +
-      '<code>--auth-token</code> or API keys. It stays in this tab only and is never written to disk. ' +
+    body: '<p class="note mb-8">Reading this server needs a token when it runs with <code>--auth-token</code>, ' +
+      'API keys, or single sign-on. It stays in this tab only and is never written to disk. ' +
       'A single sign-on session needs no token.</p>' +
       `<label class="field"><span>Token</span><input type="password" id="tokenInput" autocomplete="off" spellcheck="false" placeholder="${set ? 'A token is set. Paste a new one to replace it.' : 'Paste a token'}"></label>`,
     actions: [

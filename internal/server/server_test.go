@@ -94,12 +94,12 @@ func TestBearerAuth(t *testing.T) {
 		t.Fatalf("right token: want 201, got %d body %s", w.Code, w.Body.String())
 	}
 
-	// GET should always pass when no Authorization header is supplied.
+	// A read with no Authorization header is refused once the server holds a token.
 	read := httptest.NewRequest(http.MethodGet, "/api/groups", nil)
 	w = httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, read)
-	if w.Code != http.StatusOK {
-		t.Fatalf("read without token: want 200, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("read without token: want 401, got %d", w.Code)
 	}
 }
 

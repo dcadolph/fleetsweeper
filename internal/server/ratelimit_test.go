@@ -196,6 +196,7 @@ func TestRateLimitTrustedProxyHeader(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, "/api/scans", nil)
 				req.RemoteAddr = "10.0.0.1:443"
 				req.Header.Set("X-Forwarded-For", client)
+				req.Header.Set("Authorization", "Bearer bootstrap-secret")
 				w := httptest.NewRecorder()
 				srv.mux.ServeHTTP(w, req)
 				got = append(got, w.Code)
@@ -284,6 +285,7 @@ func TestRateLimitMiddleware_RemainingHeader(t *testing.T) {
 	t.Parallel()
 	srv := newRateLimitedTestServer(t, 60, 60)
 	req := httptest.NewRequest(http.MethodGet, "/api/scans", nil)
+	req.Header.Set("Authorization", "Bearer bootstrap-secret")
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
