@@ -35,7 +35,8 @@ func init() {
 	rootCmd.PersistentFlags().String("kubeconfig", defaultKubeconfig(), "Path to the kubeconfig file.")
 	rootCmd.PersistentFlags().Bool("pretty", false, "Pretty-print JSON output.")
 	rootCmd.PersistentFlags().String("log-level", "warn", "Log level (debug, info, warn, error).")
-	rootCmd.PersistentFlags().String("db", "", "Database DSN. SQLite: a filesystem path. Postgres: a postgres:// URL.")
+	rootCmd.PersistentFlags().String("db", "", "Database DSN. SQLite: a filesystem path. Postgres: a postgres:// URL. "+
+		"Empty uses $XDG_STATE_HOME/fleetsweeper/fleet.db, else ~/.local/state/fleetsweeper/fleet.db.")
 	rootCmd.PersistentFlags().String("db-driver", "", "Backend driver. One of sqlite, postgres. Empty auto-detects from the DSN prefix.")
 
 	rootCmd.AddCommand(scanCmd)

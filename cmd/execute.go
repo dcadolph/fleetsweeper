@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 	"github.com/dcadolph/fleetsweeper/internal/tracing"
 )
@@ -56,7 +57,7 @@ const tracingShutdownTimeout = 5 * time.Second
 // exitCode maps known errors to specific exit codes.
 func exitCode(err error) int {
 	switch {
-	case errors.Is(err, ErrNoContexts):
+	case errors.Is(err, kube.ErrNoContexts):
 		return CodeNoContexts
 	case errors.Is(err, ErrNoClients):
 		return CodeConnectionError

@@ -16,7 +16,6 @@ fleetsweeper serve --db fleet.db --addr :8080 \
 fleetsweeper serve \
   --db fleet.db \
   --scan-interval 30m \
-  --all-contexts \
   --auth-token "$TOKEN" \
   --cors-origin https://fleet.internal \
   --admin-addr 127.0.0.1:9090

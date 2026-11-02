@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -13,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dcadolph/fleetsweeper/internal/cohort"
+	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/report"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 	"github.com/dcadolph/fleetsweeper/internal/store"
@@ -37,38 +40,6 @@ func TestBuildRegistry(t *testing.T) {
 }
 
 // TestSelectScanners verifies empty selection means all, a subset is honored,
-// TestResolveContexts verifies the explicit, none, and all-contexts branches.
-func TestResolveContexts(t *testing.T) {
-	t.Parallel()
-
-	// Test 0: Explicit contexts pass through unchanged.
-	got, err := resolveContexts("", []string{"a", "b"}, false)
-	if err != nil {
-		t.Fatalf("explicit: %v", err)
-	}
-	if diff := cmp.Diff([]string{"a", "b"}, got); diff != "" {
-		t.Errorf("explicit mismatch (-want +got):\n%s", diff)
-	}
-
-	// Test 1: No contexts and all=false is an error.
-	if _, err := resolveContexts("", nil, false); !errors.Is(err, ErrNoContexts) {
-		t.Errorf("want ErrNoContexts, got %v", err)
-	}
-
-	// Test 2: all=true reads context names from the kubeconfig.
-	kubeconfig := filepath.Join(t.TempDir(), "config")
-	if err := os.WriteFile(kubeconfig, []byte(testKubeconfig), 0o600); err != nil {
-		t.Fatalf("write kubeconfig: %v", err)
-	}
-	names, err := resolveContexts(kubeconfig, nil, true)
-	if err != nil {
-		t.Fatalf("all-contexts: %v", err)
-	}
-	if diff := cmp.Diff([]string{"alpha", "beta"}, names); diff != "" {
-		t.Errorf("all-contexts mismatch (-want +got):\n%s", diff)
-	}
-}
-
 // testKubeconfig is a minimal two-context kubeconfig fixture.
 const testKubeconfig = `apiVersion: v1
 kind: Config
@@ -230,4 +201,78 @@ func TestScanFlagsDefined(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unreachableKubeconfig is a two-context kubeconfig whose server refuses connections, so a scan
+// resolves and records both contexts without reading anything from them.
+const unreachableKubeconfig = `apiVersion: v1
+kind: Config
+clusters:
+- name: c1
+  cluster:
+    server: https://127.0.0.1:1
+contexts:
+- name: alpha
+  context: {cluster: c1, user: u1}
+- name: beta
+  context: {cluster: c1, user: u1}
+users:
+- name: u1
+  user: {}
+`
+
+// TestScanWithNoFlagsScansEveryContext verifies a bare scan needs no context selection: it
+// records every kubeconfig context, and it fails only when the kubeconfig holds none.
+func TestScanWithNoFlagsScansEveryContext(t *testing.T) {
+	tests := []struct {
+		Kubeconfig   string
+		WantClusters []string
+		Want         error
+	}{{ // Test 0: Both contexts are scanned with no selection given.
+		Kubeconfig: unreachableKubeconfig, WantClusters: []string{"alpha", "beta"},
+	}, { // Test 1: A kubeconfig with no contexts names that as the failure.
+		Kubeconfig: "apiVersion: v1\nkind: Config\n", Want: kube.ErrNoContexts,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config")
+			if err := os.WriteFile(path, []byte(test.Kubeconfig), 0o600); err != nil {
+				t.Fatalf("write kubeconfig: %v", err)
+			}
+			db := filepath.Join(dir, "fleet.db")
+			err := execScanCmd(t, "scan", "--kubeconfig="+path, "--db="+db, "--group=", "--contexts=",
+				"--scanners=version", "--html-file="+filepath.Join(dir, "report.html"))
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("error: got %v, want %v", err, test.Want)
+			}
+			if test.Want != nil {
+				return
+			}
+			s, err := store.NewSQLite(db)
+			if err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			defer s.Close()
+			scans, err := s.ListScans(context.Background(), 1)
+			if err != nil || len(scans) != 1 {
+				t.Fatalf("list scans: %v, %d scans", err, len(scans))
+			}
+			got := slices.Sorted(slices.Values(scans[0].Clusters))
+			if diff := cmp.Diff(test.WantClusters, got); diff != "" {
+				t.Errorf("clusters mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// execScanCmd runs one invocation on rootCmd with output captured.
+func execScanCmd(t *testing.T, args ...string) error {
+	t.Helper()
+	defer lockRootCmd(t)()
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs(args)
+	return rootCmd.Execute()
 }

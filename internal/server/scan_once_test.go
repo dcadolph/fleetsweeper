@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/dcadolph/fleetsweeper/internal/controller"
 	"github.com/dcadolph/fleetsweeper/internal/kube"
 	"github.com/dcadolph/fleetsweeper/internal/report"
@@ -82,5 +84,14 @@ func TestResolveOptionContexts(t *testing.T) {
 
 	if _, err := srv.resolveOptionContexts(ctx, controller.ScanOptions{Group: "ghost"}); err == nil {
 		t.Error("unknown group should error")
+	}
+
+	srv.kubeconfigPath = writeTestKubeconfig(t, "east", "west")
+	every, err := srv.resolveOptionContexts(ctx, controller.ScanOptions{})
+	if err != nil {
+		t.Fatalf("empty options: %v", err)
+	}
+	if diff := cmp.Diff([]string{"east", "west"}, every); diff != "" {
+		t.Errorf("empty options mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -256,13 +256,6 @@ func TestHistoryTrend(t *testing.T) {
 	}
 }
 
-// TestHistoryRequiresDB verifies the missing-db sentinel surfaces.
-func TestHistoryRequiresDB(t *testing.T) {
-	if err := runHistory(t, "", "list"); !errors.Is(err, ErrNoDatabase) {
-		t.Errorf("want ErrNoDatabase, got %v", err)
-	}
-}
-
 // countScans reopens the store and returns the number of persisted scans.
 func countScans(t *testing.T, dbPath string) int {
 	t.Helper()

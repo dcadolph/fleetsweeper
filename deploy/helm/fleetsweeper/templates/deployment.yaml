@@ -39,8 +39,8 @@ spec:
             {{- if .Values.scheduler.interval }}
             - --scan-interval={{ .Values.scheduler.interval }}
             {{- end }}
-            {{- if .Values.scheduler.allContexts }}
-            - --all-contexts
+            {{- range .Values.scheduler.contexts }}
+            - --contexts={{ . }}
             {{- end }}
             {{- if .Values.kubeconfig.existingSecret }}
             - --kubeconfig=/var/run/fleetsweeper/kubeconfig

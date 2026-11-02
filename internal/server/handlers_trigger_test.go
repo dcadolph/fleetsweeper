@@ -40,7 +40,10 @@ func TestHandleTriggerScan_Paths(t *testing.T) {
 	}{{ // Test 0: Malformed JSON body.
 		Name: "bad json", Body: "{", Actor: adminActor(), WantStatus: http.StatusBadRequest,
 	}, { // Test 1: Empty context list.
-		Name: "no contexts", Body: `{"contexts":[]}`, Actor: adminActor(),
+		Name: "kubeconfig holds no contexts", Body: `{"contexts":[]}`, Actor: adminActor(),
+		WantStatus: http.StatusBadRequest,
+	}, {
+		Name: "removed all_contexts field", Body: `{"all_contexts":true}`, Actor: adminActor(),
 		WantStatus: http.StatusBadRequest,
 	}, { // Test 2: Group that does not exist.
 		Name: "unknown group", Body: `{"group":"ghost"}`, Actor: adminActor(),
@@ -415,4 +418,30 @@ func TestExecuteScanUsesTagsAndGroups(t *testing.T) {
 	if !tagged {
 		t.Errorf("want a tagged cohort named edge, got %+v", rpt.Cohorts)
 	}
+}
+
+// TestTriggerScanEmptyBodyScansEveryContext verifies a trigger that names nothing scans every
+// kubeconfig context, the same default the CLI scan and the controller use.
+func TestTriggerScanEmptyBodyScansEveryContext(t *testing.T) {
+	t.Parallel()
+	srv, ss := newScanTestServer(t, "east", "west")
+	req := httptest.NewRequest(http.MethodPost, "/api/scans", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("trigger: want 202, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp triggerScanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode trigger response: %v", err)
+	}
+	waitForScan(t, srv, resp.ScanID)
+	rec, err := ss.GetScan(context.Background(), resp.ScanID)
+	if err != nil {
+		t.Fatalf("get scan: %v", err)
+	}
+	if diff := cmp.Diff([]string{"east", "west"}, rec.Clusters, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+		t.Errorf("clusters mismatch (-want +got):\n%s", diff)
+	}
+	srv.bg.Wait()
 }

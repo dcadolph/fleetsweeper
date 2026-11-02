@@ -33,7 +33,7 @@ spec:
               properties:
                 contexts:
                   type: array
-                  description: Kubeconfig context names to include in the scan. Use this when fleetsweeper runs outside the target clusters.
+                  description: Kubeconfig context names to include in the scan. Empty with no group scans every context.
                   items:
                     type: string
                 group:

@@ -25,7 +25,6 @@ cors-origin:
 
 # Scheduled scanner.
 scan-interval: "30m"
-all-contexts: true
 workers: 8
 
 # Controller (declarative scans via ClusterScan CRs).

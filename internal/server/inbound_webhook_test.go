@@ -9,7 +9,7 @@ import (
 
 func TestVerifyWebhookSignature_OK(t *testing.T) {
 	t.Parallel()
-	body := []byte(`{"all_contexts":true}`)
+	body := []byte(`{}`)
 	sig := signWebhookBody("topsecret", body)
 	if err := verifyWebhookSignature("topsecret", sig, body); err != nil {
 		t.Errorf("expected ok, got %v", err)
@@ -70,7 +70,7 @@ func TestInboundWebhook_ValidSignature_AcceptedOrConflict(t *testing.T) {
 	t.Parallel()
 	srv, _ := testServer(t)
 	srv.webhookSecret = "topsecret"
-	body := []byte(`{"all_contexts":true}`)
+	body := []byte(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/scan-trigger",
 		bytes.NewReader(body))
 	req.Header.Set(webhookSignatureHeader, signWebhookBody("topsecret", body))

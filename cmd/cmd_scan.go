@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,26 +45,27 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/scanner/workloadsec"
 	"github.com/dcadolph/fleetsweeper/internal/server"
 	"github.com/dcadolph/fleetsweeper/internal/store"
+	"github.com/dcadolph/fleetsweeper/internal/util"
 )
 
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Scan clusters and compare configurations.",
-	Example: "  fleetsweeper scan --all-contexts\n" +
+	Example: "  fleetsweeper scan\n" +
 		"  fleetsweeper scan --contexts prod-east,prod-west --db fleet.db -o html --html-file report.html",
-	Long: "Connect to multiple Kubernetes clusters and produce a comparison report highlighting fleet divergence.",
+	Long: "Connect to every context in the kubeconfig, or the ones --contexts or --group name, and produce " +
+		"a comparison report highlighting fleet divergence.",
 	RunE: runScan,
 }
 
 func init() {
-	scanCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan.")
-	scanCmd.Flags().Bool("all-contexts", false, "Scan all contexts in the kubeconfig.")
+	scanCmd.Flags().StringSlice("contexts", nil, "Kubeconfig context names to scan (default: every context).")
 	scanCmd.Flags().Int("workers", 5, "Maximum concurrent operations.")
 	scanCmd.Flags().Duration("scanner-timeout", scanner.DefaultScanTimeout, "Maximum time a single scanner may run against one cluster. 0 disables.")
 	scanCmd.Flags().StringSlice("scanners", nil, "Scanner names to run (default: all).")
 	scanCmd.Flags().StringP("output", "o", "json", "Output format: json or html.")
 	scanCmd.Flags().String("html-file", "", "Write HTML report to this file path (implies --output html).")
-	scanCmd.Flags().String("group", "", "Scan only clusters in this group (requires --db).")
+	scanCmd.Flags().String("group", "", "Scan only clusters in this group.")
 	scanCmd.Flags().Float64("outlier-threshold", 3.5, "Outlier detection sensitivity (lower=more sensitive).")
 	scanCmd.Flags().String("fleetdrift-output", "", "Local directory to write FleetDriftReport YAMLs to (one file per cluster). Empty disables.")
 	scanCmd.Flags().String("policy-report-output", "", "Local directory to write wgpolicyk8s.io PolicyReport YAMLs (one file per cluster). Empty disables.")
@@ -105,11 +108,11 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	ctx := cmdContext(cmd)
 	log := logutil.UnwrapLogger(ctx)
 
+	stdout, stderr := cmd.OutOrStdout(), cmd.ErrOrStderr()
 	kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
 	pretty, _ := cmd.Flags().GetBool("pretty")
 	workers, _ := cmd.Flags().GetInt("workers")
 	scannerTimeout, _ := cmd.Flags().GetDuration("scanner-timeout")
-	allContexts, _ := cmd.Flags().GetBool("all-contexts")
 	contextNames, _ := cmd.Flags().GetStringSlice("contexts")
 	scannerNames, _ := cmd.Flags().GetStringSlice("scanners")
 	groupName, _ := cmd.Flags().GetString("group")
@@ -125,21 +128,27 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Resolve contexts from group if specified.
+	// Every scan persists, to --db or the default state store, so history and trends work on
+	// the second scan with nothing configured.
+	dbPath, err := resolveDBPath(cmd)
+	if err != nil {
+		return err
+	}
+	st, err := openStorePath(cmd, dbPath)
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer st.Close()
+
 	if groupName != "" {
-		s, err := openAnyStore(cmd)
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-		g, err := s.GetGroup(ctx, groupName)
+		g, err := st.GetGroup(ctx, groupName)
 		if err != nil {
 			return fmt.Errorf("get group %q: %w", groupName, err)
 		}
 		contextNames = g.Clusters
 	}
 
-	contexts, err := resolveContexts(kubeconfigPath, contextNames, allContexts)
+	contexts, err := kube.ResolveContexts(kubeconfigPath, contextNames)
 	if err != nil {
 		return err
 	}
@@ -160,24 +169,12 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		clusterNames[i] = c.Context
 	}
 
-	// Persist results to database when --db is set.
-	var st store.Store
-	dbPath, _ := cmd.Flags().GetString("db")
-	if dbPath != "" {
-		s, err := openAnyStore(cmd)
-		if err != nil {
-			return fmt.Errorf("open store: %w", err)
-		}
-		defer s.Close()
-		st = s
-
-		scanID, err := s.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: clusterNames}, results)
-		if err != nil {
-			return fmt.Errorf("save scan: %w", err)
-		}
-		log.Info("scan persisted", zap.String("scan_id", scanID))
-		fmt.Fprintf(os.Stderr, "scan %s saved to %s\n", scanID, dbPath)
+	scanID, err := st.SaveScanRecord(ctx, store.ScanRecord{Timestamp: scannedAt, Clusters: clusterNames}, results)
+	if err != nil {
+		return fmt.Errorf("save scan: %w", err)
 	}
+	log.Info("scan persisted", zap.String("scan_id", scanID))
+	fmt.Fprintf(stderr, "Saved scan %s to %s.\n", scanID, dbPath)
 
 	outlierThreshold, _ := cmd.Flags().GetFloat64("outlier-threshold")
 	rpt, err := buildScanReport(ctx, st, clusterNames, results, report.BuildOptions{
@@ -188,35 +185,9 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Surface degraded coverage so a forbidden or unreachable API never reads
-	// as a clean, zero-resource cluster. This goes to stderr so stdout stays
-	// pure report output.
-	if degraded := rpt.DegradedByCluster(); len(degraded) > 0 {
-		fmt.Fprintf(os.Stderr, "warning: %d scanner run(s) did not return trustworthy data across %d cluster(s); coverage is partial\n",
-			len(rpt.Degraded), len(degraded))
-		for _, c := range clusterNames {
-			if d := degraded[c]; d > 0 {
-				fmt.Fprintf(os.Stderr, "  %s: %d of %d scanners degraded\n", c, d, len(selected))
-			}
-		}
-	}
-
-	// Surface cohort partitioning and the within-cohort outliers, which catch
-	// drift the fleet-wide view drowns out.
-	if len(rpt.Cohorts) > 0 {
-		var cohortOutliers int
-		for _, c := range rpt.Cohorts {
-			cohortOutliers += len(c.Outliers)
-		}
-		fmt.Fprintf(os.Stderr, "cohorts: %d group(s), %d within-cohort outlier(s)\n",
-			len(rpt.Cohorts), cohortOutliers)
-	}
-	if len(rpt.Incidents) > 0 {
-		fmt.Fprintf(os.Stderr, "incidents: %d fused from correlated findings\n", len(rpt.Incidents))
-	}
-	if rpt.Brief.Headline != "" {
-		fmt.Fprintf(os.Stderr, "brief: %s\n", rpt.Brief.Headline)
-	}
+	// Coverage leads, so a scan that saw little of the fleet never reads as a clean one. This goes
+	// to stderr so stdout stays pure report output.
+	writeScanSummary(stderr, rpt)
 
 	// Emit FleetDriftReport YAMLs when --fleetdrift-output is set so GitOps
 	// pipelines can pick up the drift state. Best-effort: a write failure logs
@@ -225,18 +196,18 @@ func runScan(cmd *cobra.Command, _ []string) error {
 	if dir, _ := cmd.Flags().GetString("fleetdrift-output"); dir != "" {
 		reports := fleetdrift.ReportsFor(rpt, scanIDForFD, "")
 		if err := fleetdrift.Write(reports, dir); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: fleetdrift write failed: %s\n", err)
+			fmt.Fprintf(stderr, "warning: fleetdrift write failed: %s\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "fleetdrift: wrote %d reports to %s\n", len(reports), dir)
+			fmt.Fprintf(stderr, "fleetdrift: wrote %d reports to %s\n", len(reports), dir)
 		}
 	}
 	if dir, _ := cmd.Flags().GetString("policy-report-output"); dir != "" {
 		ns, _ := cmd.Flags().GetString("policy-report-namespace")
 		reports := policyreport.ReportsFor(rpt, scanIDForFD, ns)
 		if err := policyreport.Write(reports, dir); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: policyreport write failed: %s\n", err)
+			fmt.Fprintf(stderr, "warning: policyreport write failed: %s\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "policyreport: wrote %d reports to %s\n", len(reports), dir)
+			fmt.Fprintf(stderr, "policyreport: wrote %d reports to %s\n", len(reports), dir)
 		}
 	}
 
@@ -255,30 +226,69 @@ func runScan(cmd *cobra.Command, _ []string) error {
 			if err := os.WriteFile(htmlFile, htmlBytes, 0o644); err != nil {
 				return fmt.Errorf("write html: %w", err)
 			}
-			fmt.Fprintf(os.Stderr, "report written to %s\n", htmlFile)
+			fmt.Fprintf(stderr, "report written to %s\n", htmlFile)
 		} else {
-			fmt.Fprintln(os.Stdout, string(htmlBytes))
+			fmt.Fprintln(stdout, string(htmlBytes))
 		}
 	default:
 		out, err := jsonutil.Marshal(rpt, pretty)
 		if err != nil {
 			return fmt.Errorf("marshal report: %w", err)
 		}
-		fmt.Fprintln(os.Stdout, string(out))
+		fmt.Fprintln(stdout, string(out))
 	}
 
 	return nil
 }
 
-// resolveContexts determines which kubeconfig contexts to scan.
-func resolveContexts(kubeconfigPath string, explicit []string, all bool) ([]string, error) {
-	if all {
-		return kube.AvailableContexts(kubeconfigPath)
+// scanSummaryFixes is how many recommendations the terminal summary prints.
+const scanSummaryFixes = 3
+
+// writeScanSummary prints the human summary of a scan to w in a fixed order: what the scan
+// observed, then the score, then the fixes with the most leverage. Coverage comes first because a
+// score is only as good as the runs behind it.
+func writeScanSummary(w io.Writer, rpt *report.Report) {
+	cov := rpt.FleetScore.Coverage
+	clusters := len(rpt.Clusters)
+	line := fmt.Sprintf("Coverage: %d of %d scanner runs observed across %d cluster%s.",
+		cov.ObservedRuns, cov.ExpectedRuns, clusters, util.Plural(clusters))
+	if cov.BlindClusters > 0 {
+		line += fmt.Sprintf(" %d cluster%s had no complete run.", cov.BlindClusters, util.Plural(cov.BlindClusters))
 	}
-	if len(explicit) > 0 {
-		return explicit, nil
+	fmt.Fprintln(w, line)
+	degraded := rpt.DegradedByCluster()
+	for _, c := range slices.Sorted(slices.Values(rpt.Clusters)) {
+		if d := degraded[c]; d > 0 {
+			fmt.Fprintf(w, "  %s: %d of %d scanners degraded\n", c, d, rpt.Summary.ScannerCount)
+		}
 	}
-	return nil, ErrNoContexts
+
+	score := fmt.Sprintf("Score: %d (%s).", rpt.FleetScore.Score, rpt.FleetScore.Grade)
+	if !rpt.FleetScore.Graded {
+		score = "Score: not graded."
+	}
+	if h := rpt.FleetScore.Headline; h != "" {
+		score += " " + h
+	}
+	fmt.Fprintln(w, score)
+
+	recs := buildRecommendations(rpt.Findings, "")
+	for i, r := range recs[:min(len(recs), scanSummaryFixes)] {
+		fmt.Fprintf(w, "Fix %d: %s, %s, %d cluster%s (%s).\n", i+1, r.Title, r.Severity, r.Leverage,
+			util.Plural(r.Leverage), joinTrim(r.Clusters, 5))
+	}
+
+	if len(rpt.Cohorts) > 0 {
+		var cohortOutliers int
+		for _, c := range rpt.Cohorts {
+			cohortOutliers += len(c.Outliers)
+		}
+		fmt.Fprintf(w, "Cohorts: %d group%s, %d within-cohort outlier%s.\n", len(rpt.Cohorts),
+			util.Plural(len(rpt.Cohorts)), cohortOutliers, util.Plural(cohortOutliers))
+	}
+	if len(rpt.Incidents) > 0 {
+		fmt.Fprintf(w, "Incidents: %d fused from correlated findings.\n", len(rpt.Incidents))
+	}
 }
 
 // selectScanners filters the registry to the requested scanner names. When names is empty all

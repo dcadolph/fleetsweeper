@@ -3,12 +3,10 @@ package cmd
 import "errors"
 
 var (
-	// ErrNoContexts indicates no kubeconfig contexts were found or specified.
-	ErrNoContexts = errors.New("no kubeconfig contexts specified")
 	// ErrNoClients indicates all cluster connections failed.
 	ErrNoClients = errors.New("no clusters reachable")
-	// ErrNoDatabase indicates the --db flag is required but was not provided.
-	ErrNoDatabase = errors.New("--db is required for this command")
+	// ErrNoDatabase indicates no --db was given and no default state store can be derived.
+	ErrNoDatabase = errors.New("no database: pass --db or set HOME")
 	// ErrDemoDatabase indicates --demo was given a --db, which would seed the demo fleet into a
 	// real database.
 	ErrDemoDatabase = errors.New("--demo runs on its own in-memory store and does not take --db")

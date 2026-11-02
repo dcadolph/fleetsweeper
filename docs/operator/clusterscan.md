@@ -11,7 +11,7 @@ interval and writes the outcome back to `.status`.
 | Field | Type | Description |
 | --- | --- | --- |
 | `interval` | duration string | Required. Cadence between scans. Go duration format (`15m`, `1h`, `6h`). |
-| `contexts` | string array | Kubeconfig context names to scan. Required when `group` is empty. |
+| `contexts` | string array | Kubeconfig context names to scan. Empty with no `group` scans every context. |
 | `group` | string | Fleetsweeper group name whose members will be scanned. Mutually exclusive with `contexts`. |
 | `scanners` | string array | Optional allowlist of scanner names. Empty runs all registered scanners. |
 | `emit.fleetDriftReport` | boolean | When true, emit `FleetDriftReport` CRs after each scan. |

@@ -9,6 +9,6 @@ const (
 	CodeConnectionError = 2
 	// CodeNoContexts indicates no kubeconfig contexts were resolved.
 	CodeNoContexts = 3
-	// CodeNoDB indicates the --db flag was required but not provided.
+	// CodeNoDB indicates no store path resolved: no --db and no home directory.
 	CodeNoDB = 4
 )

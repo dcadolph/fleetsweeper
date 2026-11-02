@@ -14,6 +14,42 @@ stability contract and the GitHub release notes for the full feature list.
 5. Verify `kubectl logs deploy/fleetsweeper | grep migrate` shows no errors
    and `/readyz` returns 200.
 
+## v0.16.0
+
+No schema migration.
+
+- **A bare scan scans every context.** `fleetsweeper scan`, `watch`, and the
+  `serve` scheduler with no `--contexts` or `--group` now scan every context in
+  the kubeconfig. `--all-contexts` is removed from all three and from the
+  `init` scaffold. Drop it from scripts and config files, since an unknown flag
+  is an error. A kubeconfig with no contexts exits with code 3 and names the
+  file.
+
+- **The scan API takes an empty request.** `POST /api/scan` with `{}` scans
+  every context. The `all_contexts` field is removed and a request that sends
+  it gets 400. A ClusterScan with no `contexts` and no `group` also scans every
+  context, where before it scanned nothing.
+
+- **The chart's scheduler renders contexts.** `scheduler.allContexts` is
+  removed. `scheduler.contexts` now renders one `--contexts` argument per
+  entry. Leave it empty to scan every context.
+
+- **Scans are stored by default.** With no `--db`, every scan is saved to
+  `$XDG_STATE_HOME/fleetsweeper/fleet.db` when `XDG_STATE_HOME` is an absolute
+  path, else `~/.local/state/fleetsweeper/fleet.db` (the user config directory
+  on Windows). The directory is created 0700 and the file 0600, and the path is
+  printed once on first use. `--db` still overrides it. Commands that needed
+  `--db` (`group`, `history`, `compare`, `location`, `apikey`, and `scan
+  --group`) now use the default store. Exit code 4 now means no store path
+  could be resolved, i.e. no `--db` and no home directory. `watch` still stores
+  scans only when `--db` is set.
+
+- **The terminal summary leads with coverage.** After a scan, stderr shows
+  coverage first (scanner runs observed, then any cluster with no complete
+  run), then the score or "not graded", then the top three fixes, then cohorts
+  and incidents. Scripts should read the JSON report on stdout, not this
+  summary.
+
 ## v0.15.0
 
 No schema migration.

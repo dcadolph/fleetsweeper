@@ -22,7 +22,7 @@ cors:
 scheduler:
   # Set to a non-zero duration (e.g. 30m, 1h) to run scans automatically.
   interval: ""
-  allContexts: true
+  # Contexts to scan. Empty scans every context in the kubeconfig.
   contexts: []
 
 # Kubeconfig the server scans with. Without one the server sees only the cluster it runs in,

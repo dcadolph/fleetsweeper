@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -72,13 +71,5 @@ func TestLocationSetValidation(t *testing.T) {
 	}
 	if err := runLocationSet(newLocationCmd(dbPath, 0, 200, "", ""), []string{"x"}); err == nil {
 		t.Error("expected error for longitude > 180")
-	}
-}
-
-// TestLocationRequiresDB verifies the missing-db sentinel from a location run.
-func TestLocationRequiresDB(t *testing.T) {
-	t.Parallel()
-	if err := runLocationList(newLocationCmd("", 0, 0, "", ""), nil); !errors.Is(err, ErrNoDatabase) {
-		t.Errorf("want ErrNoDatabase, got %v", err)
 	}
 }

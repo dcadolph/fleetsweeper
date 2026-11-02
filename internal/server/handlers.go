@@ -206,10 +206,8 @@ func (s *Server) handleGetScanReport(w http.ResponseWriter, r *http.Request) {
 
 // triggerScanRequest is the JSON body for POST /api/scans.
 type triggerScanRequest struct {
-	// Contexts is the list of kubeconfig contexts to scan.
+	// Contexts is the list of kubeconfig contexts to scan. Empty with no Group scans every context.
 	Contexts []string `json:"contexts"`
-	// AllContexts scans all available contexts when true.
-	AllContexts bool `json:"all_contexts"`
 	// Group scans only clusters in this group.
 	Group string `json:"group"`
 }
@@ -238,13 +236,17 @@ func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, safeMessage(err, "group not found"))
 			return
 		}
+		if errors.Is(err, kube.ErrNoContexts) {
+			writeError(w, http.StatusBadRequest, "no contexts in kubeconfig")
+			return
+		}
 		s.log.Error("trigger scan: resolve contexts", zap.Error(err))
 		writeError(w, http.StatusInternalServerError, "resolve contexts failed")
 		return
 	}
 
 	if len(contexts) == 0 {
-		writeError(w, http.StatusBadRequest, "no contexts specified")
+		writeError(w, http.StatusBadRequest, "group has no clusters")
 		return
 	}
 
@@ -282,10 +284,11 @@ func (s *Server) startBackgroundScan(source string, contexts []string) (scanID s
 	return scanID, true
 }
 
-// resolveContexts determines which kubeconfig contexts to scan for a trigger request. In demo
-// mode every context comes from the synthetic fleet, never from the kubeconfig.
+// resolveContexts determines which kubeconfig contexts to scan: the group's clusters, the named
+// contexts, or every context when the request names neither. In demo mode an open request scans
+// the synthetic fleet, never the kubeconfig.
 func (s *Server) resolveContexts(ctx context.Context, req triggerScanRequest) ([]string, error) {
-	if s.demo && req.Group == "" && (req.AllContexts || len(req.Contexts) == 0) {
+	if s.demo && req.Group == "" && len(req.Contexts) == 0 {
 		return demoClusterNames(), nil
 	}
 	if req.Group != "" {
@@ -295,10 +298,7 @@ func (s *Server) resolveContexts(ctx context.Context, req triggerScanRequest) ([
 		}
 		return g.Clusters, nil
 	}
-	if req.AllContexts {
-		return kube.AvailableContexts(s.kubeconfigPath)
-	}
-	return req.Contexts, nil
+	return kube.ResolveContexts(s.kubeconfigPath, req.Contexts)
 }
 
 // handleListClusters returns all known clusters with their tag maps

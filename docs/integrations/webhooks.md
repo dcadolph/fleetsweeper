@@ -17,7 +17,7 @@ serve:
 Then POST to `/api/webhooks/scan-trigger`:
 
 ```shell
-BODY='{"all_contexts": true}'
+BODY='{}'
 SIG="sha256=$(printf %s "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -binary | xxd -p -c 256)"
 curl -X POST \
   -H "X-Fleetsweeper-Signature: $SIG" \
@@ -26,7 +26,7 @@ curl -X POST \
   https://fleetsweeper.example.com/api/webhooks/scan-trigger
 ```
 
-Use the empty body to scan every available context.
+A body that names no contexts and no group scans every context in the server's kubeconfig.
 
 The endpoint is **disabled** (returns 404) when the secret is empty so an
 unsigned endpoint cannot be left exposed by mistake.

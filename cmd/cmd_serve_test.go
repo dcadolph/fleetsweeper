@@ -17,33 +17,6 @@ import (
 	"github.com/dcadolph/fleetsweeper/internal/store"
 )
 
-// TestResolveScheduleContexts verifies the explicit and all-contexts branches.
-func TestResolveScheduleContexts(t *testing.T) {
-	t.Parallel()
-
-	// Explicit list passes through when all=false.
-	got, err := resolveScheduleContexts("", []string{"a", "b"}, false)
-	if err != nil {
-		t.Fatalf("explicit: %v", err)
-	}
-	if diff := cmp.Diff([]string{"a", "b"}, got); diff != "" {
-		t.Errorf("explicit mismatch (-want +got):\n%s", diff)
-	}
-
-	// all=true reads the kubeconfig contexts.
-	kubeconfig := filepath.Join(t.TempDir(), "config")
-	if err := os.WriteFile(kubeconfig, []byte(testKubeconfig), 0o600); err != nil {
-		t.Fatalf("write kubeconfig: %v", err)
-	}
-	names, err := resolveScheduleContexts(kubeconfig, nil, true)
-	if err != nil {
-		t.Fatalf("all: %v", err)
-	}
-	if diff := cmp.Diff([]string{"alpha", "beta"}, names); diff != "" {
-		t.Errorf("all-contexts mismatch (-want +got):\n%s", diff)
-	}
-}
-
 // TestOpenServeStore verifies the demo in-memory store, the demo's refusal of
 // a --db, the missing-db error, and opening a real path.
 func TestOpenServeStore(t *testing.T) {
@@ -60,11 +33,6 @@ func TestOpenServeStore(t *testing.T) {
 	// Demo mode refuses a --db rather than seed the demo into it.
 	if _, err := openServeStore(newStoreCmd(filepath.Join(t.TempDir(), "x.db")), true); !errors.Is(err, ErrDemoDatabase) {
 		t.Errorf("demo with --db: want ErrDemoDatabase, got %v", err)
-	}
-
-	// Non-demo with no --db is an error.
-	if _, err := openServeStore(newStoreCmd(""), false); !errors.Is(err, ErrNoDatabase) {
-		t.Errorf("no-db non-demo: want ErrNoDatabase, got %v", err)
 	}
 
 	// A real path opens successfully.

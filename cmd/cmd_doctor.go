@@ -162,11 +162,11 @@ func runCheck(parent context.Context, name string, timeout time.Duration, fn fun
 	return res
 }
 
-// doctorCheckDatabase opens the configured --db and pings it.
+// doctorCheckDatabase opens --db, or the default state store when one exists, and pings it.
 func doctorCheckDatabase(ctx context.Context, cmd *cobra.Command) CheckResult {
-	dbPath, _ := cmd.Flags().GetString("db")
-	if dbPath == "" {
-		return CheckResult{Status: StatusSkip, Detail: "no --db configured"}
+	dbPath, ok := existingDBPath(cmd)
+	if !ok {
+		return CheckResult{Status: StatusSkip, Detail: noStoreDetail(dbPath)}
 	}
 	driver, _ := cmd.Flags().GetString("db-driver")
 	if driver == "" {
@@ -403,14 +403,22 @@ func doctorCheckAdmissionWebhook(
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("%d webhook(s) registered", len(cfg.Webhooks))}
 }
 
+// noStoreDetail explains a skipped store check: no store yet at the default path, or no default.
+func noStoreDetail(defaultPath string) string {
+	if defaultPath == "" {
+		return "no --db and no default state directory"
+	}
+	return "no store yet at " + defaultPath + "; the first scan creates it"
+}
+
 // doctorCheckScanFreshness reads the most recent scan from the
 // configured store and warns when its timestamp is older than
 // --scan-freshness. Distinguishes "no scans yet" (warn) from "stale
 // scans" (fail) so first-install behavior isn't reported as broken.
 func doctorCheckScanFreshness(ctx context.Context, cmd *cobra.Command) CheckResult {
-	dbPath, _ := cmd.Flags().GetString("db")
-	if dbPath == "" {
-		return CheckResult{Status: StatusSkip, Detail: "no --db configured"}
+	dbPath, ok := existingDBPath(cmd)
+	if !ok {
+		return CheckResult{Status: StatusSkip, Detail: noStoreDetail(dbPath)}
 	}
 	maxAge, _ := cmd.Flags().GetDuration("scan-freshness")
 	driver, _ := cmd.Flags().GetString("db-driver")

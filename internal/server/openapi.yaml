@@ -638,7 +638,7 @@ paths:
                 contexts:
                   type: array
                   items: {type: string}
-                all_contexts: {type: boolean}
+                  description: Contexts to scan. Empty with no group scans every kubeconfig context.
                 group: {type: string}
       responses:
         "202":
@@ -1455,7 +1455,7 @@ paths:
                 contexts:
                   type: array
                   items: {type: string}
-                all_contexts: {type: boolean}
+                  description: Contexts to scan. Empty with no group scans every kubeconfig context.
                 group: {type: string}
       responses:
         "202":

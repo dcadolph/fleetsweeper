@@ -258,18 +258,15 @@ func (s *Server) ScanOnce(ctx context.Context, opts controller.ScanOptions) (con
 	}, nil
 }
 
-// resolveOptionContexts produces the final context list, expanding a group
-// reference when set. A non-empty Group takes precedence over Contexts so
-// ClusterScan authors can pick one mode unambiguously.
+// resolveOptionContexts produces the final context list through the same resolver as an API
+// trigger. A non-empty Group takes precedence over Contexts so ClusterScan authors can pick one
+// mode unambiguously, and a spec that names neither scans every context.
 func (s *Server) resolveOptionContexts(ctx context.Context, opts controller.ScanOptions) ([]string, error) {
-	if opts.Group != "" {
-		g, err := s.store.GetGroup(ctx, opts.Group)
-		if err != nil {
-			return nil, fmt.Errorf("resolve group %q: %w", opts.Group, err)
-		}
-		return g.Clusters, nil
+	contexts, err := s.resolveContexts(ctx, triggerScanRequest{Contexts: opts.Contexts, Group: opts.Group})
+	if err != nil {
+		return nil, fmt.Errorf("resolve contexts: %w", err)
 	}
-	return opts.Contexts, nil
+	return contexts, nil
 }
 
 // selectScanners filters the registered scanners by the supplied allowlist.

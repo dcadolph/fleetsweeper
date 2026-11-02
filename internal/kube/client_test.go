@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -221,5 +222,55 @@ func TestContextsOrInCluster(t *testing.T) {
 				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestResolveContexts verifies an empty selection means every kubeconfig context, an explicit
+// selection narrows, and a kubeconfig with no contexts is an error that names its path.
+func TestResolveContexts(t *testing.T) {
+	t.Parallel()
+	full := writeKubeconfig(t)
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(empty, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	tests := []struct {
+		Path       string
+		Names      []string
+		WantResult []string
+		Want       error
+	}{{ // Test 0: No selection scans every context.
+		Path: full, WantResult: []string{"alpha", "mu", "zeta"},
+	}, { // Test 1: An explicit selection narrows.
+		Path: full, Names: []string{"mu"}, WantResult: []string{"mu"},
+	}, { // Test 2: A kubeconfig with no contexts is an error.
+		Path: empty, Want: ErrNoContexts,
+	}, { // Test 3: A missing kubeconfig is a load error.
+		Path: filepath.Join(t.TempDir(), "missing"), Want: ErrLoadConfig,
+	}}
+	for testNum, test := range tests {
+		t.Run(fmt.Sprintf("test %d", testNum), func(t *testing.T) {
+			t.Parallel()
+			got, err := ResolveContexts(test.Path, test.Names)
+			if !errors.Is(err, test.Want) {
+				t.Fatalf("error: got %v, want %v", err, test.Want)
+			}
+			if diff := cmp.Diff(test.WantResult, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestResolveContextsNamesPath verifies the no-contexts error tells the user which file was read.
+func TestResolveContextsNamesPath(t *testing.T) {
+	t.Parallel()
+	empty := filepath.Join(t.TempDir(), "empty")
+	if err := os.WriteFile(empty, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	_, err := ResolveContexts(empty, nil)
+	if err == nil || !strings.Contains(err.Error(), empty) {
+		t.Errorf("error %v does not name %s", err, empty)
 	}
 }
